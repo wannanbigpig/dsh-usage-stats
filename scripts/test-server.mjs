@@ -1,0 +1,814 @@
+import {
+	apply,
+	validateConfig,
+	createBalanceService,
+	configuredKeys,
+	defaultLimitRule,
+	defaultLimits,
+	validateLimitRule,
+	validateLimits,
+	evaluateKeyQuota,
+	resolveLimitRule,
+	createAlertTracker,
+	createLimitsService,
+	keyForProvider,
+	todayCostPerKey,
+	todayCostFor,
+	USAGE_PATH,
+	KEYS_PATH,
+	BALANCE_PATH,
+	LIMITS_PATH,
+	migrateCacheV1,
+	renderCombinedUsage
+} from "../lib/index.js";
+import { dayKey, defaultPricing } from "../lib/usage.js";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+let failures = 0;
+function assert(condition, message) {
+	if (!condition) {
+		failures += 1;
+		console.error(`FAIL: ${message}`);
+	}
+}
+
+//#region config validation
+{
+	const defaults = validateConfig({});
+	assert(defaults.keys.length === 1 && defaults.keys[0] === "DEEPSEEK_API_KEY", `default keys ${JSON.stringify(defaults.keys)}`);
+	assert(defaults.baseURL === "https://api.deepseek.com", "default baseURL");
+	assert(defaults.pricing.pricing["deepseek-v4-flash"].inputMiss === 1.5, "default pricing");
+	assert(defaults.pricing.currency === "CNY", "default pricing currency");
+	assert(defaults.pricing.peakMultiplier === 2 && JSON.stringify(defaults.pricing.peakHours) === "[[9,12],[14,18]]", "official Beijing peak windows");
+	assert(defaults.refreshMs === 300000, "default refreshMs");
+
+	const withKeys = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"] });
+	assert(withKeys.keys.length === 2 && withKeys.keys[1] === "DEEPSEEK_API_KEY_2", `extra keys ${JSON.stringify(withKeys.keys)}`);
+
+	const dedup = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"] });
+	assert(dedup.keys.length === 1, `dedup keys ${dedup.keys.length}`);
+
+	const custom = validateConfig({
+		baseURL: "https://api.deepseek.com",
+		defaultKeyRef: "MY_KEY",
+		keys: ["MY_KEY"],
+		refreshMs: 60000,
+		pricing: {
+			pricing: { "deepseek-v4-flash": { inputMiss: 0.5, inputHit: 0.01, output: 1.5 } },
+			peakMultiplier: 1.5,
+			peakHours: [[0, 8]],
+			currency: "CNY"
+		}
+	});
+	assert(custom.pricing.pricing["deepseek-v4-flash"].inputMiss === 0.5, "custom pricing");
+	assert(custom.pricing.peakMultiplier === 1.5, "custom peak multiplier");
+	assert(JSON.stringify(custom.pricing.peakHours) === "[[0,8]]", "custom peak hours");
+	assert(custom.pricing.currency === "CNY", "custom currency");
+
+	let threw = null;
+	try { validateConfig({ refreshMs: 100 }); } catch (error) { threw = error; }
+	assert(threw !== null && /refreshMs/.test(threw.message), "rejects too-small refreshMs");
+	try { validateConfig({ baseURL: "http://insecure.example.com" }); } catch (error) { threw = error; }
+	assert(threw !== null && /HTTPS/.test(threw.message), "rejects insecure baseURL");
+	try { validateConfig({ keys: [""] }); } catch (error) { threw = error; }
+	assert(threw !== null, "rejects empty key refs");
+	try { validateConfig({ pricing: { peakHours: [[5, 2]] } }); } catch (error) { threw = error; }
+	assert(threw !== null && /peakHours/.test(threw.message), "rejects inverted peak hours");
+	console.log("config validation ok");
+}
+
+//#region apply + routes & interceptors
+{
+	const registrations = [];
+	const listeners = new Map();
+	const ctx = {
+		logger: { warn: () => {} },
+		get: () => void 0,
+		effect: (fn) => { fn(); },
+		on: (event, handler) => {
+			listeners.set(event, handler);
+			return () => listeners.delete(event);
+		},
+		webServer: { register: (route) => { registrations.push(route); } }
+	};
+	apply(ctx, {}, {
+		disableBackgroundRefresh: true,
+		balanceService: { refreshAll: async () => [], get: async () => ({}) },
+		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) }
+	});
+	const routes = registrations.filter((entry) => entry !== null && typeof entry === "object" && entry.kind === "exact");
+	assert(routes.length === 4, `expected 4 routes, got ${routes.length}`);
+	const paths = routes.map((route) => route.path).sort();
+	assert(paths[0] === BALANCE_PATH && paths[1] === KEYS_PATH && paths[2] === LIMITS_PATH && paths[3] === USAGE_PATH, `routes ${JSON.stringify(paths)}`);
+	assert(listeners.has("agent/request"), "agent/request listener registered");
+	assert(listeners.has("llm/stream"), "llm/stream listener registered");
+
+	// Verify llm/stream handler passes the downstream stream through unchanged.
+	// The listener must return an async iterable immediately so Cordis can pass
+	// it through an llm/stream waterfall without awaiting a Promise first.
+	const streamHandler = listeners.get("llm/stream");
+	async function* downstream() {
+		yield "chunk-1";
+		yield "chunk-2";
+	}
+	const stream = streamHandler({}, () => downstream());
+	assert(stream !== null && typeof stream[Symbol.asyncIterator] === "function", "llm/stream handler must immediately return an async iterable");
+	async function* cordisConsumer() {
+		yield* stream;
+	}
+	const chunks = [];
+	for await (const chunk of cordisConsumer()) {
+		chunks.push(chunk);
+	}
+	assert(chunks.length === 2 && chunks[0] === "chunk-1" && chunks[1] === "chunk-2", "llm/stream passes downstream chunks");
+
+	// agent/request handler passes through the resolved request.
+	const requestHandler = listeners.get("agent/request");
+	const resolved = await requestHandler({}, async () => ({ provider: "deepseek-official", model: "deepseek-v4-flash" }));
+	assert(resolved?.provider === "deepseek-official", "agent/request passes through next()");
+
+	console.log("apply route registration & interceptor passthrough ok");
+}
+
+//#region advisory quota semantics (via a stub limitsService + apply)
+{
+	const registrations = [];
+	const listeners = new Map();
+	let pendingCheck = { exceeded: false, stopOnExceed: true, message: "" };
+	const ctx = {
+		logger: { warn: () => {} },
+		get: () => void 0,
+		effect: (fn) => { fn(); },
+		on: (event, handler) => {
+			listeners.set(event, handler);
+			return () => listeners.delete(event);
+		},
+		webServer: { register: (route) => { registrations.push(route); } }
+	};
+	apply(ctx, {}, {
+		disableBackgroundRefresh: true,
+		balanceService: { refreshAll: async () => [], get: async () => ({}) },
+		limitsService: {
+			check: async () => {
+				if (pendingCheck instanceof Error) throw pendingCheck;
+				return pendingCheck;
+			}
+		}
+	});
+	async function* downstream() {
+		yield "chunk-1";
+		yield "chunk-2";
+	}
+	const streamHandler = listeners.get("llm/stream");
+	const requestHandler = listeners.get("agent/request");
+
+	// Historical stopOnExceed responses must not block calls anymore.
+	pendingCheck = { exceeded: true, stopOnExceed: true, message: "今日消费已超限" };
+	let passed = false;
+	for await (const chunk of streamHandler({}, () => downstream())) passed ||= chunk === "chunk-1";
+	assert(passed, "llm/stream must remain pass-through when historical stopOnExceed is true");
+	const requestResult = await requestHandler({}, () => ({ ok: true }));
+	assert(requestResult?.ok === true, "agent/request must remain pass-through when historical stopOnExceed is true");
+
+	// Only the unified v2 blocked state may stop a call.
+	pendingCheck = { status: "blocked", blocked: true, reason: "daily_cost", message: "今日消费已超限" };
+	let streamBlocked = false;
+	try {
+		for await (const _ of streamHandler({}, () => downstream())) { /* no-op */ }
+	} catch (error) {
+		streamBlocked = error?.code === "USAGE_LIMIT_EXCEEDED";
+	}
+	assert(streamBlocked, "llm/stream blocks an explicit unified blocked state");
+	let requestBlocked = false;
+	try {
+		await requestHandler({}, () => ({ ok: true }));
+	} catch (error) {
+		requestBlocked = error?.code === "USAGE_LIMIT_EXCEEDED";
+	}
+	assert(requestBlocked, "agent/request blocks an explicit unified blocked state");
+
+	// exceeded but stopOnExceed=false → passes through
+	pendingCheck = { exceeded: true, stopOnExceed: false, message: "" };
+	const passThrough = streamHandler({}, () => downstream());
+	passed = false;
+	for await (const _ of passThrough) { passed = true; break; }
+	assert(passed, "llm/stream must pass through when stopOnExceed=false");
+
+	// quota-check failure → fail-open (call allowed)
+	pendingCheck = new Error("quota storage unavailable");
+	let failOpenOk = false;
+	try {
+		const result = streamHandler({}, () => downstream());
+		for await (const chunk of result) {
+			failOpenOk = chunk === "chunk-1";
+			break;
+		}
+	} catch {
+		failOpenOk = false;
+	}
+	assert(failOpenOk, "llm/stream must fail open when the quota check itself errors");
+	console.log("interceptor blocking semantics ok");
+}
+
+//#region balance service (stubbed upstream)
+{
+	const credentials = {
+		resolve: async (ref) => {
+			if (ref === "DEEPSEEK_API_KEY") return { value: "sk-test-123" };
+			return { value: "" };
+		}
+	};
+	const config = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"] });
+	const calls = [];
+	const service = createBalanceService({
+		credentials,
+		config,
+		deps: {
+			queryBalance: async (baseURL, apiKey, timeoutMs, fetchImpl) => {
+				calls.push(apiKey);
+				return { isAvailable: true, currency: "CNY", total: "36.44", granted: "10.00", toppedUp: "26.44" };
+			}
+		}
+	});
+	const first = await service.get("DEEPSEEK_API_KEY");
+	assert(first.status === "ok", `status ${first.status}`);
+	assert(first.balance.total === 36.44, `total ${first.balance.total}`);
+	assert(first.balance.currency === "CNY", `currency ${first.balance.currency}`);
+	assert(first.balance.granted === 10 && first.balance.toppedUp === 26.44, "breakdown");
+	assert(calls.length === 1, `upstream calls ${calls.length}`);
+	// Cached: second read must not re-query.
+	await service.get("DEEPSEEK_API_KEY");
+	assert(calls.length === 1, "cached read must not re-query upstream");
+	// Force refresh re-queries.
+	await service.get("DEEPSEEK_API_KEY", { force: true });
+	assert(calls.length === 2, "force refresh re-queries");
+	// Unconfigured key.
+	const missing = await service.get("DEEPSEEK_API_KEY_2");
+	assert(missing.status === "not-configured", `missing status ${missing.status}`);
+	// Upstream error surfaces as a categorized status.
+	const failing = createBalanceService({
+		credentials: { resolve: async () => ({ value: "sk-x" }) },
+		config: validateConfig({}),
+		deps: { queryBalance: async () => { const error = new Error("401"); error.providerStatus = "unauthorized"; throw error; } }
+	});
+	const failed = await failing.get("DEEPSEEK_API_KEY");
+	assert(failed.status === "unauthorized", `failed status ${failed.status}`);
+	console.log("balance service ok");
+}
+
+//#region balance force single-flight (concurrent force shares one upstream call)
+{
+	const credentials = { resolve: async () => ({ value: "sk-x" }) };
+	const config = validateConfig({});
+	let calls = 0;
+	const service = createBalanceService({
+		credentials,
+		config,
+		deps: {
+			queryBalance: async () => {
+				calls += 1;
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				return { isAvailable: true, currency: "CNY", total: "1.00" };
+			}
+		}
+	});
+	const [a, b] = await Promise.all([
+		service.get("DEEPSEEK_API_KEY", { force: true }),
+		service.get("DEEPSEEK_API_KEY", { force: true })
+	]);
+	assert(calls === 1, `concurrent force calls must share one upstream request: ${calls}`);
+	assert(a.status === "ok" && b.status === "ok" && a.balance.total === 1 && b.balance.total === 1, "both force callers receive the fetched account");
+	console.log("balance force single-flight ok");
+}
+
+//#region balance.js transport errors classify as unavailable
+{
+	const { queryDeepSeekBalance } = await import("../lib/balance.js");
+	let threw = null;
+	try {
+		await queryDeepSeekBalance("https://api.deepseek.com", "sk-x", 1000, async () => { throw new TypeError("fetch failed"); });
+	} catch (error) {
+		threw = error;
+	}
+	assert(threw !== null && threw.providerStatus === "unavailable", `transport errors must carry providerStatus=unavailable, got ${threw?.providerStatus ?? "no error"}`);
+	// Via createBalanceService the same failure must surface as unavailable,
+	// never invalid-response (regression for the fetchBalance catch branch).
+	const failingService = createBalanceService({
+		credentials: { resolve: async () => ({ value: "sk-x" }) },
+		config: validateConfig({}),
+		deps: { queryBalance: queryDeepSeekBalance, fetch: async () => { throw new TypeError("fetch failed"); } }
+	});
+	const account = await failingService.get("DEEPSEEK_API_KEY");
+	assert(account.status === "unavailable", `service classifies transport failure as unavailable, got ${account.status}`);
+	console.log("balance transport error classification ok");
+}
+
+//#region configuredKeys (names only, never values)
+{
+	const credentials = {
+		resolve: async (ref) => ref === "DEEPSEEK_API_KEY" ? { value: "sk-secret" } : { value: "" }
+	};
+	const config = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"] });
+	const ctx = { get: () => credentials };
+	const keys = await configuredKeys(ctx, config);
+	assert(keys.length === 2, `keys ${keys.length}`);
+	const serialized = JSON.stringify(keys);
+	assert(!serialized.includes("sk-secret"), "keys endpoint must never leak values");
+	assert(keys[0].configured === true && keys[1].configured === false, "configured flags");
+	assert(keys[0].default === true, "default flag");
+	console.log("configuredKeys ok");
+}
+
+//#region limits validation & quota evaluation
+{
+	const defRule = defaultLimitRule();
+	assert(defRule.enabled === false && defRule.alertPercent === 80 && defRule.criticalPercent === 90 && defRule.stopOnExceed === false && defRule.minBalance === null, "defaultLimitRule defaults to daily alerts");
+
+	const defLimits = defaultLimits();
+	assert(defLimits.version === 2 && defLimits.global.enabled === false, "defaultLimits defaults to the current schema");
+
+	const validRule = validateLimitRule({ enabled: true, dailyCostLimit: "15.5", minBalance: "2.0", alertPercent: "90", stopOnExceed: false });
+	assert(validRule.enabled === true, "validRule enabled");
+	assert(validRule.dailyCostLimit === 15.5, "validRule dailyCostLimit");
+	assert(validRule.minBalance === null, "legacy minBalance is ignored");
+	assert(validRule.alertPercent === 90, "validRule alertPercent");
+	assert(validRule.stopOnExceed === false, "validRule stopOnExceed");
+
+	const customLimits = validateLimits({
+		global: { enabled: true, dailyCostLimit: 10, alertPercent: 80, stopOnExceed: true },
+		keys: {
+			"DEEPSEEK_KEY_VIP": { enabled: true, dailyCostLimit: 100, minBalance: 5, alertPercent: 80, stopOnExceed: true }
+		}
+	});
+	assert(customLimits.global.dailyCostLimit === 10, "customLimits global limit");
+	assert(customLimits.keys.DEEPSEEK_KEY_VIP.dailyCostLimit === 100, "customLimits VIP key limit");
+
+	// evaluateKeyQuota: disabled
+	const disabledEval = evaluateKeyQuota({ keyRef: "TEST", limits: defaultLimits(), todayCost: 50, balance: { total: 100 } });
+	assert(disabledEval.status === "normal" && disabledEval.exceeded === false, "disabled rule eval normal");
+
+	// evaluateKeyQuota: normal usage (todayCost 5, limit 10)
+	const normalEval = evaluateKeyQuota({ keyRef: "TEST", limits: customLimits, todayCost: 5, balance: { total: 50 } });
+	assert(normalEval.status === "normal" && normalEval.exceeded === false && normalEval.warning === false, "normal eval ok");
+
+	// evaluateKeyQuota: warning threshold (todayCost 8.5, limit 10, alertPercent 80%)
+	const warnEval = evaluateKeyQuota({ keyRef: "TEST", limits: customLimits, todayCost: 8.5, balance: { total: 50 } });
+	assert(warnEval.status === "warning" && warnEval.warning === true && warnEval.exceeded === false, "warning eval ok");
+
+	// evaluateKeyQuota: daily limit exceeded (todayCost 12, limit 10)
+	const exceedEval = evaluateKeyQuota({ keyRef: "TEST", limits: customLimits, todayCost: 12, balance: { total: 50 } });
+	assert(exceedEval.status === "exceeded" && exceedEval.exceeded === true && exceedEval.stopOnExceed === false, "daily exceed eval ok");
+
+	// Configured alert fields expose independent tones for the balance and
+	// today's spend indicators. No configured field must remain muted.
+	const indicatorLimits = validateLimits({
+		global: { enabled: true, dailyCostLimit: 100, lowBalanceWarning: 20, alertPercent: 23 }
+	});
+	const greenIndicators = evaluateKeyQuota({ keyRef: "TEST", limits: indicatorLimits, todayCost: 22, balance: { total: 21 } });
+	assert(greenIndicators.spendStatus === "normal" && greenIndicators.balanceAlertStatus === "ok", "configured indicators green below their warning boundaries");
+	const yellowIndicators = evaluateKeyQuota({ keyRef: "TEST", limits: indicatorLimits, todayCost: 23, balance: { total: 20 } });
+	assert(yellowIndicators.spendStatus === "warning" && yellowIndicators.balanceAlertStatus === "warning", "configured indicators yellow at their warning boundaries");
+	const redIndicators = evaluateKeyQuota({ keyRef: "TEST", limits: indicatorLimits, todayCost: 100, balance: { total: 0 } });
+	assert(redIndicators.spendStatus === "exceeded" && redIndicators.balanceAlertStatus === "exceeded", "configured indicators red at zero balance or full spend");
+	assert(disabledEval.spendStatus === "muted" && disabledEval.balanceAlertStatus === "muted", "unconfigured indicators stay hidden");
+
+	// Legacy minBalance is ignored; the VIP daily limit remains the only rule.
+	const vipMinBalEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_KEY_VIP", limits: customLimits, todayCost: 10, balance: { total: 3.0 } });
+	assert(vipMinBalEval.status === "normal" && vipMinBalEval.exceeded === false && vipMinBalEval.reason === null, "legacy min balance must not affect status");
+	const staleBalanceEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_KEY_VIP", limits: customLimits, todayCost: 0, balance: { total: 3.0 }, balanceStatus: "stale" });
+	assert(staleBalanceEval.status === "normal" && staleBalanceEval.exceeded === false, "legacy stale balance must not trigger a minimum-balance stop");
+	const unavailableBalanceEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_KEY_VIP", limits: customLimits, todayCost: 0, balance: { total: 3.0 }, balanceStatus: "unavailable" });
+	assert(unavailableBalanceEval.status === "normal" && unavailableBalanceEval.exceeded === false, "legacy unavailable balance must fail open");
+
+	console.log("limits validation & quota evaluation ok");
+}
+//#region regression: key rule without numbers must not shadow the global rule
+{
+	const mixed = validateLimits({
+		global: { enabled: true, dailyCostLimit: 1, minBalance: 60, alertPercent: 90, stopOnExceed: true },
+		keys: { DEEPSEEK_API_KEY: { enabled: true, dailyCostLimit: null, minBalance: null, alertPercent: 80, stopOnExceed: true } }
+	});
+	const emptyShell = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: mixed, todayCost: 11.08, balance: { total: 60.91 } });
+	assert(emptyShell.status === "exceeded" && emptyShell.exceeded === true && emptyShell.reason === "daily_cost", "empty-shell key rule must fall back to global: " + emptyShell.status);
+	assert(emptyShell.dailyCostLimit === 1, "empty-shell key rule must inherit the global daily limit: " + emptyShell.dailyCostLimit);
+
+	// A key rule WITH numbers overrides the global (strictly).
+	const strictKey = validateLimits({
+		global: { enabled: true, dailyCostLimit: 10, minBalance: 5, alertPercent: 80, stopOnExceed: true },
+		keys: { DEEPSEEK_API_KEY: { enabled: true, dailyCostLimit: 3, minBalance: null, alertPercent: 80, stopOnExceed: true } }
+	});
+	const strictEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: strictKey, todayCost: 5, balance: { total: 100 } });
+	assert(strictEval.status === "exceeded" && strictEval.dailyCostLimit === 3, "key rule with numbers wins: " + strictEval.status + "/" + strictEval.dailyCostLimit);
+	assert(strictEval.minBalance === null, "legacy minBalance is not inherited: " + strictEval.minBalance);
+
+	// No key rule at all → global rule applies.
+	const globalOnly = validateLimits({
+		global: { enabled: true, dailyCostLimit: 2, minBalance: null, alertPercent: 80, stopOnExceed: true },
+		keys: {}
+	});
+	const globalEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: globalOnly, todayCost: 3, balance: null });
+	assert(globalEval.status === "exceeded", "global-only rule applies: " + globalEval.status);
+
+	// Global disabled + empty-shell key rule → not evaluated.
+	const globalDisabled = validateLimits({
+		global: { enabled: false, dailyCostLimit: 1, minBalance: 60, alertPercent: 90, stopOnExceed: true },
+		keys: { DEEPSEEK_API_KEY: { enabled: true, dailyCostLimit: null, minBalance: null, alertPercent: 80, stopOnExceed: true } }
+	});
+	const disabledEval = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: globalDisabled, todayCost: 11, balance: { total: 5 } });
+	assert(disabledEval.status === "normal" && disabledEval.exceeded === false, "global disabled keeps empty-shell keys normal: " + disabledEval.status);
+
+	// resolveLimitRule returns the effective rule object.
+	const resolved = resolveLimitRule(mixed, "DEEPSEEK_API_KEY");
+	assert(resolved.dailyCostLimit === 1 && resolved.minBalance === null && resolved.stopOnExceed === false, "resolveLimitRule merge: " + JSON.stringify(resolved));
+	console.log("regression: key rule fallback to global ok");
+}
+
+//#region v1 → v2 settings migration + unified status contract
+{
+	const migrated = validateLimits({
+		version: 1,
+		global: { enabled: true, dailyCostLimit: 10, minBalance: 5, alertPercent: 80, stopOnExceed: true },
+		keys: {}
+	});
+	assert(migrated.version === 2, "legacy limits migrate to schema v2");
+	assert(migrated.global.stopOnExceed === false && migrated.global.minBalance === null, "legacy hard-stop fields migrate fail-open");
+
+	const current = validateLimits({
+		version: 2,
+		global: { enabled: true, dailyCostLimit: 10, minBalance: 5, alertPercent: 80, stopOnExceed: true },
+		keys: {}
+	});
+	const blocked = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 12, balance: { total: 20 }, balanceStatus: "ok", balanceFetchedAt: 1000, now: 1000, balanceMaxAgeMs: 100 });
+	assert(blocked.status === "blocked" && blocked.reason === "daily_cost" && blocked.scope?.id === "DEEPSEEK_API_KEY", "v2 explicit hard stop produces the unified blocked state");
+	assert(blocked.currentValue === 12 && blocked.threshold === 10 && blocked.currency === "CNY", "unified status exposes explainable values");
+
+	const stale = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 0, balance: { total: 20 }, balanceStatus: "ok", balanceFetchedAt: 100, now: 1000, balanceMaxAgeMs: 100 });
+	assert(stale.status === "stale" && stale.reason === "data_stale" && stale.sourceUpdatedAt === 100 && stale.exceeded === false, "stale balance is explicit and fail-open");
+	const unavailable = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 0, balance: null, balanceStatus: "unavailable", now: 1000, balanceMaxAgeMs: 100 });
+	assert(unavailable.status === "unavailable" && unavailable.reason === "query_failed" && unavailable.exceeded === false, "unavailable balance is explicit and fail-open");
+
+	let rejectedUnknown = false;
+	try {
+		validateLimits({ version: 2, global: { enabled: true, dailyCostLimit: 1, surprise: true }, keys: {} });
+	} catch (error) {
+		rejectedUnknown = /unknown limit rule field/.test(String(error));
+	}
+	assert(rejectedUnknown, "v2 settings schema rejects unknown fields");
+	console.log("limits schema migration + unified state ok");
+}
+
+//#region alert crossing, cooldown and recovery
+{
+	let now = 1000;
+	const tracker = createAlertTracker({ now: () => now });
+	const normal = { status: "normal", reason: null, scope: { type: "key", id: "K" }, threshold: 10, notificationCooldownMs: 100 };
+	const warning = { ...normal, status: "warning", reason: "daily_cost" };
+	const firstNormal = tracker.observe(normal);
+	assert(firstNormal.shouldNotify === false, "initial normal state stays quiet");
+	const firstWarning = tracker.observe(warning);
+	assert(firstWarning.shouldNotify === true && firstWarning.type === "alert", "warning threshold crossing notifies once");
+	now = 1050;
+	assert(tracker.observe(warning).shouldNotify === false, "same warning is deduplicated before cooldown");
+	now = 1100;
+	assert(tracker.observe(warning).shouldNotify === true, "same warning may notify after cooldown");
+	now = 1110;
+	const recovery = tracker.observe(normal);
+	assert(recovery.shouldNotify === true && recovery.type === "recovery", "return to normal emits one recovery");
+	assert(tracker.observe(normal).shouldNotify === false, "stable normal state does not repeat recovery");
+	console.log("alert crossing + cooldown + recovery ok");
+}
+
+//#region limitsService & model call interception
+{
+	let savedData = null;
+	const dummyLimits = {
+		version: 1,
+		global: { enabled: true, dailyCostLimit: 5, minBalance: 1, alertPercent: 80, stopOnExceed: true },
+		keys: {}
+	};
+	const service = createLimitsService({
+		ctx: { logger: { warn: () => {} } },
+		config: validateConfig({ keys: ["DEEPSEEK_API_KEY"] }),
+		balanceService: {
+			cached: () => ({ balance: { total: 20 } }),
+			get: async () => ({ balance: { total: 20 } })
+		},
+		deps: {
+			loadLimits: async () => dummyLimits,
+			saveLimits: async (ctx, limits) => { savedData = limits; },
+			collectUsage: async () => ({
+				days: [{ date: "2026-08-18", cost: 10 }] // exceeded 5
+			}),
+			todayKey: () => "2026-08-18"
+		}
+	});
+
+	const checkRes = await service.check({ keyRef: "DEEPSEEK_API_KEY" });
+	assert(checkRes.exceeded === true && checkRes.status === "exceeded", "service check exceeded");
+
+	// Update limits to raise the daily limit and persist the balance alert.
+	await service.updateLimits({
+		global: { enabled: true, dailyCostLimit: 20, lowBalanceWarning: 12.5, minBalance: 1, alertPercent: 80, stopOnExceed: true }
+	});
+	assert(savedData !== null && savedData.global.dailyCostLimit === 20 && savedData.global.lowBalanceWarning === 12.5, "updateLimits saved daily and balance alerts");
+
+	const checkAfterUpdate = await service.check({ keyRef: "DEEPSEEK_API_KEY" });
+	assert(checkAfterUpdate.exceeded === false && checkAfterUpdate.status === "normal", "service check normal after limit increase");
+
+	console.log("limitsService & check ok");
+}
+
+//#region per-key cost attribution (keyProviders)
+{
+	// keyProviders validation
+	const mapped = validateConfig({
+		keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"],
+		keyProviders: {
+			"DEEPSEEK_API_KEY": ["deepseek-official", "vision-toolkit-deepseek-official"],
+			"DEEPSEEK_API_KEY_2": ["relay-a"]
+		}
+	});
+	assert(mapped.keyProviders["DEEPSEEK_API_KEY"].length === 2, "keyProviders mapping");
+	let threw = null;
+	try { validateConfig({ keyProviders: { "K": "not-an-array" } }); } catch (error) { threw = error; }
+	assert(threw !== null, "keyProviders rejects non-array values");
+	try { validateConfig({ keyProviders: { "": ["a"] } }); } catch (error) { threw = error; }
+	assert(threw !== null, "keyProviders rejects empty key refs");
+
+	// keyForProvider
+	assert(keyForProvider("deepseek-official", mapped) === "DEEPSEEK_API_KEY", "provider→key A");
+	assert(keyForProvider("relay-a", mapped) === "DEEPSEEK_API_KEY_2", "provider→key B");
+	assert(keyForProvider("unmapped-provider", mapped) === null, "unmapped provider → null");
+
+	// todayCostPerKey with mapping: each provider's models attribute to its key.
+	const usageDays = [
+		{
+			date: "2026-08-18",
+			cost: 3,
+			models: [
+				{ model: "deepseek-official/deepseek-v4-flash", cost: 1 },
+				{ model: "vision-toolkit-deepseek-official/deepseek-v4-flash", cost: 0.5 },
+				{ model: "relay-a/deepseek-v4-flash", cost: 1.5 }
+			]
+		},
+		{ date: "2026-08-17", cost: 9, models: [{ model: "deepseek-official/deepseek-v4-flash", cost: 9 }] }
+	];
+	const { perKey, mapped: isMapped } = todayCostPerKey(usageDays, "2026-08-18", mapped);
+	assert(isMapped === true, "mapped flag");
+	assert(Math.abs(perKey.get("DEEPSEEK_API_KEY") - 1.5) < 1e-9, `key A today cost ${perKey.get("DEEPSEEK_API_KEY")}`);
+	assert(Math.abs(perKey.get("DEEPSEEK_API_KEY_2") - 1.5) < 1e-9, `key B today cost ${perKey.get("DEEPSEEK_API_KEY_2")}`);
+	assert(todayCostFor("DEEPSEEK_API_KEY", perKey, 3, mapped) === 1.5, "todayCostFor key A");
+	assert(todayCostFor("DEEPSEEK_API_KEY_2", perKey, 3, mapped) === 1.5, "todayCostFor key B");
+	assert(todayCostFor("OTHER_KEY", perKey, 3, mapped) === 0, "unmapped key gets 0 when mapping configured");
+
+	// Without mapping: every key sees the global today cost (per-key daily
+	// limits still work on the shared total).
+	const noMap = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"] });
+	const { perKey: globalPerKey } = todayCostPerKey(usageDays, "2026-08-18", noMap);
+	assert(globalPerKey.get("DEEPSEEK_API_KEY") === 3, "no-mapping: default key carries the total");
+	assert(todayCostFor("DEEPSEEK_API_KEY_2", globalPerKey, 3, noMap) === 3, "no-mapping: other keys share the global cost");
+
+	// Per-key quota evaluation uses the key's own cost.
+	const service = createLimitsService({
+		ctx: { logger: { warn: () => {} } },
+		config: mapped,
+		balanceService: { cached: () => ({ balance: { total: 100 } }), get: async () => ({ balance: { total: 100 } }) },
+		deps: {
+			loadLimits: async () => ({
+				version: 1,
+				global: { enabled: true, dailyCostLimit: 2, minBalance: null, alertPercent: 80, stopOnExceed: true },
+				keys: {}
+			}),
+			saveLimits: async () => {},
+			collectUsage: async () => ({ days: usageDays }),
+			todayKey: () => "2026-08-18"
+		}
+	});
+	// Key A spends 1.5 < 2 → ok. Key B spends 1.5 < 2 → ok. But the GLOBAL
+	// today cost is 3 ≥ 2 — without per-key attribution both would be exceeded.
+	const statusA = await service.evaluateStatus("DEEPSEEK_API_KEY");
+	const statusB = await service.evaluateStatus("DEEPSEEK_API_KEY_2");
+	assert(statusA.status === "normal" && statusA.todayCost === 1.5, `key A status ${statusA.status} cost ${statusA.todayCost}`);
+	assert(statusB.status === "normal" && statusB.todayCost === 1.5, `key B status ${statusB.status} cost ${statusB.todayCost}`);
+	// check() resolves the key from the request's provider route.
+	const checkByProvider = await service.check({ config: { provider: "relay-a" } });
+	assert(checkByProvider.keyRef === "DEEPSEEK_API_KEY_2", `check resolves provider→key: ${checkByProvider.keyRef}`);
+	console.log("per-key cost attribution ok");
+}
+
+
+
+//#region llm/stream ledger capture
+{
+	const registrations = [];
+	const listeners = new Map();
+	const captured = [];
+	const ctx = {
+		logger: { warn: () => {} },
+		get: () => void 0,
+		effect: (fn) => { fn(); },
+		on: (event, handler) => {
+			listeners.set(event, handler);
+			return () => listeners.delete(event);
+		},
+		webServer: { register: () => {} }
+	};
+	apply(ctx, {}, {
+		disableBackgroundRefresh: true,
+		balanceService: { refreshAll: async () => [], get: async () => ({}) },
+		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) },
+		recordLedger: async (entry) => { captured.push(entry); }
+	});
+	const streamHandler = listeners.get("llm/stream");
+	async function* downstreamWithUsage() {
+		yield { type: "text", text: "hello" };
+		yield { type: "usage", usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30 } };
+		yield { type: "finish", reason: { kind: "completed" } };
+	}
+	const stream = streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstreamWithUsage());
+	const chunks = [];
+	for await (const chunk of stream) chunks.push(chunk);
+	assert(chunks.length === 3, "downstream chunks must be preserved untouched: " + chunks.length);
+	assert(captured.length === 1, "usage chunk must produce one ledger entry: " + captured.length);
+	const entry = captured[0];
+	assert(entry.provider === "deepseek-official" && entry.model === "deepseek-v4-flash", "ledger entry provider/model");
+	assert(typeof entry.id === "string" && entry.id !== "", "ledger entry carries a stable call id");
+	assert(Number.isFinite(entry.costCny) && typeof entry.pricingVersion === "string", "ledger entry freezes cost and pricing version");
+	assert(Number.isFinite(entry.occurredAt) && entry.occurredAt > 0, "ledger entry carries a request start timestamp");
+	assert(Number.isFinite(entry.completedAt) && entry.completedAt >= entry.occurredAt, "ledger entry carries the completion (attribution) timestamp");
+	assert(entry.usage.inputTokens === 100 && entry.usage.outputTokens === 20 && entry.usage.cacheReadTokens === 30, "ledger entry carries the usage chunk");
+
+	// 无 usage chunk 的流不写账本
+	captured.length = 0;
+	async function* noUsage() { yield { type: "text", text: "x" }; yield { type: "finish", reason: { kind: "completed" } }; }
+	const s2 = streamHandler({ provider: "p", model: "m" }, () => noUsage());
+	for await (const _ of s2) {}
+	assert(captured.length === 0, "stream without usage chunk must not write the ledger");
+
+	// 外观(facade) provider 不得写账本：它委托给上游 provider 发出真实 API
+	// 请求（官方只计费一次）；两个都记会双倍计费（vision-toolkit 回归）。
+	const facadeStream = streamHandler({ provider: "vision-toolkit-deepseek-official", model: "deepseek-v4-flash" }, () => downstreamWithUsage());
+	for await (const _ of facadeStream) {}
+	assert(captured.length === 0, "facade provider (vision-toolkit-*) must not write the ledger: " + captured.length);
+	// 真实上游 provider 正常记录
+	const realStream = streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstreamWithUsage());
+	for await (const _ of realStream) {}
+	assert(captured.length === 1 && captured[0].provider === "deepseek-official", "upstream provider records the ledger");
+	console.log("llm/stream ledger capture ok");
+}
+
+//#region ledger writes are durable before the next usage read
+{
+	const previousDshHome = process.env.DSH_HOME;
+	const testHome = await mkdtemp(join(tmpdir(), "dsh-usage-ledger-"));
+	process.env.DSH_HOME = testHome;
+	try {
+		const { recordLedgerEntry } = await import("../lib/index.js");
+		await recordLedgerEntry({ logger: { warn: () => {} } }, {
+			id: "durable-call",
+			occurredAt: Date.now(),
+			provider: "deepseek-official",
+			model: "deepseek-v4-flash",
+			usage: { inputTokens: 1, outputTokens: 2 },
+			costCny: 0.01,
+			pricingVersion: "test-price"
+		});
+		const persisted = JSON.parse(await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8"));
+		assert(persisted.ledger?.[0]?.id === "durable-call", "ledger entry must be persisted immediately");
+	} finally {
+		if (previousDshHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousDshHome;
+		await rm(testHome, { recursive: true, force: true });
+	}
+	console.log("ledger immediate persistence ok");
+}
+
+//#region ledger compaction folds overflow into the legacy snapshot
+{
+	const previousDshHome = process.env.DSH_HOME;
+	const testHome = await mkdtemp(join(tmpdir(), "dsh-usage-compact-"));
+	process.env.DSH_HOME = testHome;
+	try {
+		const { recordLedgerEntry } = await import("../lib/index.js");
+		const ctx = { logger: { warn: () => {} } };
+		const entry = (id, atUtc, input, output) => ({
+			id,
+			occurredAt: atUtc,
+			completedAt: atUtc,
+			provider: "deepseek-official",
+			model: "deepseek-v4-flash",
+			usage: { inputTokens: input, outputTokens: output }
+		});
+		// Test dates sit ~45 days in the past so they never collide with the
+		// real "today" day of the durable-persistence test above (which runs in
+		// the same process and shares the in-memory cache).
+		const dayA = dayKey(Date.now() - 45 * 86400000);
+		const dayB = dayKey(Date.now() - 44 * 86400000);
+		const atBeijing = (dateKey, hour) => {
+			const [y, m, d] = dateKey.split("-").map(Number);
+			return Date.UTC(y, m - 1, d, hour - 8, 30, 0);
+		};
+		// 5 entries with maxLedgerEntries=3. c1 lands on Beijing dayA, c2..c5
+		// on Beijing dayB — the oldest two (c1, c2) are folded into legacy.days
+		// by their Beijing day (completedAt/occurredAt).
+		await recordLedgerEntry(ctx, entry("c1", atBeijing(dayA, 17), 100, 10), { maxLedgerEntries: 3 });
+		await recordLedgerEntry(ctx, entry("c2", atBeijing(dayB, 1), 200, 20), { maxLedgerEntries: 3 });
+		await recordLedgerEntry(ctx, entry("c3", atBeijing(dayB, 2), 300, 30), { maxLedgerEntries: 3 });
+		await recordLedgerEntry(ctx, entry("c4", atBeijing(dayB, 3), 400, 40), { maxLedgerEntries: 3 });
+		await recordLedgerEntry(ctx, entry("c5", atBeijing(dayB, 4), 500, 50), { maxLedgerEntries: 3 });
+		const persisted = JSON.parse(await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8"));
+		assert(persisted.ledger.length === 3, `ledger truncated to maxLedgerEntries: ${persisted.ledger.length}`);
+		assert(persisted.ledger.map((e) => e.id).join(",") === "c3,c4,c5", `newest entries kept: ${persisted.ledger.map((e) => e.id)}`);
+		assert(persisted.legacy?.days?.[dayA]?.totals?.inputTokens === 100, "folded c1 tokens appear in legacy.days (Beijing dayA)");
+		assert(persisted.legacy?.days?.[dayB]?.totals?.inputTokens === 200, "folded c2 tokens appear in legacy.days (Beijing dayB)");
+		assert(persisted.legacy?.days?.[dayA]?.totals?.outputTokens === 10 && persisted.legacy.days[dayB].totals.outputTokens === 20, "folded output tokens preserved");
+		assert(Number.isFinite(persisted.legacy?.updatedAt) && persisted.legacy.updatedAt > 0, "legacy updatedAt stamped after compaction");
+
+		// 压缩后继续追加不误去重：被折叠进 legacy 的 id 可再次记录。
+		await recordLedgerEntry(ctx, entry("c1", atBeijing(dayA, 18), 7, 0), { maxLedgerEntries: 3 });
+		const afterReplay = JSON.parse(await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8"));
+		assert(afterReplay.ledger.some((e) => e.id === "c1"), "re-recorded folded id must not be dropped as a duplicate");
+		// 当前保留窗口内的重复 id 仍去重。
+		await recordLedgerEntry(ctx, entry("c4", atBeijing(dayB, 3), 999, 0), { maxLedgerEntries: 3 });
+		const afterDup = JSON.parse(await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8"));
+		assert(afterDup.ledger.filter((e) => e.id === "c4").length === 1, "duplicate id inside the retained window is still deduplicated");
+	} finally {
+		if (previousDshHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousDshHome;
+		await rm(testHome, { recursive: true, force: true });
+	}
+	console.log("ledger compaction ok");
+}
+
+//#region collectUsage is read-only (the 60s usage poll never writes the cache)
+{
+	const previousDshHome = process.env.DSH_HOME;
+	const testHome = await mkdtemp(join(tmpdir(), "dsh-usage-readonly-"));
+	process.env.DSH_HOME = testHome;
+	try {
+		const { collectUsage } = await import("../lib/index.js");
+		const result = await collectUsage({ logger: { warn: () => {} } });
+		assert(result !== null && typeof result === "object" && Array.isArray(result.days), "collectUsage still returns the rendered usage shape");
+		let written = true;
+		try {
+			await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8");
+		} catch {
+			written = false;
+		}
+		assert(written === false, "collectUsage must not write the cache file");
+	} finally {
+		if (previousDshHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousDshHome;
+		await rm(testHome, { recursive: true, force: true });
+	}
+	console.log("collectUsage read-only ok");
+}
+
+//#region v1 → v2 migration + combined render
+{
+	const migrated = migrateCacheV1({
+		sessions: {
+			"session-1": {
+				kind: "persisted",
+				consumed: 2,
+				days: {
+					"2026-08-18": {
+						totals: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 },
+						models: { "deepseek-official/deepseek-v4-flash": { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 } },
+						hours: { "10": { "deepseek-official/deepseek-v4-flash": { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 } } }
+					}
+				},
+				lastSample: null,
+				currentModel: null
+			}
+		}
+	});
+	assert(migrated.legacy !== null && migrated.legacy.days !== null && typeof migrated.legacy.days === "object", "migration must produce a legacy snapshot");
+	assert(migrated.ledger !== null && migrated.ledger.length === 0, "migration must start with an empty ledger");
+	assert(migrated.legacy.days["2026-08-18"].totals.inputTokens === 100, "legacy snapshot keeps v1 totals");
+	assert(migrated.legacy.days["2026-08-18"].hours["10"]["deepseek-official/deepseek-v4-flash"].outputTokens === 20, "legacy snapshot keeps hourly buckets");
+
+	const rendered = renderCombinedUsage(migrated, 0, defaultPricing());
+	assert(rendered.days.length === 1 && rendered.days[0].tokens === 120, "legacy-only combined render: " + (rendered.days[0] && rendered.days[0].tokens));
+
+	// 合并：legacy（10 点高峰 100 input）+ ledger（18 点空闲 50 input）→ 同日两小时分桶
+	const beijing18 = Date.UTC(2026, 7, 18, 10, 1, 0); // 北京 18:01
+	const merged = renderCombinedUsage({
+		legacy: migrated.legacy,
+		ledger: [
+			{ occurredAt: beijing18, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 50, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } }
+		]
+	}, 0, defaultPricing());
+	const day = merged.days[0];
+	assert(day.inputTokens === 150, "combined day input: " + day.inputTokens);
+	assert(day.hours[10].inputTokens === 100 && day.hours[18].inputTokens === 50, "legacy and ledger hours must be separate buckets");
+	console.log("v1 → v2 migration + combined render ok");
+}
+
+if (failures > 0) {
+	console.error(`\n${failures} test(s) failed`);
+	process.exit(1);
+}
+console.log("\nserver tests: all passed");

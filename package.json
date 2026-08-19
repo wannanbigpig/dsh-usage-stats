@@ -1,0 +1,67 @@
+{
+  "name": "dsh-usage-stats",
+  "description": "DeepSeek 官方余额、Token 用量、月历热图与离线 tokenizer，内置在 Harness 侧栏",
+  "version": "0.1.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wannanbigpig/dsh-usage-stats.git"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "token-usage",
+    "balance"
+  ],
+  "files": [
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./usage": "./lib/usage.js",
+    "./balance": "./lib/balance.js",
+    "./ledger": "./lib/ledger.js",
+    "./tokenizer": "./lib/tokenizer.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/usage.js && node --check lib/balance.js && node --check lib/tokenizer.js && node --check lib/client.js && node --check scripts/count-tokens.mjs && node --check lib/ledger.js && node --check lib/pricing.js && node --check scripts/rebuild-today-legacy.mjs && node --check scripts/test-usage.mjs && node --check scripts/test-server.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-tokenizer.mjs",
+    "test": "npm run check && node scripts/test-usage.mjs && node scripts/test-tokenizer.mjs && node scripts/test-server.mjs && node scripts/smoke-client.mjs",
+    "test:usage": "node scripts/test-usage.mjs",
+    "test:tokenizer": "node scripts/test-tokenizer.mjs",
+    "test:server": "node scripts/test-server.mjs",
+    "test:client": "node scripts/smoke-client.mjs",
+    "tokens": "node scripts/count-tokens.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@huggingface/tokenizers": "^0.1.3"
+  }
+}
