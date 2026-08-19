@@ -443,6 +443,8 @@ function assert(condition, message) {
 	const blocked = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 12, balance: { total: 20 }, balanceStatus: "ok", balanceFetchedAt: 1000, now: 1000, balanceMaxAgeMs: 100 });
 	assert(blocked.status === "blocked" && blocked.reason === "daily_cost" && blocked.scope?.id === "DEEPSEEK_API_KEY", "v2 explicit hard stop produces the unified blocked state");
 	assert(blocked.currentValue === 12 && blocked.threshold === 10 && blocked.currency === "CNY", "unified status exposes explainable values");
+	const criticalWarning = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 9, balance: { total: 20 }, balanceStatus: "ok", balanceFetchedAt: 1000, now: 1000, balanceMaxAgeMs: 100 });
+	assert(criticalWarning.status === "exceeded" && criticalWarning.blocked === false, "critical warning below 100% must not block requests");
 
 	const stale = evaluateKeyQuota({ keyRef: "DEEPSEEK_API_KEY", limits: current, todayCost: 0, balance: { total: 20 }, balanceStatus: "ok", balanceFetchedAt: 100, now: 1000, balanceMaxAgeMs: 100 });
 	assert(stale.status === "stale" && stale.reason === "data_stale" && stale.sourceUpdatedAt === 100 && stale.exceeded === false, "stale balance is explicit and fail-open");
