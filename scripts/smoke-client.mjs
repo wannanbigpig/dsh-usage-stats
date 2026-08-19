@@ -147,7 +147,21 @@ const limitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
 	translate: (key) => key
 }));
 if (!limitsMarkup.includes("limits.title")) throw new Error("limits markup missing title");
+if (limitsMarkup.includes("limits.apiKey")) throw new Error("single-key limits card must not render the key picker");
 console.log("limits card render ok, length:", limitsMarkup.length);
+
+const multiKeyLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
+	keys: [
+		{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true },
+		{ id: "DEEPSEEK_API_KEY_2", label: "DEEPSEEK_API_KEY_2", configured: false }
+	],
+	selectedKey: "DEEPSEEK_API_KEY",
+	pricing: { currency: "CNY" },
+	todayCost: 1.5,
+	translate: (key) => key
+}));
+if (!multiKeyLimitsMarkup.includes("limits.apiKey")) throw new Error("multi-key limits card must render the key picker");
+console.log("multi-key limits card picker ok, length:", multiKeyLimitsMarkup.length);
 
 // Apply against a stub client context: one native sidebar footer action and
 // one settings.section entry.
