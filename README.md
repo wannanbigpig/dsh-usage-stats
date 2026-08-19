@@ -41,17 +41,23 @@ dsh plugin --profile web add .
 
 目录路径安装会生成 `link:`（符号链接）依赖：改动插件代码**无需重新安装**，**重启正在运行的 `dsh web`** 并在浏览器硬刷新（Cmd/Ctrl+Shift+R）即可生效；侧栏底部会出现独立的「用量/余额」入口。
 
-**从 GitHub 安装**（npm 未发布，`package.json` 为 `private`；也可以先 `npm pack` 再 `dsh plugin --profile web add ./dsh-usage-stats-0.1.0.tgz`）：
+**从 npm 安装**（发布后即可使用）：
+
+```bash
+dsh plugin --profile web add @wannanbigpig/dsh-usage-stats
+```
+
+**从 GitHub 安装**（开发预览；也可以先 `npm pack` 再 `dsh plugin --profile web add ./dsh-usage-stats-0.1.0.tgz`）：
 
 ```bash
 dsh plugin --profile web add github:wannanbigpig/dsh-usage-stats
 ```
 
-**升级或卸载**（`update` 只对 GitHub/npm 安装的副本有意义；本地 `link:` 安装始终指向本地目录，直接 `git pull` 后重启 `dsh web` 即可）：
+**升级或卸载**（`update` 只对 npm/GitHub 安装的副本有意义；本地 `link:` 安装始终指向本地目录，直接 `git pull` 后重启 `dsh web` 即可）：
 
 ```bash
-dsh plugin --profile web update dsh-usage-stats
-dsh plugin --profile web remove dsh-usage-stats
+dsh plugin --profile web update @wannanbigpig/dsh-usage-stats
+dsh plugin --profile web remove @wannanbigpig/dsh-usage-stats
 ```
 
 ## 凭据 / Credentials
