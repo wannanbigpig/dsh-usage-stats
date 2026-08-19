@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="DeepSeek Harness 的本地 Token、余额、套餐额度与会话过程折叠助手。" />
+    <meta property="og:title" content="DSH Usage Stats" />
+    <meta property="og:description" content="DeepSeek Harness 的本地用量、余额与会话体验助手。" />
+    <meta property="og:image" content="assets/screenshots/usage-overview-all.png" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <title>DSH Usage Stats</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="interactive.js" defer></script>
+  </head>
+  <body>
+    <header class="header">
+      <a class="brand" href="#top"><span>◒</span>DSH Usage Stats</a>
+      <nav aria-label="主导航"><a href="#features">功能</a><a href="#screenshots">界面</a><a href="#install">安装</a><a class="repo" href="https://github.com/wannanbigpig/dsh-usage-stats">GitHub ↗</a></nav>
+    </header>
+    <main id="top">
+      <section class="hero">
+        <p class="eyebrow">FOR DEEPSEEK HARNESS WEB</p>
+        <h1>每一次调用，<br /><em>都有迹可循。</em></h1>
+        <p class="intro">DSH Usage Stats 是 DeepSeek Harness Web 的本地用量中心。统一查看 Token、账户余额、套餐额度和费用趋势；收起过程，让对话只留下真正重要的内容。</p>
+        <div class="actions"><a class="button primary" href="#install">开始安装 <span>↓</span></a><a class="button secondary" href="https://github.com/wannanbigpig/dsh-usage-stats">查看源码 <span>↗</span></a></div>
+        <p class="hint">需要 DeepSeek Harness <code>dsh-v0.1.1-rc.2</code> 或更新版本，以及 Node.js 18+</p>
+        <div class="hero-image"><img src="assets/screenshots/usage-overview-all.png" alt="DSH Usage Stats 的全部供应商用量概览" /></div>
+      </section>
+      <section class="statement"><p>LOCAL-FIRST OBSERVABILITY</p><h2>统计留在本机。<br />视野保持清醒。</h2><span>⌄</span></section>
+      <section id="features" class="features">
+        <article class="feature lead"><b>01</b><h3>调用、成本与趋势</h3><p>今日、本月、累计 Token、请求次数、模型拆分、24 小时趋势与年度热图。DeepSeek 调用按完成时间冻结费用。</p><div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+        <article class="feature"><b>02</b><h3>多供应商账户</h3><p>DeepSeek、Moonshot、OpenRouter、Kimi、MiniMax、Z.ai 等已配置 provider 的余额、套餐窗口与 Token 数据统一呈现。</p></article>
+        <article class="feature"><b>03</b><h3>有分寸的限制</h3><p>配置消费限额、余额提醒与预警比例。仅在你显式开启时才会拦截新的模型调用。</p></article>
+        <article class="feature dark"><b>04</b><h3>让过程退到幕后</h3><p>把思考、工具调用和过程说明收进一个外层折叠；最终回复始终留在视野中。</p></article>
+      </section>
+      <section id="screenshots" class="screenshots"><div class="section-title"><p>PRODUCT TOUR</p><h2>运行的一切，<br />一览无余。</h2></div><div class="gallery"><figure class="wide"><img src="assets/screenshots/usage-overview-deepseek.png" alt="DeepSeek 余额与用量概览" /><figcaption>DeepSeek 余额与用量</figcaption></figure><figure><img src="assets/screenshots/usage-overview-zai.png" alt="Z.ai 套餐额度概览" /><figcaption>Z.ai 套餐用量</figcaption></figure><figure><img src="assets/screenshots/usage-details.png" alt="最近用量明细" /><figcaption>按日明细对比</figcaption></figure><figure><img src="assets/screenshots/settings-providers.png" alt="供应商与账户设置" /><figcaption>供应商与账户</figcaption></figure><figure><img src="assets/screenshots/conversation-folding-demo.png" alt="会话过程折叠演示" /><figcaption>会话过程折叠</figcaption></figure></div></section>
+      <section id="install" class="install"><div><p class="eyebrow">GET STARTED</p><h2>让你的 Harness<br />从现在开始可见。</h2></div><div class="commands"><p><b>01</b> 在插件目录的父目录执行</p><pre><code>dsh plugin --profile web add ./dsh-usage-stats</code></pre><p><b>02</b> 或直接从 npm 安装</p><pre><code>dsh plugin --profile web add @wannanbigpig/dsh-usage-stats</code></pre><a class="button primary" href="https://github.com/wannanbigpig/dsh-usage-stats#快速安装--quick-start">阅读完整安装说明 ↗</a></div></section>
+    </main>
+    <footer><a class="brand" href="#top"><span>◒</span>DSH Usage Stats</a><p>DeepSeek Harness Web 的本地用量中心。</p><a href="https://github.com/wannanbigpig/dsh-usage-stats">MIT License · GitHub ↗</a></footer>
+  </body>
+</html>

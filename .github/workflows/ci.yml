@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-18-compatibility:
+    name: Node 18 compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Check source and site contract
+        run: npm run check && npm run check:site
+
+  integration:
+    name: Harness integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v6
+      - name: Check out DeepSeek Harness seam
+        uses: actions/checkout@v6
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: master
+          path: .ci/deepseek-harness
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Install Harness dependencies
+        run: pnpm --dir .ci/deepseek-harness install --frozen-lockfile --ignore-scripts
+      - name: Install plugin dependencies
+        run: npm ci
+      - name: Run test suite
+        env:
+          DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
+        run: npm test
+      - name: Build Pages artifact
+        run: npm run build:site
