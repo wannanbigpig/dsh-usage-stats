@@ -143,7 +143,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 
 限额保存在 `~/.dsh/storages/usage-limits.json`，当前 schema 为 v2。旧 v1 文件会安全迁移：保留提醒规则，但不会自动继承旧 `stopOnExceed` / `minBalance` 为硬停止；用户需在设置页重新确认开启。v2 会拒绝未知配置字段。**规则解析采用全局兜底**：某个 Key 未设置数值（或仅有空壳规则）时，沿用全局限额；Key 设置了数值则覆盖全局、未设置的字段继续继承全局，因此全局限额始终是底线，不会被空壳 Key 规则静默绕过。拦截采用 **fail-open** 策略：限额检查本身出错时放行调用，绝不因插件故障阻塞模型。
 
-状态统一为 `normal / warning / exceeded / blocked / stale / unavailable`。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件，避免每次轮询或模型请求重复提醒。
+状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`（`unpriced`：当日用量含未定价模型，消费金额不可靠，日限额不参与拦截且 fail-open；硬停止消息会点名真实触发原因——达到 100% 每日限额或余额跌破保障线，而非 90% 预警文案）。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件，避免每次轮询或模型请求重复提醒。
 
 默认单价（CNY / 1M tokens，严格对应 DeepSeek 官方中文价格页，2026-08）：
 

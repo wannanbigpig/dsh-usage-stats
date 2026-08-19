@@ -809,6 +809,169 @@ function assert(condition, message) {
 	console.log("v1 → v2 migration + combined render ok");
 }
 
+//#region parseLedger preserves completedAt (ledger survives restarts)
+{
+	const { parseLedger } = await import("../lib/index.js");
+	const parsed = parseLedger([{
+		id: "restart-safe",
+		occurredAt: 1000,
+		completedAt: 2000,
+		provider: "deepseek-official",
+		model: "deepseek-v4-flash",
+		usage: { inputTokens: 1, outputTokens: 2 },
+		costCny: 0.01,
+		pricingVersion: "p"
+	}]);
+	assert(parsed[0]?.completedAt === 2000, `parseLedger must preserve completedAt across restarts, got ${parsed[0]?.completedAt}`);
+	const fallback = parseLedger([{
+		id: "legacy-fallback",
+		occurredAt: 3000,
+		provider: "deepseek-official",
+		model: "deepseek-v4-flash",
+		usage: { inputTokens: 1 }
+	}]);
+	assert(fallback[0]?.completedAt === 3000, "parseLedger falls back to occurredAt when completedAt is absent");
+	console.log("ledger restart survival ok");
+}
+
+//#region concurrent ledger writes must both persist
+{
+	const previousDshHome = process.env.DSH_HOME;
+	const testHome = await mkdtemp(join(tmpdir(), "dsh-usage-concurrent-"));
+	process.env.DSH_HOME = testHome;
+	try {
+		const { recordLedgerEntry } = await import("../lib/index.js");
+		const ctx = { logger: { warn: () => {} } };
+		const mk = (id, at) => ({ id, occurredAt: at, completedAt: at, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 1, outputTokens: 1 } });
+		await Promise.all([
+			recordLedgerEntry(ctx, mk("race-a", Date.now() - 1000)),
+			recordLedgerEntry(ctx, mk("race-b", Date.now()))
+		]);
+		const persisted = JSON.parse(await readFile(join(testHome, "storages", "usage-stats-cache.json"), "utf8"));
+		const ids = (persisted.ledger ?? []).map((e) => e.id).sort();
+		assert(ids.includes("race-a") && ids.includes("race-b"), `concurrent ledger writes must both persist, got ${ids.join(",")}`);
+	} finally {
+		if (previousDshHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousDshHome;
+		await rm(testHome, { recursive: true, force: true });
+	}
+	console.log("concurrent ledger writes ok");
+}
+
+//#region collectUsage stays a usage payload while a ledger write is in flight
+{
+	const previousDshHome = process.env.DSH_HOME;
+	const testHome = await mkdtemp(join(tmpdir(), "dsh-usage-lock-"));
+	process.env.DSH_HOME = testHome;
+	try {
+		const { recordLedgerEntry, collectUsage } = await import("../lib/index.js");
+		const ctx = { logger: { warn: () => {} } };
+		const writePromise = recordLedgerEntry(ctx, {
+			id: "in-flight",
+			occurredAt: Date.now(),
+			completedAt: Date.now(),
+			provider: "deepseek-official",
+			model: "deepseek-v4-flash",
+			usage: { inputTokens: 1 }
+		});
+		const usage = await collectUsage(ctx);
+		const entry = await writePromise;
+		assert(usage !== null && typeof usage === "object" && Array.isArray(usage.days), "collectUsage must return a usage payload while a ledger write is in flight");
+		assert(entry?.id === "in-flight", "ledger write still completes");
+	} finally {
+		if (previousDshHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousDshHome;
+		await rm(testHome, { recursive: true, force: true });
+	}
+	console.log("usage/write lock separation ok");
+}
+
+//#region unpriced models make today's cost unreliable (never silently zero)
+{
+	const { createLimitsService, validateConfig } = await import("../lib/index.js");
+	const ctx = { logger: { warn: () => {} } };
+	const config = validateConfig({});
+	const limits = { version: 2, global: { enabled: true, dailyCostLimit: 20, stopOnExceed: true, alertPercent: 80, criticalPercent: 90 }, keys: {} };
+	const fakeBalance = {
+		cached: () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() }),
+		get: async () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() })
+	};
+	const mkService = (collectUsage) => createLimitsService({ ctx, config, balanceService: fakeBalance, deps: {
+		loadLimits: async () => limits,
+		collectUsage,
+		todayKey: () => "2026-08-19"
+	} });
+	const unpriced = await mkService(async () => ({
+		days: [{ date: "2026-08-19", cost: null, models: [{ model: "deepseek-official/deepseek-v4-flash", cost: null }] }],
+		total: { cost: null }
+	})).check({ provider: "deepseek-official" });
+	assert(unpriced.status === "unpriced", `unpriced models must surface an unpriced state, got ${unpriced.status}`);
+	assert(unpriced.blocked === false, "unpriced cost must never hard-block");
+	const priced = await mkService(async () => ({
+		days: [{ date: "2026-08-19", cost: 25, models: [{ model: "deepseek-official/deepseek-v4-flash", cost: 25 }] }],
+		total: { cost: 25 }
+	})).check({ provider: "deepseek-official" });
+	assert(priced.status === "blocked" && priced.blocked === true, "priced over-limit day still hard-blocks");
+	console.log("unpriced cost handling ok");
+}
+
+//#region updateLimits must reject empty payloads (no silent wipe)
+{
+	const { createLimitsService, defaultLimits, validateConfig } = await import("../lib/index.js");
+	const ctx = { logger: { warn: () => {} } };
+	const service = createLimitsService({ ctx, config: validateConfig({}), balanceService: { cached: () => null, get: async () => null }, deps: {
+		loadLimits: async () => defaultLimits(),
+		saveLimits: async () => {}
+	} });
+	for (const bad of [null, {}, { version: 2 }]) {
+		let threw = false;
+		try { await service.updateLimits(bad); } catch { threw = true; }
+		assert(threw, `updateLimits must reject empty payload ${JSON.stringify(bad)}`);
+	}
+	const saved = await service.updateLimits({ version: 2, global: { enabled: true, dailyCostLimit: 20 }, keys: {} });
+	assert(saved.global?.dailyCostLimit === 20, "legitimate limits document still saves");
+	console.log("limits empty-payload rejection ok");
+}
+
+//#region per-key enabled:false must not disable an enabled global rule
+{
+	const { resolveLimitRule } = await import("../lib/index.js");
+	const merged = resolveLimitRule({
+		version: 2,
+		global: { enabled: true, dailyCostLimit: 20, alertPercent: 80, criticalPercent: 90 },
+		keys: { DEEPSEEK_API_KEY: { enabled: false, dailyCostLimit: 10 } }
+	}, "DEEPSEEK_API_KEY");
+	assert(merged.enabled === true, "per-key enabled:false must not disable the global rule");
+	assert(merged.dailyCostLimit === 10, "per-key daily limit still overrides");
+	console.log("per-key enabled global floor ok");
+}
+
+
+//#region hard stop triggers only at 100% (or balance floor) and messages name the real cause
+{
+	const { evaluateKeyQuota } = await import("../lib/index.js");
+	const limits = {
+		version: 2,
+		global: { enabled: true, dailyCostLimit: 20, stopOnExceed: true, alertPercent: 80, criticalPercent: 90, minBalance: 10 },
+		keys: {}
+	};
+	const base = { keyRef: "DEEPSEEK_API_KEY", limits, balance: { total: 100 }, balanceStatus: "ok", balanceFetchedAt: 1000, now: 1000, balanceMaxAgeMs: 300000 };
+	// 90% (18/20)：仅红色预警，绝不拦截。
+	const at90 = evaluateKeyQuota({ ...base, todayCost: 18 });
+	assert(at90.status === "exceeded" && at90.blocked === false, `90% spend with stopOnExceed must not block, got ${at90.status}`);
+	assert(at90.message.includes("严重预警线"), "90% message names the critical warning line");
+	// 100%+ (20.5/20)：硬停止，且消息必须点名"达到每日限额"，不能是 90% 预警文案。
+	const at100 = evaluateKeyQuota({ ...base, todayCost: 20.5 });
+	assert(at100.status === "blocked" && at100.blocked === true, `100%+ spend with stopOnExceed must hard-block, got ${at100.status}`);
+	assert(at100.message.includes("已达到每日限额") && !at100.message.includes("严重预警线"), `100% block message must name the daily limit: ${at100.message}`);
+	// 余额跌破保障线（余额 5 < minBalance 10）：即使消费只有 90%，也因余额硬停止，消息点名余额。
+	const balanceBlocked = evaluateKeyQuota({ ...base, todayCost: 18, balance: { total: 5 } });
+	assert(balanceBlocked.status === "blocked" && balanceBlocked.blocked === true, "balance below floor must hard-block");
+	assert(balanceBlocked.message.includes("最低余额保障线") && !balanceBlocked.message.includes("严重预警线"), `balance block message must name the balance floor: ${balanceBlocked.message}`);
+	console.log("hard-stop trigger + message accuracy ok");
+}
+
+
 if (failures > 0) {
 	console.error(`\n${failures} test(s) failed`);
 	process.exit(1);

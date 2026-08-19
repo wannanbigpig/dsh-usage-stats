@@ -147,6 +147,7 @@ const limitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
 	translate: (key) => key
 }));
 if (!limitsMarkup.includes("limits.title")) throw new Error("limits markup missing title");
+if (!limitsMarkup.includes("disabled")) throw new Error("limits form must render controls disabled until the limits payload loads");
 if (limitsMarkup.includes("limits.apiKey")) throw new Error("single-key limits card must not render the key picker");
 console.log("limits card render ok, length:", limitsMarkup.length);
 
