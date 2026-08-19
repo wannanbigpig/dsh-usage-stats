@@ -24,6 +24,16 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 
 界面支持中文和英文。Token 数据来自会话事件中的 provider-reported `usage`（`assistant/chunk` 或 `assistant/message`），不是本地估算；「消费金额」是根据模型单价 × Token 数计算的**估算值**，请以 DeepSeek 官方账单为准。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
 
+## 界面预览 / Screenshots
+
+「用量/余额」查询中心（概览标签）：DeepSeek 官方余额卡、用量预警、Token 汇总、年度贡献热图与按小时统计。
+
+![用量/余额查询中心（概览）](assets/screenshots/usage-panel.png)
+
+「设置 → 用量与计费」：按 API Key（或全局）配置每日消费限额、余额提醒线与预警比例，硬停止默认关闭。
+
+![设置 → 用量与计费（限额配置）](assets/screenshots/limits-settings.png)
+
 ## 快速安装 / Quick start
 
 需要 DeepSeek Harness `web` profile（`@deepseek-ai/dsh >= 0.1.0-rc.7`，`dsh plugin` 子命令自该版本引入）与 [pnpm](https://pnpm.io/installation)（`dsh plugin` 会把参数转发给 profile 目录里的 pnpm，因此所有 pnpm 子命令都可用）。
