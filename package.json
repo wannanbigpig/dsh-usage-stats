@@ -52,7 +52,9 @@
     "test:tokenizer": "node scripts/test-tokenizer.mjs",
     "test:server": "node scripts/test-server.mjs",
     "test:client": "node scripts/smoke-client.mjs",
-    "tokens": "node scripts/count-tokens.mjs"
+    "tokens": "node scripts/count-tokens.mjs",
+    "whoami": "npm whoami --registry=https://registry.npmjs.org",
+    "publish:public": "npm publish --registry=https://registry.npmjs.org"
   },
   "engines": {
     "node": ">=18.0.0"
