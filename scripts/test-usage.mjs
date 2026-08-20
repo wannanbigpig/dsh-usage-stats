@@ -166,6 +166,28 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	console.log("pricing + cost math ok");
 }
 
+//#region ledger projection preserves official same turn/step last-wins semantics
+{
+	const ledger = [
+		{ id: "early", occurredAt: beijingTime(2026, 0, 6, 16), completedAt: beijingTime(2026, 0, 6, 16), provider: "deepseek-official", model: "deepseek-v4-flash", turn: 2, step: 3, usage: { inputTokens: 100, outputTokens: 10, cacheReadTokens: 20 } },
+		{ id: "final", occurredAt: beijingTime(2026, 0, 6, 16), completedAt: beijingTime(2026, 0, 6, 16), provider: "deepseek-official", model: "deepseek-v4-flash", turn: 2, step: 3, usage: { inputTokens: 120, outputTokens: 12, cacheReadTokens: 30 } }
+	];
+	const days = foldLedger(ledger);
+	const totals = days.get("2026-01-06")?.totals;
+	assert(totals?.inputTokens === 120 && totals?.outputTokens === 12 && totals?.cacheReadTokens === 30,
+		"ledger projection must replace an early usage sample with the final same turn/step sample");
+	console.log("ledger same turn/step replacement ok");
+}
+
+{
+	const ledger = [];
+	appendLedger(ledger, { id: "early", sampleKey: "route:pending:1", provider: "p", model: "m", usage: { inputTokens: 10 } });
+	appendLedger(ledger, { id: "final", sampleKey: "route:pending:1", provider: "p", model: "m", usage: { inputTokens: 20 } });
+	assert(ledger.length === 1 && ledger[0].usage.inputTokens === 20 && ledger[0].id === "early",
+		"ledger append must upsert the finalized sample without adding a second call");
+	console.log("ledger finalized sample upsert ok");
+}
+
 //#region renderUsage wire shape
 {
 	const pricing = defaultPricing();

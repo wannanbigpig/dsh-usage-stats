@@ -55,6 +55,11 @@ if (typeof exports_.openHarnessSettings !== "function") throw new Error("missing
 if (!source.includes('new Set(["用量与计费", "Usage & Billing"])')) throw new Error("settings shortcut must select Usage & Billing");
 if (typeof exports_.ContributionHeatmap !== "function") throw new Error("missing ContributionHeatmap export");
 if (typeof exports_.buildYearContributionHeatmap !== "function") throw new Error("missing buildYearContributionHeatmap export");
+if (typeof exports_.AccountsCard !== "function") throw new Error("missing AccountsCard export");
+if (typeof exports_.PricingCard !== "function") throw new Error("missing PricingCard export");
+if (typeof exports_.NotificationsCard !== "function") throw new Error("missing NotificationsCard export");
+if (typeof exports_.DataCard !== "function") throw new Error("missing DataCard export");
+if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 5) throw new Error("SETTINGS_TABS must declare five settings tabs");
 
 // Regression: never locate Settings with a broad substring selector. In the
 // plugin settings page, the Shell card has aria-label="展开设置: 终端" and was
@@ -74,13 +79,18 @@ if (!source.includes(".usg_peakRegion{")) throw new Error("peak hours must be re
 if (!source.includes('"data-peak-region"')) throw new Error("peak regions must be identifiable in the DOM");
 if (source.includes("min-height:3px")) throw new Error("zero-token hours must not fake a bar with min-height");
 if (!source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly bars must support tap-to-toggle on touch");
-if (!source.includes("const visualInput = input + cacheRead + cacheWrite")) throw new Error("cached prompt tokens must remain visible in the input bar");
+if (!source.includes("100 * cost / maxCost")) throw new Error("hourly bars must scale by cost, not raw token count");
+if (!source.includes("Math.max(input + output, 1)")) throw new Error("hourly input/output split must not count cache read against the visible bars");
 if (source.includes("className: S.hourCache")) throw new Error("cache tokens must not use an invisible standalone segment");
 if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entry must derive balance and today usage summary");
 if (!source.includes("className: S.sidebarSummary")) throw new Error("wide sidebar entry must render its summary");
 if (!source.includes("SIDEBAR_POLL_MS_OPEN = 60000") || !source.includes("SIDEBAR_POLL_MS_CLOSED = 300000")) throw new Error("sidebar summary must poll at 60s open / 300s closed");
 if (!source.includes("window.setInterval(loadSummary, pollMs)")) throw new Error("sidebar summary must refresh in the background on an open/closed-aware interval");
 if (!source.includes('usage-stats:limits-updated')) throw new Error("sidebar summary must refresh after limits changes");
+if (!source.includes('usage-stats:accounts-updated')) throw new Error("sidebar summary must refresh after account display toggles change");
+if (!source.includes('display.balance !== false')) throw new Error("sidebar summary must respect the balance display toggle");
+if (!source.includes('display.todayCost !== false')) throw new Error("sidebar summary must respect the today-spend display toggle");
+if (!source.includes('display.statusDot !== false')) throw new Error("sidebar summary must respect the status-dot display toggle");
 if (!source.includes("const [stopOnExceed, setStopOnExceed] = react.useState(false)")) throw new Error("hard stop must default to off in the settings UI");
 if (source.includes("window.confirm(translate(\"limits.stopConfirm\"))")) throw new Error("hard stop must not open a confirmation dialog");
 if (!source.includes('status === "blocked" || status === "exceeded"')) throw new Error("client must map blocked and exceeded through one shared tone helper");
@@ -107,8 +117,8 @@ if (!source.includes(".usg_switch input:checked + .usg_switchSlider{background-c
 if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
 if (!source.includes(".usg_input::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}")) throw new Error("amount inputs must use the native placeholder palette");
 if (!source.includes("const [limitStatusMap, setLimitStatusMap] = react.useState({})")) throw new Error("query panel must load quota indicator statuses");
-if (!source.includes("balanceTone: limitToneOf(activeLimitStatus?.balanceAlertStatus)")) throw new Error("balance card must receive the configured balance indicator tone");
-if (!source.includes('"data-usage-cost-indicator": true')) throw new Error("today spend card must render a configured status indicator");
+if (source.includes('"data-balance-indicator": true')) throw new Error("balance card must not render a status dot");
+if (source.includes('"data-usage-cost-indicator": true')) throw new Error("today spend card must not render a status dot");
 if (!source.includes('summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("sidebar must show balance status dots");
 if (source.includes('!wide && summary.todayStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide today status dot");
 if (source.includes('!wide && summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide balance status dot");
@@ -118,6 +128,44 @@ if (!source.includes("const limitsRef = react.useRef(null)")) throw new Error("l
 const limitsSaveBlock = source.slice(source.indexOf("const handleSave = async"), source.indexOf("const currentStatus ="));
 if (limitsSaveBlock.includes("setLimits(")) throw new Error("save responses must not overwrite the active form fields");
 if (!limitsSaveBlock.includes("limitsRef.current = payload.limits")) throw new Error("save responses must update the latest limits cache");
+if (!source.includes('fetchJson("/api/usage-stats/accounts")')) throw new Error("client must fetch the accounts endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/pricing")')) throw new Error("client must fetch the pricing endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/alerts")')) throw new Error("client must fetch the alerts endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/data")')) throw new Error("client must fetch the data endpoint");
+if (!source.includes("SETTINGS_TABS")) throw new Error("settings page must declare its tab list");
+if (!source.includes('"data-usage-billing-tab": tab.id')) throw new Error("settings tabs must be identifiable per tab");
+if (!source.includes('"data-usage-accounts-card"')) throw new Error("accounts card must be identifiable");
+if (!source.includes('accounts.defaultAccount')) throw new Error("single-key account row must use a friendly label, not the raw credential ref");
+if (!source.includes('singleKey ? translate("accounts.defaultAccount") : key.label')) throw new Error("account row label must switch to a friendly name when only one key is configured");
+if (!source.includes('"data-usage-pricing-card"')) throw new Error("pricing card must be identifiable");
+if (!source.includes('"data-usage-notifications-card"')) throw new Error("notifications card must be identifiable");
+if (!source.includes('"data-usage-data-card"')) throw new Error("data card must be identifiable");
+if (!source.includes('"data.clearConfirmWord"') || !source.includes('"data.clearConfirmBtn"')) throw new Error("data clear must require typed confirmation");
+if (!source.includes('primitives.Modal')) throw new Error("data clear must use a confirmation dialog");
+if (!source.includes('confirmText.trim() === confirmWord')) throw new Error("data clear must gate the confirm button on the typed word");
+if (!source.includes("onClick: handleFork") || !source.includes("onClick: handleRestore")) throw new Error("pricing card must expose fork and restore actions");
+if (!source.includes('colSpan: 3')) throw new Error("pricing table must group peak/off-peak columns under a grouped header");
+if (!source.includes('pricing.colMiss') || !source.includes('pricing.colHit')) throw new Error("pricing table must use concise column labels");
+if (!source.includes('usingCustom ? translate("pricing.edit")')) throw new Error("pricing card must relabel the fork action to Edit when a custom scheme is active");
+if (!source.includes('background:var(--usg-action)')) throw new Error("primary buttons must use the solid action palette");
+if (!source.includes('.usg_btnDanger{background:')) throw new Error("danger buttons must use a solid error fill");
+if (!source.includes("className: S.alertList")) throw new Error("notifications card must render the alert history list");
+if (!source.includes('run("rebuild")') || !source.includes('run("clear")') || !source.includes('run("trim"')) throw new Error("data card must expose rebuild/clear/trim actions");
+// Notification linkage: the sidebar delivers in-page toasts via the native
+// primitive, honors the sidebar channel on the status dot, and polls alerts.
+if (!source.includes('primitives.Toast')) throw new Error("notifications must deliver in-page toasts via the native Toast primitive");
+if (!source.includes('deliverAlerts')) throw new Error("sidebar must deliver new alerts from the alerts poll");
+if (!source.includes('notifications.channels?.sidebar !== false')) throw new Error("sidebar status dot must honor the notification sidebar channel");
+if (!source.includes('fetchJson("/api/usage-stats/alerts")')) throw new Error("sidebar must poll the alerts endpoint for toast delivery");
+// Limits card grouping: daily limit and alert thresholds stay together; balance
+// is its own group with sub-headings.
+if (!source.includes('translate("limits.groupSpend")') || !source.includes('translate("limits.groupBalance")')) throw new Error("limits card must group spend/alert and balance settings");
+if (!source.includes('S.limitSub')) throw new Error("limits card must render group sub-headings");
+// Pricing custom input keeps raw draft strings so decimals are not swallowed.
+if (!source.includes('toNumericModels')) throw new Error("pricing card must convert draft strings to numbers on save");
+if (!source.includes('value: row?.[period]?.[field] ?? ""')) throw new Error("pricing edit inputs must render the raw draft string");
+// Data card must be organized into plain-language groups.
+if (!source.includes('translate("data.overview")') || !source.includes('translate("data.retentionGroup")') || !source.includes('translate("data.dangerGroup")')) throw new Error("data card must use plain-language group headings");
 
 // Render the section in its default (loading) state.
 const { UsageStatsSection, UsageStatsPanel, LimitsCard, UsageBillingSettingsSection } = exports_;
@@ -163,6 +211,34 @@ const multiKeyLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard
 }));
 if (!multiKeyLimitsMarkup.includes("limits.apiKey")) throw new Error("multi-key limits card must render the key picker");
 console.log("multi-key limits card picker ok, length:", multiKeyLimitsMarkup.length);
+
+// Settings page now hosts five tabs: account, limits, pricing, notifications, data.
+const tabsMarkup = renderToStaticMarkup(react.createElement(UsageBillingSettingsSection, { t: (key) => key }));
+for (const tab of ["accounts", "limits", "pricing", "notifications", "data"]) {
+	if (!tabsMarkup.includes(`data-usage-billing-tab="${tab}"`)) throw new Error(`settings tab ${tab} missing`);
+}
+if (!tabsMarkup.includes("data-usage-accounts-card")) throw new Error("settings section must mount the accounts card by default");
+console.log("settings five-tab navigation render ok");
+
+const accountsMarkup = renderToStaticMarkup(react.createElement(exports_.AccountsCard, { keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }], translate: (key) => key }));
+if (!accountsMarkup.includes("data-usage-accounts-card") || !accountsMarkup.includes("accounts.title")) throw new Error("accounts card render missing title/identity");
+if (accountsMarkup.includes("sk-")) throw new Error("accounts card must not embed credentials");
+console.log("accounts card render ok, length:", accountsMarkup.length);
+
+const pricingMarkup = renderToStaticMarkup(react.createElement(exports_.PricingCard, { translate: (key) => key }));
+if (!pricingMarkup.includes("data-usage-pricing-card") || !pricingMarkup.includes("pricing.title")) throw new Error("pricing card render missing title/identity");
+
+console.log("pricing card render ok, length:", pricingMarkup.length);
+
+const notificationsMarkup = renderToStaticMarkup(react.createElement(exports_.NotificationsCard, { translate: (key) => key }));
+if (!notificationsMarkup.includes("data-usage-notifications-card") || !notificationsMarkup.includes("notifications.title")) throw new Error("notifications card render missing title/identity");
+if (!notificationsMarkup.includes("notifications.desc")) throw new Error("notifications card render missing description");
+console.log("notifications card render ok, length:", notificationsMarkup.length);
+
+const dataMarkup = renderToStaticMarkup(react.createElement(exports_.DataCard, { translate: (key) => key }));
+if (!dataMarkup.includes("data-usage-data-card") || !dataMarkup.includes("data.title")) throw new Error("data card render missing title/identity");
+if (!dataMarkup.includes("data.desc")) throw new Error("data card render missing description");
+console.log("data card render ok, length:", dataMarkup.length);
 
 // Apply against a stub client context: one native sidebar footer action and
 // one settings.section entry.

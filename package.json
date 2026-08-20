@@ -29,6 +29,7 @@
     "./client": "./lib/client.js",
     "./usage": "./lib/usage.js",
     "./balance": "./lib/balance.js",
+    "./pricing": "./lib/pricing.js",
     "./ledger": "./lib/ledger.js",
     "./tokenizer": "./lib/tokenizer.js",
     "./package.json": "./package.json"

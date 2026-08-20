@@ -18,8 +18,18 @@ import {
 	KEYS_PATH,
 	BALANCE_PATH,
 	LIMITS_PATH,
+	ACCOUNTS_PATH,
+	PRICING_PATH,
+	ALERTS_PATH,
+	DATA_PATH,
 	migrateCacheV1,
-	renderCombinedUsage
+	renderCombinedUsage,
+	createSettingsService,
+	runtimePricingOf,
+	maxLedgerEntriesOf,
+	trimCache,
+	dataInfoOf,
+	validateSettings
 } from "../lib/index.js";
 import { dayKey, defaultPricing } from "../lib/usage.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -96,12 +106,21 @@ function assert(condition, message) {
 	apply(ctx, {}, {
 		disableBackgroundRefresh: true,
 		balanceService: { refreshAll: async () => [], get: async () => ({}) },
-		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) }
+		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) },
+		settingsService: {
+			load: async () => validateSettings({}),
+			update: async (patch) => validateSettings({ ...validateSettings({}), ...patch }),
+			snapshot: () => validateSettings({})
+		}
 	});
 	const routes = registrations.filter((entry) => entry !== null && typeof entry === "object" && entry.kind === "exact");
-	assert(routes.length === 4, `expected 4 routes, got ${routes.length}`);
+	assert(routes.length === 8, `expected 8 routes, got ${routes.length}`);
 	const paths = routes.map((route) => route.path).sort();
-	assert(paths[0] === BALANCE_PATH && paths[1] === KEYS_PATH && paths[2] === LIMITS_PATH && paths[3] === USAGE_PATH, `routes ${JSON.stringify(paths)}`);
+	assert(
+		paths[0] === ACCOUNTS_PATH && paths[1] === ALERTS_PATH && paths[2] === BALANCE_PATH && paths[3] === DATA_PATH
+		&& paths[4] === KEYS_PATH && paths[5] === LIMITS_PATH && paths[6] === PRICING_PATH && paths[7] === USAGE_PATH,
+		`routes ${JSON.stringify(paths)}`
+	);
 	assert(listeners.has("agent/request"), "agent/request listener registered");
 	assert(listeners.has("llm/stream"), "llm/stream listener registered");
 
@@ -641,6 +660,16 @@ function assert(condition, message) {
 	assert(Number.isFinite(entry.occurredAt) && entry.occurredAt > 0, "ledger entry carries a request start timestamp");
 	assert(Number.isFinite(entry.completedAt) && entry.completedAt >= entry.occurredAt, "ledger entry carries the completion (attribution) timestamp");
 	assert(entry.usage.inputTokens === 100 && entry.usage.outputTokens === 20 && entry.usage.cacheReadTokens === 30, "ledger entry carries the usage chunk");
+	const sessionEventHandler = listeners.get("session/event");
+	assert(typeof sessionEventHandler === "function", "session/event listener registered for finalized usage");
+	await sessionEventHandler({ id: "s1" }, {
+		time: Date.now(), type: "assistant/message", data: {
+			turn: 1, step: 1,
+			message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } },
+			usage: { inputTokens: 120, outputTokens: 25, cacheReadTokens: 40 }
+		}
+	});
+	assert(captured.length === 2 && captured[1].usage.inputTokens === 120, "final assistant/message usage is captured");
 
 	// 无 usage chunk 的流不写账本
 	captured.length = 0;
@@ -727,6 +756,8 @@ function assert(condition, message) {
 		assert(persisted.legacy?.days?.[dayB]?.totals?.inputTokens === 200, "folded c2 tokens appear in legacy.days (Beijing dayB)");
 		assert(persisted.legacy?.days?.[dayA]?.totals?.outputTokens === 10 && persisted.legacy.days[dayB].totals.outputTokens === 20, "folded output tokens preserved");
 		assert(Number.isFinite(persisted.legacy?.updatedAt) && persisted.legacy.updatedAt > 0, "legacy updatedAt stamped after compaction");
+		assert(persisted.legacy?.foldedCount >= 2, `legacy foldedCount stamped: ${persisted.legacy?.foldedCount}`);
+		assert(Number.isFinite(persisted.legacy?.foldedAt) && persisted.legacy.foldedAt > 0, "legacy foldedAt stamped after compaction");
 
 		// 压缩后继续追加不误去重：被折叠进 legacy 的 id 可再次记录。
 		await recordLedgerEntry(ctx, entry("c1", atBeijing(dayA, 18), 7, 0), { maxLedgerEntries: 3 });
@@ -969,6 +1000,154 @@ function assert(condition, message) {
 	assert(balanceBlocked.status === "blocked" && balanceBlocked.blocked === true, "balance below floor must hard-block");
 	assert(balanceBlocked.message.includes("最低余额保障线") && !balanceBlocked.message.includes("严重预警线"), `balance block message must name the balance floor: ${balanceBlocked.message}`);
 	console.log("hard-stop trigger + message accuracy ok");
+}
+
+//#region runtime settings store: validate, merge, persist
+{
+	const saved = [];
+	const service = createSettingsService({
+		ctx: { logger: { warn: () => {} } },
+		config: validateConfig({}),
+		deps: {
+			loadSettings: async () => ({ version: 1, refreshMs: 60000, notifications: { channels: { toast: true } } }),
+			saveSettings: async (next) => { saved.push(next); }
+		}
+	});
+	const loaded = await service.load();
+	assert(loaded.refreshMs === 60000, "settings refreshMs loaded");
+	assert(loaded.display.balance === true && loaded.display.statusDot === true, "display defaults kept");
+	assert(loaded.notifications.channels.toast === true && loaded.notifications.channels.sidebar === true, "notification channels merged");
+	const updated = await service.update({ refreshMs: null, display: { balance: false } });
+	assert(updated.refreshMs === null, "refreshMs can be disabled via null");
+	assert(updated.display.balance === false && updated.display.todayCost === true, "display patch merged, unset fields default");
+	assert(saved.length === 1 && saved[0].refreshMs === null, "update persists via saveSettings");
+	assert(service.snapshot() === updated, "snapshot reflects latest settings");
+	console.log("runtime settings store ok");
+}
+
+//#region runtimePricingOf / maxLedgerEntriesOf resolution order
+{
+	const config = validateConfig({});
+	const customPricing = { currency: "CNY", pricing: { "deepseek-v4-flash": { inputMiss: 9, inputHit: 1, output: 27 } } };
+	const effective = runtimePricingOf(validateSettings({ pricing: customPricing }), config);
+	assert(effective.models?.["deepseek-v4-flash"]?.offPeak?.inputMiss === 9, "custom pricing wins over startup config");
+	assert(runtimePricingOf(validateSettings({}), config) === config.pricing, "no custom pricing falls back to startup config");
+	assert(maxLedgerEntriesOf(validateSettings({ maxLedgerEntries: 800 }), config) === 800, "settings capacity wins");
+	assert(maxLedgerEntriesOf(validateSettings({}), validateConfig({ maxLedgerEntries: 3000 })) === 3000, "config capacity used when settings unset");
+	assert(maxLedgerEntriesOf(validateSettings({}), config) === 5000, "default capacity 5000");
+	console.log("runtime pricing + ledger capacity resolution ok");
+}
+
+//#region data management helpers: info + trim
+{
+	const cache = {
+		legacy: {
+			updatedAt: 1000, foldedAt: 900, foldedCount: 7,
+			days: { "2026-08-01": { totals: { inputTokens: 1 } }, "2026-08-19": { totals: { inputTokens: 2 } } }
+		},
+		ledger: [
+			{ completedAt: Date.UTC(2026, 7, 19, 2, 0, 0), provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 5 } },
+			{ completedAt: Date.UTC(2026, 7, 1, 2, 0, 0), provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 5 } }
+		]
+	};
+	const config = validateConfig({ maxLedgerEntries: 3000 });
+	const info = dataInfoOf(cache, config, validateSettings({}));
+	assert(info.ledgerEntries === 2, "ledger entry count");
+	assert(info.ledgerCapacity === 3000, "capacity from config");
+	assert(info.foldedCount === 7, "folded count surfaced");
+	assert(info.legacyIsEstimated === true, "legacy marked estimated");
+	assert(info.dateRange?.earliest === "2026-08-01" && info.dateRange?.latest === "2026-08-19", "date range computed");
+
+	const now = Date.now();
+	const fresh = { completedAt: now, provider: "p", model: "m", usage: {} };
+	const old = { completedAt: now - 90 * 86400000, provider: "p", model: "m", usage: {} };
+	const trimTarget = {
+		legacy: { updatedAt: 1, days: { [dayKey(now)]: { totals: {} }, [dayKey(now - 40 * 86400000)]: { totals: {} } } },
+		ledger: [fresh, old]
+	};
+	trimCache(trimTarget, 30);
+	assert(trimTarget.ledger.length === 1 && trimTarget.ledger[0] === fresh, "trim drops ledger older than retention");
+	assert(Object.keys(trimTarget.legacy.days).length === 1, "trim drops legacy days older than retention");
+	console.log("data management helpers ok");
+}
+
+//#region trim retention counts whole Beijing days (N=1 keeps only today)
+{
+	// 以北京时间今天 00:00 为基准；昨天 23:59 的请求若用「滚动 24 小时窗口」
+	// 会被误保留，按自然日口径应当删除。
+	const todayStart = Date.parse(`${dayKey(Date.now())}T00:00:00+08:00`);
+	const lateYesterday = todayStart - 60000;
+	const mkTarget = () => ({
+		legacy: { updatedAt: 1, days: { [dayKey(todayStart)]: { totals: {} }, [dayKey(lateYesterday)]: { totals: {} } } },
+		ledger: [
+			{ completedAt: todayStart, provider: "p", model: "m", usage: {} },
+			{ completedAt: lateYesterday, provider: "p", model: "m", usage: {} }
+		]
+	});
+	const one = mkTarget();
+	trimCache(one, 1);
+	assert(one.ledger.length === 1 && one.ledger[0].completedAt === todayStart, `retention=1 keeps only today (got ${one.ledger.length})`);
+	assert(Object.keys(one.legacy.days).length === 1 && Object.keys(one.legacy.days)[0] === dayKey(todayStart), "retention=1 keeps only today's legacy day");
+	const two = mkTarget();
+	trimCache(two, 2);
+	assert(two.ledger.length === 2, `retention=2 keeps today + yesterday (got ${two.ledger.length})`);
+	console.log("trim retention calendar-day semantics ok");
+}
+
+//#region alerts history captured by evaluateAll (dedup + fields)
+{
+	const ctx = { logger: { warn: () => {} } };
+	const config = validateConfig({});
+	const limits = { version: 2, global: { enabled: true, dailyCostLimit: 10, alertPercent: 80, stopOnExceed: false }, keys: {} };
+	const fakeBalance = { cached: () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() }), get: async () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() }) };
+	let now = 1000;
+	const service = createLimitsService({ ctx, config, balanceService: fakeBalance, deps: {
+		loadLimits: async () => limits,
+		collectUsage: async () => ({ days: [{ date: "2026-08-19", cost: 9, models: [] }], total: { cost: 9 } }),
+		todayKey: () => "2026-08-19",
+		now: () => now,
+		settings: { load: async () => validateSettings({}) }
+	} });
+	now = 1000;
+	let evaluated = await service.evaluateAll();
+	assert(evaluated.alerts.length === 1 && evaluated.alerts[0].type === "alert" && evaluated.alerts[0].status === "exceeded", `alert history captures crossing: ${JSON.stringify(evaluated.alerts)}`);
+	assert(evaluated.alerts[0].keyRef !== null && evaluated.alerts[0].message !== "", "alert carries keyRef + message");
+	evaluated = await service.evaluateAll();
+	assert(evaluated.alerts.length === 1, "cooldown dedups repeated evaluations from history");
+	console.log("alerts history ok");
+}
+
+//#region notification policy wiring (settings cooldown + events filter)
+{
+	const ctx = { logger: { warn: () => {} } };
+	const config = validateConfig({});
+	// dailyCostLimit 10, alertPercent 80: cost 8.5 落在 [8, 9) → warning。
+	const limits = { version: 2, global: { enabled: true, dailyCostLimit: 10, alertPercent: 80, criticalPercent: 90, stopOnExceed: false }, keys: {} };
+	const fakeBalance = { cached: () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() }), get: async () => ({ balance: { total: 100 }, status: "ok", fetchedAt: Date.now() }) };
+	let now = 1000;
+	const mkService = (settings) => createLimitsService({ ctx, config, balanceService: fakeBalance, deps: {
+		loadLimits: async () => limits,
+		collectUsage: async () => ({ days: [{ date: "2026-08-19", cost: 8.5, models: [] }], total: { cost: 8.5 } }),
+		todayKey: () => "2026-08-19",
+		now: () => now,
+		settings: { load: async () => settings }
+	} });
+
+	// 冷却时间来自 settings.notifications.cooldownMs（而非限额规则默认 30min）。
+	const shortCooldown = validateSettings({ notifications: { channels: { toast: true }, events: { warning: true, exceeded: true, lowBalance: true, recovery: true }, cooldownMs: 50 } });
+	const svcShort = mkService(shortCooldown);
+	let evaluated = await svcShort.evaluateAll();
+	assert(evaluated.alerts.length === 1 && evaluated.alerts[0].event === "warning", `warning crossing carries event category: ${JSON.stringify(evaluated.alerts)}`);
+	now = 1060;
+	evaluated = await svcShort.evaluateAll();
+	assert(evaluated.alerts.length === 2, `settings cooldown re-emits after window (got ${evaluated.alerts.length})`);
+
+	// events.warning=false 时，warning 跨越不进入告警历史。
+	const noWarning = validateSettings({ notifications: { events: { warning: false, exceeded: true, lowBalance: true, recovery: true } } });
+	const svcNoWarn = mkService(noWarning);
+	evaluated = await svcNoWarn.evaluateAll();
+	assert(evaluated.alerts.length === 0, `events.warning=false suppresses warning alerts: ${JSON.stringify(evaluated.alerts)}`);
+	console.log("notification policy wiring (cooldown + events) ok");
 }
 
 

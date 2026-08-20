@@ -11,7 +11,7 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 | 💳 | DeepSeek 官方余额 | `GET /user/balance`，展示总余额、充值余额、赠送余额，可切换多个 API Key |
 | 🧭 | 独立侧栏入口 | 使用 Harness 原生 `sidebar.footer.action`；宽侧栏直接显示余额与今日消费，点击打开 760px 响应式查询中心 |
 | 🗂️ | 查询中心双标签 | 「概览」：余额卡、四张摘要卡、年度热图、按小时统计；「明细」：模型筛选与按日明细，弹窗内不含任何配置表单 |
-| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，承载限额等配置；弹窗提供「前往设置」链接 |
+| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，含账户与余额 / 预算与限额 / 价格设置 / 通知与提示 / 数据管理五个标签；弹窗提供「前往设置」链接 |
 | 📊 | Token 用量统计 | 今日 / 本月 / 累计 Token，按 `provider/model` 归集，缓存命中率 |
 | 🟩 | 贡献热图 | GitHub Contributions 风格按自然年展示每日 Token 强度，右上角可切换年份 |
 | ⏱️ | 按小时统计 | 选中日期的 24 小时输入/输出柱状图；悬停显示 Token、费用和模型明细，高峰时段自动标注 |
@@ -20,7 +20,7 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 | 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，今日消费**达到每日限额（100%）**或余额跌破保障线时，在 `agent/request` / `llm/stream` 拦截模型调用；临界预警比例只触发红色警告，不拦截 |
 | 🔑 | 按 API Key 统计 | `keyProviders` 把 provider 路由映射到具体 Key，今日消费按 Key 归集、限额按 Key 判定 |
 | 🔄 | 后台监测 | 服务端启动即刷新，之后每 5 分钟更新余额与本地 Token 聚合 |
-| 🔒 | 本机安全边界 | 端点仅接受回环请求（GET / limits 支持 POST）；API Key 只在服务端解析，绝不进入浏览器或日志 |
+| 🔒 | 本机安全边界 | 端点仅接受回环请求（`usage`/`keys`/`balance` 仅 GET，`limits`/`accounts`/`pricing`/`alerts`/`data` 支持 GET/POST）；API Key 只在服务端解析，绝不进入浏览器或日志 |
 
 界面支持中文和英文。Token 数据来自会话事件中的 provider-reported `usage`（`assistant/chunk` 或 `assistant/message`），不是本地估算；「消费金额」是根据模型单价 × Token 数计算的**估算值**，请以 DeepSeek 官方账单为准。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
 
@@ -178,11 +178,13 @@ npm run tokens -- \
 
 也可通过环境变量 `DEEPSEEK_TOKENIZER_DIR` 指定目录，或从 stdin 输入文本。该实现使用 Hugging Face 的 `@huggingface/tokenizers` 直接读取官方文件，不需要 Python `transformers`。
 
+> 注意：`npm run tokens` 属于开发/诊断工具，`scripts/` 不随 npm 包发布，该命令仅在**源码仓库 checkout** 下可用；通过 npm 安装的插件包不含此 CLI。
+
 ## 数据与隐私 / Privacy
 
 - API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。
-- 端点仅接受回环地址请求（peer socket 校验 + Host 二次校验）；`usage` / `keys` / `balance` 仅 GET，`limits` 支持 GET/POST（本机设置写入）。非允许方法返回 405，非回环返回 403。
-- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 occurredAt、完成时间 completedAt、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，缺失时回退发起时间，流结束后立即原子落盘）和 **legacy 快照**（切换前或账本截断时折叠的历史聚合，无请求时间明细、费用按当前价格估算，展示时保留但不伪装精确账单）；账本设有上限——条目超过 5000 条时最旧的条目折叠进 legacy 快照并截断账本，不会无限增长。不保存提示词、回复或文件路径。限额配置 `~/.dsh/storages/usage-limits.json` 只保存限额数值与开关。
+- 端点仅接受回环地址请求（peer socket 校验 + Host 二次校验）；`usage` / `keys` / `balance` 仅 GET，`limits` / `accounts` / `pricing` / `alerts` / `data` 支持 GET/POST（本机设置写入）。非允许方法返回 405，非回环返回 403。
+- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 occurredAt、完成时间 completedAt、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，缺失时回退发起时间，流结束后立即原子落盘）和 **legacy 快照**（切换前或账本截断时折叠的历史聚合，无请求时间明细、费用按当前价格估算，展示时保留但不伪装精确账单）；账本设有上限（默认 5000 条，可在「设置 → 用量与计费 → 数据管理」配置），条目超过上限时最旧的条目折叠进 legacy 快照并截断账本，不会无限增长；折叠后的历史降级为估算口径。不保存提示词、回复或文件路径。限额配置 `~/.dsh/storages/usage-limits.json` 只保存限额数值与开关。
 - 本机反向代理会让插件看到代理自身的回环地址；请勿把端点经反向代理暴露到局域网或公网。
 
 ## API
@@ -194,6 +196,14 @@ npm run tokens -- \
 | `GET` | `/api/usage-stats/balance?key=<ref>&refresh=1` | 所选 Key 的 DeepSeek 官方余额快照 |
 | `GET` | `/api/usage-stats/limits` | v2 限额配置 + 每个 Key 的统一实时状态及告警跨越/冷却/恢复元数据 |
 | `POST` | `/api/usage-stats/limits` | 保存限额配置（本机回环），返回最新状态 |
+| `GET` | `/api/usage-stats/accounts` | 各 Key 的余额快照状态 + 刷新周期与侧栏展示开关 |
+| `POST` | `/api/usage-stats/accounts` | 保存刷新周期与侧栏展示开关（本机回环） |
+| `GET` | `/api/usage-stats/pricing` | 当前价格方案 + 官方只读基线（含核对时间、来源 URL） |
+| `POST` | `/api/usage-stats/pricing` | 保存自定义方案（`mode=custom`）或恢复官方（`action=restore`） |
+| `GET` | `/api/usage-stats/alerts` | 告警历史 + 通知策略（通道/事件/冷却） |
+| `POST` | `/api/usage-stats/alerts` | 保存通知策略（本机回环） |
+| `GET` | `/api/usage-stats/data` | 本地聚合元信息（账本条目、上限、日期范围、折叠计数） |
+| `POST` | `/api/usage-stats/data` | 执行 `rebuild` / `trim`（保留天数）/ `clear`（二次确认） |
 
 ## 开发与验证 / Development
 
