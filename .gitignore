@@ -4,3 +4,4 @@ node_modules/
 .aitasks/
 .dsh-vision-toolkit/
 .npm-token
+.claude
