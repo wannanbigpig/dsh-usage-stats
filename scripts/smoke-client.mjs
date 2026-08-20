@@ -59,7 +59,9 @@ if (typeof exports_.AccountsCard !== "function") throw new Error("missing Accoun
 if (typeof exports_.PricingCard !== "function") throw new Error("missing PricingCard export");
 if (typeof exports_.NotificationsCard !== "function") throw new Error("missing NotificationsCard export");
 if (typeof exports_.DataCard !== "function") throw new Error("missing DataCard export");
-if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 5) throw new Error("SETTINGS_TABS must declare five settings tabs");
+if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 6) throw new Error("SETTINGS_TABS must declare six settings tabs");
+if (typeof exports_.ConversationCard !== "function") throw new Error("missing ConversationCard export");
+if (typeof exports_.CompactConversationController !== "function") throw new Error("missing CompactConversationController export");
 
 // Regression: never locate Settings with a broad substring selector. In the
 // plugin settings page, the Shell card has aria-label="展开设置: 终端" and was
@@ -68,10 +70,11 @@ if (source.includes('button[aria-label*="设置"') || source.includes('button[ti
 	throw new Error("client must not use broad Settings substring selectors");
 }
 if (!source.includes("@keyframes usg_spin")) throw new Error("refresh button must define a spin animation");
-if (!source.includes(".usg_refreshButton{width:30px;height:30px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a large borderless glyph");
+if (!source.includes(".usg_refreshButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a compact borderless glyph");
 if (!source.includes(".usg_refreshGlyph")) throw new Error("refresh glyph must receive the spin animation");
 if (!source.includes('react_jsx_runtime.jsxs("svg"')) throw new Error("refresh button must use SVG icon for reliable rotation");
-if (!source.includes(".usg_hourTooltipHead{flex-direction:column")) throw new Error("tooltip head must stack time and amount vertically");
+if (!source.includes(".usg_hourTooltipHead{justify-content:space-between")) throw new Error("tooltip head must lay time and amount on one row");
+if (!source.includes(".usg_hourTooltipAmount")) throw new Error("tooltip head must wrap the amount in a dedicated span");
 if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
 if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
 if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");
@@ -220,13 +223,13 @@ const multiKeyLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard
 if (!multiKeyLimitsMarkup.includes("limits.apiKey")) throw new Error("multi-key limits card must render the key picker");
 console.log("multi-key limits card picker ok, length:", multiKeyLimitsMarkup.length);
 
-// Settings page now hosts five tabs: account, limits, pricing, notifications, data.
+// Settings page now hosts six tabs: account, limits, pricing, notifications, conversation, data.
 const tabsMarkup = renderToStaticMarkup(react.createElement(UsageBillingSettingsSection, { t: (key) => key }));
-for (const tab of ["accounts", "limits", "pricing", "notifications", "data"]) {
+for (const tab of ["accounts", "limits", "pricing", "notifications", "conversation", "data"]) {
 	if (!tabsMarkup.includes(`data-usage-billing-tab="${tab}"`)) throw new Error(`settings tab ${tab} missing`);
 }
 if (!tabsMarkup.includes("data-usage-accounts-card")) throw new Error("settings section must mount the accounts card by default");
-console.log("settings five-tab navigation render ok");
+console.log("settings six-tab navigation render ok");
 
 const accountsMarkup = renderToStaticMarkup(react.createElement(exports_.AccountsCard, { keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }], translate: (key) => key }));
 if (!accountsMarkup.includes("data-usage-accounts-card") || !accountsMarkup.includes("accounts.title")) throw new Error("accounts card render missing title/identity");
@@ -248,6 +251,12 @@ if (!dataMarkup.includes("data-usage-data-card") || !dataMarkup.includes("data.t
 if (!dataMarkup.includes("data.desc")) throw new Error("data card render missing description");
 console.log("data card render ok, length:", dataMarkup.length);
 
+const conversationMarkup = renderToStaticMarkup(react.createElement(exports_.ConversationCard, { translate: (key) => key, conversation: { enabled: true, showTokenUsage: true }, onConversationUpdated: () => {} }));
+if (!conversationMarkup.includes("data-usage-conversation-card") || !conversationMarkup.includes("conversation.title")) throw new Error("conversation card render missing title/identity");
+if (!conversationMarkup.includes("conversation.enable")) throw new Error("conversation card render missing enable toggle");
+if (!conversationMarkup.includes("conversation.showTokenUsage")) throw new Error("conversation card render missing token usage toggle");
+console.log("conversation card render ok, length:", conversationMarkup.length);
+
 // Apply against a stub client context: one native sidebar footer action and
 // one settings.section entry.
 const registrations = [];
@@ -267,9 +276,9 @@ const ctx = {
 	}
 };
 exports_.apply(ctx);
-if (registrations.length !== 2) throw new Error(`expected two slot injections, got ${registrations.length}`);
+if (registrations.length !== 3) throw new Error(`expected three slot injections, got ${registrations.length}`);
 const slotNames = registrations.map(([slot]) => slot).sort();
-if (slotNames[0] !== "settings.section" || slotNames[1] !== "sidebar.footer.action") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
+if (slotNames[0] !== "conversation.session.header.actions" || slotNames[1] !== "settings.section" || slotNames[2] !== "sidebar.footer.action") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
 const footerEntry = registrations.find(([slot]) => slot === "sidebar.footer.action");
 const footerDisposer = footerEntry[1]();
 if (typeof footerDisposer !== "function") throw new Error("footer slot registration must return a disposer");
@@ -282,6 +291,13 @@ if (sectionReg.options.id !== "usage-stats") throw new Error(`settings.section i
 if (typeof sectionReg.options.label !== "function" || typeof sectionReg.options.label() !== "string") throw new Error("settings.section must carry a resolving label thunk");
 if (typeof sectionReg.component !== "function") throw new Error("settings.section must mount a component");
 if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.footer.action")?.component !== "function") throw new Error("sidebar.footer.action must mount a component");
+const compactEntry = registrations.find(([slot]) => slot === "conversation.session.header.actions");
+const compactDisposer = compactEntry[1]();
+if (typeof compactDisposer !== "function") throw new Error("compact conversation slot registration must return a disposer");
+const compactReg = registeredOptions.find((entry) => entry.options?.name === "conversation.session.header.actions");
+if (compactReg === void 0) throw new Error("conversation.session.header.actions registration missing");
+if (compactReg.options.id !== "usage-stats-compact-conversation") throw new Error(`compact conversation id ${compactReg.options.id}`);
+if (typeof compactReg.component !== "function") throw new Error("compact conversation must mount a component");
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.

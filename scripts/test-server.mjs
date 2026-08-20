@@ -1029,12 +1029,81 @@ function assert(condition, message) {
 	assert(loaded.refreshMs === 60000, "settings refreshMs loaded");
 	assert(loaded.display.balance === true && loaded.display.statusDot === true, "display defaults kept");
 	assert(loaded.notifications.channels.toast === true && loaded.notifications.channels.sidebar === true, "notification channels merged");
+	assert(loaded.conversation.enabled === true && loaded.conversation.showTokenUsage === true, "conversation defaults enabled");
+	const explicitConversation = validateSettings({ conversation: { enabled: false, showTokenUsage: false } });
+	assert(explicitConversation.conversation.enabled === false && explicitConversation.conversation.showTokenUsage === false, "conversation accepts explicit boolean values");
+	const partialConversation = validateSettings({ conversation: { enabled: false } });
+	assert(partialConversation.conversation.enabled === false && partialConversation.conversation.showTokenUsage === true, "conversation partial validation restores the omitted default");
+	const invalidConversation = validateSettings({ conversation: { enabled: "false", showTokenUsage: 0 } });
+	assert(invalidConversation.conversation.enabled === true && invalidConversation.conversation.showTokenUsage === true, "conversation rejects non-boolean values");
 	const updated = await service.update({ refreshMs: null, display: { balance: false } });
 	assert(updated.refreshMs === null, "refreshMs can be disabled via null");
 	assert(updated.display.balance === false && updated.display.todayCost === true, "display patch merged, unset fields default");
 	assert(saved.length === 1 && saved[0].refreshMs === null, "update persists via saveSettings");
-	assert(service.snapshot() === updated, "snapshot reflects latest settings");
+	const conversationUpdated = await service.update({ conversation: { enabled: false, showTokenUsage: false } });
+	assert(conversationUpdated.conversation.enabled === false && conversationUpdated.conversation.showTokenUsage === false, "conversation update persists both switches");
+	const conversationPatched = await service.update({ conversation: { enabled: true } });
+	assert(conversationPatched.conversation.enabled === true && conversationPatched.conversation.showTokenUsage === false, "conversation partial update preserves the other switch");
+	assert(saved.length === 3 && saved[2].conversation.showTokenUsage === false, "conversation updates persist through saveSettings");
+	assert(service.snapshot() === conversationPatched, "snapshot reflects latest settings");
 	console.log("runtime settings store ok");
+}
+
+//#region accounts settings API: conversation response, partial update and payload validation
+{
+	const registrations = [];
+	const ctx = {
+		logger: { warn: () => {} },
+		get: () => void 0,
+		effect: (fn) => { fn(); },
+		webServer: { register: (route) => { registrations.push(route); } }
+	};
+	let saved = null;
+	const settingsService = createSettingsService({
+		ctx,
+		config: validateConfig({}),
+		deps: {
+			loadSettings: async () => ({ conversation: { enabled: true, showTokenUsage: false } }),
+			saveSettings: async (next) => { saved = next; }
+		}
+	});
+	apply(ctx, {}, {
+		disableBackgroundRefresh: true,
+		balanceService: { refreshAll: async () => [], get: async () => ({}), cached: () => null },
+		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) },
+		settingsService
+	});
+	const accountsRoute = registrations.find((route) => route?.path === ACCOUNTS_PATH);
+	assert(accountsRoute?.kind === "exact", "accounts settings route is registered");
+	function request(method, body) {
+		return { method, body, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } };
+	}
+	function response() {
+		return {
+			status: null,
+			headers: null,
+			body: "",
+			writeHead(status, headers) { this.status = status; this.headers = headers; },
+			end(body) { this.body = body ?? ""; }
+		};
+	}
+	const getResponse = response();
+	await accountsRoute.handler(request("GET"), getResponse);
+	const getPayload = JSON.parse(getResponse.body);
+	assert(getResponse.status === 200 && getPayload.settings?.conversation?.enabled === true && getPayload.settings?.conversation?.showTokenUsage === false, "accounts GET returns conversation settings");
+
+	const postResponse = response();
+	await accountsRoute.handler(request("POST", { conversation: { enabled: false, showTokenUsage: true } }), postResponse);
+	const postPayload = JSON.parse(postResponse.body);
+	assert(postResponse.status === 200 && postPayload.ok === true, "accounts POST accepts conversation settings");
+	assert(postPayload.settings?.conversation?.enabled === false && postPayload.settings?.conversation?.showTokenUsage === true, "accounts POST returns updated conversation settings");
+	assert(saved?.conversation?.enabled === false && saved?.conversation?.showTokenUsage === true, "accounts POST persists conversation settings");
+
+	const invalidResponse = response();
+	await accountsRoute.handler(request("POST", { conversation: { enabled: "false" } }), invalidResponse);
+	const invalidPayload = JSON.parse(invalidResponse.body);
+	assert(invalidResponse.status === 400 && invalidPayload.error === "invalid-payload", "accounts POST rejects non-boolean conversation values");
+	console.log("accounts conversation settings API ok");
 }
 
 //#region runtimePricingOf / maxLedgerEntriesOf resolution order
