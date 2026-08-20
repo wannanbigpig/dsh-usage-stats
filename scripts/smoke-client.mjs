@@ -67,8 +67,16 @@ if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 
 if (source.includes('button[aria-label*="设置"') || source.includes('button[title*="设置"')) {
 	throw new Error("client must not use broad Settings substring selectors");
 }
-if (!source.includes('"data-loading": accountLoading')) throw new Error("balance refresh button must expose its loading state");
-if (!source.includes("@keyframes usg_spin")) throw new Error("balance refresh button must define a spin animation");
+if (!source.includes("@keyframes usg_spin")) throw new Error("refresh button must define a spin animation");
+if (!source.includes(".usg_refreshButton{width:30px;height:30px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a large borderless glyph");
+if (!source.includes(".usg_refreshGlyph")) throw new Error("refresh glyph must receive the spin animation");
+if (!source.includes('react_jsx_runtime.jsxs("svg"')) throw new Error("refresh button must use SVG icon for reliable rotation");
+if (!source.includes(".usg_hourTooltipHead{flex-direction:column")) throw new Error("tooltip head must stack time and amount vertically");
+if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
+if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
+if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");
+if (!source.includes("className: S.hourControls")) throw new Error("hourly range selector must share the header controls with date navigation");
+if (!source.includes(".usg_hourRangeSelect{height:28px;color:var(--dsw-alias-label-secondary);background:transparent;border:0")) throw new Error("hourly range selector must not render a white bordered field");
 if (!source.includes('"aria-label": translate("usage.year")')) throw new Error("heatmap must expose a year selector");
 if (!source.includes("width:10px;height:10px")) throw new Error("heatmap must use compact square day cells");
 if (!source.includes(".usg_hourTooltip{")) throw new Error("hourly chart must define an interactive tooltip");
@@ -277,7 +285,7 @@ if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.fo
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.
-const { filterDay, summarize, modelChoicesOf, recentDays, isPeak, fmtMoney, fmt, sidebarSummaryOf } = exports_;
+const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, fmtMoney, fmt, sidebarSummaryOf } = exports_;
 
 // Build dates relative to today so the 14-day window assertions hold on any day.
 const d0 = new Date();
@@ -285,6 +293,10 @@ const d1 = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() - 1);
 const keyOf = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const TODAY_KEY = keyOf(d0);
 const YESTERDAY_KEY = keyOf(d1);
+
+if (activeDayKeyOf("yesterday", null, TODAY_KEY) !== YESTERDAY_KEY) throw new Error("yesterday range must resolve to yesterday's active chart day");
+if (activeDayKeyOf("today", null, TODAY_KEY) !== TODAY_KEY) throw new Error("today range must resolve to today's active chart day");
+if (activeDayKeyOf("custom", "2026-08-19", TODAY_KEY) !== "2026-08-19") throw new Error("custom range must retain its selected day");
 
 const wireDay = {
 	date: TODAY_KEY,
@@ -410,6 +422,25 @@ console.log("data helpers ok");
 	if (!todayHeatMarkup.includes("usg_heatCellToday")) throw new Error("heatmap must highlight the server-provided today cell");
 	if (todayHeatMarkup.includes("usg_heatCellSelected")) throw new Error("heatmap today highlight must not imply a selected day");
 	console.log("contribution heatmap helpers ok");
+}
+
+//#region provider-grouped model breakdown
+{
+	const { providerOf, groupModelsByProvider } = exports_;
+	if (!source.includes('S.providerGroup')) throw new Error("DayDetail must group models by provider");
+	if (!source.includes('usage.providerDeepseek')) throw new Error("DayDetail must label the official DeepSeek provider");
+	if (!source.includes('usage.notBilled')) throw new Error("DayDetail must mark non-billed providers");
+	const grouped = groupModelsByProvider([
+		{ model: "deepseek-official/deepseek-v4-flash", tokens: 100, cost: 4.0 },
+		{ model: "zai-coding-cn/glm-5.2", tokens: 900, cost: null }
+	]);
+	if (grouped.length !== 2) throw new Error("groupModelsByProvider must split by provider");
+	const deepseek = grouped.find((group) => group.provider === "deepseek-official");
+	const glm = grouped.find((group) => group.provider === "zai-coding-cn");
+	if (deepseek === void 0 || deepseek.tokens !== 100) throw new Error("deepseek group must sum its tokens");
+	if (glm === void 0 || glm.tokens !== 900) throw new Error("glm group must sum its tokens");
+	if (providerOf("deepseek-official/deepseek-v4-flash") !== "deepseek-official") throw new Error("providerOf must split the provider part");
+	console.log("provider-grouped model breakdown ok");
 }
 //#endregion
 

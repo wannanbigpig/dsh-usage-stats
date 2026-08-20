@@ -15,14 +15,14 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 | 📊 | Token 用量统计 | 今日 / 本月 / 累计 Token，按 `provider/model` 归集，缓存命中率 |
 | 🟩 | 贡献热图 | GitHub Contributions 风格按自然年展示每日 Token 强度，右上角可切换年份 |
 | ⏱️ | 按小时统计 | 选中日期的 24 小时输入/输出柱状图；悬停显示 Token、费用和模型明细，高峰时段自动标注 |
-| 💰 | 消费金额 | 估算消费（CNY，可配置模型单价）；费用按**请求完成时间（usage 上报时间）**归属小时与峰谷，与 DeepSeek 官方账单口径一致 |
+| 💰 | 消费金额 | 仅估算 `deepseek-official` 的消费（CNY）；其他供应商保留 Token 明细但不计费。费用按**请求完成时间（usage 上报时间）**归属小时与峰谷 |
 | ⚠️ | 用量提醒与限额 | 每日消费限额 + 最低余额保障 + 预警百分比，**按 API Key 独立配置** |
-| 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，今日消费**达到每日限额（100%）**或余额跌破保障线时，在 `agent/request` / `llm/stream` 拦截模型调用；临界预警比例只触发红色警告，不拦截 |
-| 🔑 | 按 API Key 统计 | `keyProviders` 把 provider 路由映射到具体 Key，今日消费按 Key 归集、限额按 Key 判定 |
+| 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，官方今日消费**达到每日限额（100%）**或余额跌破保障线时，在 `llm/stream` 拦截官方模型调用；临界预警比例只触发红色警告，不拦截 |
+| 🔑 | 按 API Key 统计 | `keyProviders` 将 `deepseek-official` 路由映射到具体 Key，官方今日消费按 Key 归集、限额按 Key 判定 |
 | 🔄 | 后台监测 | 服务端启动即刷新，之后每 5 分钟更新余额与本地 Token 聚合 |
 | 🔒 | 本机安全边界 | 端点仅接受回环请求（`usage`/`keys`/`balance` 仅 GET，`limits`/`accounts`/`pricing`/`alerts`/`data` 支持 GET/POST）；API Key 只在服务端解析，绝不进入浏览器或日志 |
 
-界面支持中文和英文。Token 数据来自会话事件中的 provider-reported `usage`（`assistant/chunk` 或 `assistant/message`），不是本地估算；「消费金额」是根据模型单价 × Token 数计算的**估算值**，请以 DeepSeek 官方账单为准。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
+界面支持中文和英文。Token 数据来自会话事件中的 provider-reported `usage`（`assistant/chunk` 或 `assistant/message`），不是本地估算；全部供应商按 `provider/model` 分组保存。当前「消费金额」、余额与限额只适用于 `deepseek-official`；外部供应商显示 Token-only，不会使官方今日消费变为空值或触发官方限额。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
 
 ## 界面预览 / Screenshots
 
@@ -92,7 +92,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
           - DEEPSEEK_API_KEY_2   # 第二个账号的凭据引用
 ```
 
-浮层顶部的余额卡片会显示「API Key」下拉框，可在多个 Key 之间切换（余额按所选 Key 查询）。Token 统计来自本机会话日志，日志不记录「用哪个 Key」，但记录 provider 路由 —— 配置 `keyProviders` 后，今日消费会按 Key 精确归集，限额也按 Key 判定（见下）。
+浮层顶部的余额卡片会显示「API Key」下拉框，可在多个 Key 之间切换（余额按所选 Key 查询）。Token 统计来自本机会话日志，日志不记录「用哪个 Key」，但记录 provider 路由；当前只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额（见下）。
 
 ## 配置 / Configuration
 
@@ -104,7 +104,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 | `defaultKeyRef` | `string` | `DEEPSEEK_API_KEY` | 默认选中的 Key |
 | `baseURL` | `string` | `https://api.deepseek.com` | DeepSeek API 地址（`/user/balance` 相对此地址） |
 | `refreshMs` | `number` | `300000` | 余额与用量后台刷新间隔（毫秒，最小 5000） |
-| `pricing.pricing` | `object` | 见下 | 模型单价（CNY / 1M tokens）覆盖 |
+| `pricing.pricing` | `object` | 见下 | `deepseek-official` 模型单价（CNY / 1M tokens）覆盖 |
 | `pricing.peakMultiplier` | `number` | `2` | 官方高峰时段价格为空闲时段的 2 倍 |
 | `pricing.peakHours` | `[start,end)[]` | `[[9,12],[14,18]]` | 官方高峰时段，北京时间 09:00–12:00、14:00–18:00 |
 | `pricing.currency` | `string` | `CNY` | 消费金额显示货币；与 DeepSeek 中国区余额默认币种保持一致 |
@@ -113,7 +113,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 
 ### 按 API Key 统计（keyProviders）
 
-会话日志不记录「用哪个 API Key」，但每个请求都记录 provider 路由。把 provider 映射到对应的 Key，插件就能把今日消费精确归集到每个 Key，并按 Key 执行限额：
+会话日志不记录「用哪个 API Key」，但每个请求都记录 provider 路由。当前只有 `deepseek-official` 路由参与 DeepSeek 消费归集和限额；外部 provider 的映射不会让其 Token 变为 DeepSeek 消费：
 
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
@@ -125,11 +125,10 @@ DEEPSEEK_API_KEY: sk-your-key-here
           - DEEPSEEK_API_KEY
           - DEEPSEEK_API_KEY_2
         keyProviders:
-          DEEPSEEK_API_KEY: [deepseek-official, vision-toolkit-deepseek-official]
-          DEEPSEEK_API_KEY_2: [my-relay]        # 你在设置页配置的第二个 provider id
+          DEEPSEEK_API_KEY: [deepseek-official]
 ```
 
-未在映射中的 provider 归到 `defaultKeyRef`。**未配置 `keyProviders` 时**，所有 Key 共享全局今日消费（此时每个 Key 的每日限额按总额判定）。余额始终按所选 Key 单独查询。
+未映射的 `deepseek-official` 消费归到 `defaultKeyRef`。**未配置 `keyProviders` 时**，所有 Key 共享官方全局今日消费（此时每个 Key 的每日限额按该金额判定）。余额始终按所选 Key 单独查询。
 
 ### 用量提醒与限额（设置 → 用量与计费）
 
@@ -139,11 +138,11 @@ DEEPSEEK_API_KEY: sk-your-key-here
 - **每日消费限额**（CNY）：今日估算消费达到限额 × `alertPercent`（默认 80%）→ 黄色预警；达到限额 × `criticalPercent`（默认 90%）→ 红色已超限（仅提醒与告警，不拦截）；两个比例都可在设置页调整。
 - **余额提醒线**：新鲜余额低于该值 → 预警；余额过期或查询失败时显示灰色状态且 fail-open。
 - **预警百分比**：50% / 70% / 80% / 90% / 95%。
-- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，今日消费**达到每日限额（100%）**或余额跌破最低余额保障线时，在 `agent/request` 与 `llm/stream` 拦截新的模型调用（抛出 `UsageLimitExceededError`，消息会提示去调整限额）；临界预警（默认 90%）只显示红色已超限并触发告警，不拦截。余额查询失败或快照过期时，最低余额规则 fail-open，不会阻断调用。
+- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费**达到每日限额（100%）**或余额跌破最低余额保障线时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`，消息会提示去调整限额）；临界预警（默认 90%）只显示红色已超限并触发告警，不拦截。余额查询失败或快照过期时，最低余额规则 fail-open，不会阻断调用。
 
 限额保存在 `~/.dsh/storages/usage-limits.json`，当前 schema 为 v2。旧 v1 文件会安全迁移：保留提醒规则，但不会自动继承旧 `stopOnExceed` / `minBalance` 为硬停止；用户需在设置页重新确认开启。v2 会拒绝未知配置字段。**规则解析采用全局兜底**：某个 Key 未设置数值（或仅有空壳规则）时，沿用全局限额；Key 设置了数值则覆盖全局、未设置的字段继续继承全局，因此全局限额始终是底线，不会被空壳 Key 规则静默绕过。拦截采用 **fail-open** 策略：限额检查本身出错时放行调用，绝不因插件故障阻塞模型。
 
-状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`（`unpriced`：当日用量含未定价模型，消费金额不可靠，日限额不参与拦截且 fail-open；硬停止消息会点名真实触发原因——达到 100% 每日限额或余额跌破保障线，而非 90% 预警文案）。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件，避免每次轮询或模型请求重复提醒。
+状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`（`unpriced`：当日出现未定价的**官方**模型，消费金额不可靠，日限额不参与拦截且 fail-open；外部 Token-only 模型不触发此状态。硬停止消息会点名真实触发原因——达到 100% 每日限额或余额跌破保障线，而非 90% 预警文案）。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件，避免每次轮询或模型请求重复提醒。
 
 默认单价（CNY / 1M tokens，严格对应 DeepSeek 官方中文价格页，2026-08）：
 
@@ -153,7 +152,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 | `deepseek-v4-pro` | 0.15 | 0.30 | 4.5 | 9 | 13.5 | 27 |
 | 未配置模型 | — | — | — | — | — | — |
 
-高峰时段为北京时间 09:00–12:00、14:00–18:00，其余为空闲时段；高峰单价为空闲单价的 2 倍。未识别模型仍显示 Token，但费用显示 `—`，不会静默套用其他模型价格。官方价格可能调整，请定期对照 <https://api-docs.deepseek.com/zh-cn/quick_start/pricing/>；可在 `pricing.pricing` 中按模型 id 覆盖。
+高峰时段为北京时间 09:00–12:00、14:00–18:00，其余为空闲时段；高峰单价为空闲单价的 2 倍。未识别的官方模型与所有外部供应商均显示 Token；费用显示 `—`，不会静默套用其他模型价格。官方价格可能调整，请定期对照 <https://api-docs.deepseek.com/zh-cn/quick_start/pricing/>；可在 `pricing.pricing` 中按模型 id 覆盖。
 
 ## 使用 / Usage
 

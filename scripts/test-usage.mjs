@@ -142,6 +142,8 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(priceOf("deepseek-official/unknown-model", pricing) === null, "unknown model must remain unpriced");
 	assert(priceOf("x/y", {}) === null, "empty config must not guess a model price");
 	assert(costOf("deepseek-official/unknown-model", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing) === null, "unknown model cost must be null");
+	assert(costOf("external-relay/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing) === null,
+		"a DeepSeek-named model served by a non-official provider must remain token-only");
 	// 1M input (miss) + 1M output at flash idle time: ¥1.5 + ¥4.5 = ¥6
 	const cost = costOf("deepseek-official/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing);
 	assert(Math.abs(cost - 6) < 1e-9, `flash cost ${cost}`);
@@ -164,6 +166,26 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(unpriced.days[0].hours[3].cost === null && unpriced.days[0].cost === null, "unpriced hour/day cost must be null");
 	assert(unpriced.total.cost === null, "unpriced total cost must be null");
 	console.log("pricing + cost math ok");
+}
+
+//#region non-official providers are token-only (never blank the official cost)
+{
+	const pricing = defaultPricing();
+	const events = [
+		assistantMessage(1, beijingTime(2026, 7, 20, 10), 1, 1, "deepseek-v4-flash", { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0 }),
+		sampleEvent(2, beijingTime(2026, 7, 20, 10, 5), "assistant/message", {
+			turn: 1,
+			step: 2,
+			message: { role: "assistant", content: [], source: { kind: "model", provider: "zai-coding-cn", model: "glm-5.2" } },
+			usage: { inputTokens: 900, outputTokens: 10, cacheReadTokens: 0 }
+		})
+	];
+	const mixed = renderUsage(foldUsage(events), 123, pricing);
+	const day = mixed.days[0];
+	assert(day.cost !== null && day.cost > 0, "non-official provider must not blank the official day cost");
+	assert(day.models.some((model) => model.model === "zai-coding-cn/glm-5.2" && model.cost === null), "non-official provider model stays token-only");
+	assert(day.models.some((model) => model.model === "deepseek-official/deepseek-v4-flash" && model.cost !== null), "official model is priced");
+	console.log("non-official provider token-only ok");
 }
 
 //#region ledger projection preserves official same turn/step last-wins semantics

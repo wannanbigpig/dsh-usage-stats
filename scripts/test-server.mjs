@@ -156,6 +156,7 @@ function assert(condition, message) {
 	const registrations = [];
 	const listeners = new Map();
 	let pendingCheck = { exceeded: false, stopOnExceed: true, message: "" };
+	let checkCalls = 0;
 	const ctx = {
 		logger: { warn: () => {} },
 		get: () => void 0,
@@ -171,6 +172,7 @@ function assert(condition, message) {
 		balanceService: { refreshAll: async () => [], get: async () => ({}) },
 		limitsService: {
 			check: async () => {
+				checkCalls += 1;
 				if (pendingCheck instanceof Error) throw pendingCheck;
 				return pendingCheck;
 			}
@@ -182,11 +184,26 @@ function assert(condition, message) {
 	}
 	const streamHandler = listeners.get("llm/stream");
 	const requestHandler = listeners.get("agent/request");
+	// Provider identity is unavailable in agent/request payloads and must be
+	// enforced only once the final llm/stream route is known.
+	pendingCheck = { status: "blocked", blocked: true, reason: "daily_cost", message: "今日消费已超限" };
+	checkCalls = 0;
+	const lateBoundRequest = await requestHandler({}, () => ({ provider: "deepseek-official", model: "deepseek-v4-flash" }));
+	assert(lateBoundRequest?.provider === "deepseek-official", "agent/request must not enforce a quota before the resolved provider is available");
+	assert(checkCalls === 0, "agent/request must not call quota checks without a resolved provider route");
+
+	// Non-official providers are token-only for now: an official quota must
+	// neither evaluate nor block their calls.
+	checkCalls = 0;
+	let externalPassed = false;
+	for await (const chunk of streamHandler({ provider: "external-relay", model: "deepseek-v4-flash" }, () => downstream())) externalPassed ||= chunk === "chunk-1";
+	assert(externalPassed, "non-official llm/stream must remain pass-through when the official quota is blocked");
+	assert(checkCalls === 0, "non-official llm/stream must not evaluate DeepSeek quota or balance");
 
 	// Historical stopOnExceed responses must not block calls anymore.
 	pendingCheck = { exceeded: true, stopOnExceed: true, message: "今日消费已超限" };
 	let passed = false;
-	for await (const chunk of streamHandler({}, () => downstream())) passed ||= chunk === "chunk-1";
+	for await (const chunk of streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstream())) passed ||= chunk === "chunk-1";
 	assert(passed, "llm/stream must remain pass-through when historical stopOnExceed is true");
 	const requestResult = await requestHandler({}, () => ({ ok: true }));
 	assert(requestResult?.ok === true, "agent/request must remain pass-through when historical stopOnExceed is true");
@@ -195,22 +212,17 @@ function assert(condition, message) {
 	pendingCheck = { status: "blocked", blocked: true, reason: "daily_cost", message: "今日消费已超限" };
 	let streamBlocked = false;
 	try {
-		for await (const _ of streamHandler({}, () => downstream())) { /* no-op */ }
+		for await (const _ of streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstream())) { /* no-op */ }
 	} catch (error) {
 		streamBlocked = error?.code === "USAGE_LIMIT_EXCEEDED";
 	}
 	assert(streamBlocked, "llm/stream blocks an explicit unified blocked state");
-	let requestBlocked = false;
-	try {
-		await requestHandler({}, () => ({ ok: true }));
-	} catch (error) {
-		requestBlocked = error?.code === "USAGE_LIMIT_EXCEEDED";
-	}
-	assert(requestBlocked, "agent/request blocks an explicit unified blocked state");
+	const requestPassThrough = await requestHandler({}, () => ({ provider: "deepseek-official", model: "deepseek-v4-flash" }));
+	assert(requestPassThrough?.provider === "deepseek-official", "agent/request leaves provider-specific blocking to llm/stream");
 
 	// exceeded but stopOnExceed=false → passes through
 	pendingCheck = { exceeded: true, stopOnExceed: false, message: "" };
-	const passThrough = streamHandler({}, () => downstream());
+	const passThrough = streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstream());
 	passed = false;
 	for await (const _ of passThrough) { passed = true; break; }
 	assert(passed, "llm/stream must pass through when stopOnExceed=false");
@@ -219,7 +231,7 @@ function assert(condition, message) {
 	pendingCheck = new Error("quota storage unavailable");
 	let failOpenOk = false;
 	try {
-		const result = streamHandler({}, () => downstream());
+		const result = streamHandler({ provider: "deepseek-official", model: "deepseek-v4-flash" }, () => downstream());
 		for await (const chunk of result) {
 			failOpenOk = chunk === "chunk-1";
 			break;
@@ -526,7 +538,7 @@ function assert(condition, message) {
 		}
 	});
 
-	const checkRes = await service.check({ keyRef: "DEEPSEEK_API_KEY" });
+	const checkRes = await service.check({ provider: "deepseek-official", keyRef: "DEEPSEEK_API_KEY" });
 	assert(checkRes.exceeded === true && checkRes.status === "exceeded", "service check exceeded");
 
 	// Update limits to raise the daily limit and persist the balance alert.
@@ -535,7 +547,7 @@ function assert(condition, message) {
 	});
 	assert(savedData !== null && savedData.global.dailyCostLimit === 20 && savedData.global.lowBalanceWarning === 12.5, "updateLimits saved daily and balance alerts");
 
-	const checkAfterUpdate = await service.check({ keyRef: "DEEPSEEK_API_KEY" });
+	const checkAfterUpdate = await service.check({ provider: "deepseek-official", keyRef: "DEEPSEEK_API_KEY" });
 	assert(checkAfterUpdate.exceeded === false && checkAfterUpdate.status === "normal", "service check normal after limit increase");
 
 	console.log("limitsService & check ok");
@@ -563,11 +575,12 @@ function assert(condition, message) {
 	assert(keyForProvider("relay-a", mapped) === "DEEPSEEK_API_KEY_2", "provider→key B");
 	assert(keyForProvider("unmapped-provider", mapped) === null, "unmapped provider → null");
 
-	// todayCostPerKey with mapping: each provider's models attribute to its key.
+	// Only DeepSeek's official provider contributes to the DeepSeek balance and
+	// quota amount. Other provider routes retain Token rows but are token-only.
 	const usageDays = [
 		{
 			date: "2026-08-18",
-			cost: 3,
+			cost: 1,
 			models: [
 				{ model: "deepseek-official/deepseek-v4-flash", cost: 1 },
 				{ model: "vision-toolkit-deepseek-official/deepseek-v4-flash", cost: 0.5 },
@@ -578,18 +591,18 @@ function assert(condition, message) {
 	];
 	const { perKey, mapped: isMapped } = todayCostPerKey(usageDays, "2026-08-18", mapped);
 	assert(isMapped === true, "mapped flag");
-	assert(Math.abs(perKey.get("DEEPSEEK_API_KEY") - 1.5) < 1e-9, `key A today cost ${perKey.get("DEEPSEEK_API_KEY")}`);
-	assert(Math.abs(perKey.get("DEEPSEEK_API_KEY_2") - 1.5) < 1e-9, `key B today cost ${perKey.get("DEEPSEEK_API_KEY_2")}`);
-	assert(todayCostFor("DEEPSEEK_API_KEY", perKey, 3, mapped) === 1.5, "todayCostFor key A");
-	assert(todayCostFor("DEEPSEEK_API_KEY_2", perKey, 3, mapped) === 1.5, "todayCostFor key B");
-	assert(todayCostFor("OTHER_KEY", perKey, 3, mapped) === 0, "unmapped key gets 0 when mapping configured");
+	assert(perKey.get("DEEPSEEK_API_KEY") === 1, `key A today cost ${perKey.get("DEEPSEEK_API_KEY")}`);
+	assert(!perKey.has("DEEPSEEK_API_KEY_2"), "token-only providers must not create a DeepSeek cost bucket");
+	assert(todayCostFor("DEEPSEEK_API_KEY", perKey, 1, mapped) === 1, "todayCostFor key A");
+	assert(todayCostFor("DEEPSEEK_API_KEY_2", perKey, 1, mapped) === 0, "todayCostFor token-only provider key");
+	assert(todayCostFor("OTHER_KEY", perKey, 1, mapped) === 0, "unmapped key gets 0 when mapping configured");
 
 	// Without mapping: every key sees the global today cost (per-key daily
 	// limits still work on the shared total).
 	const noMap = validateConfig({ keys: ["DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY_2"] });
 	const { perKey: globalPerKey } = todayCostPerKey(usageDays, "2026-08-18", noMap);
-	assert(globalPerKey.get("DEEPSEEK_API_KEY") === 3, "no-mapping: default key carries the total");
-	assert(todayCostFor("DEEPSEEK_API_KEY_2", globalPerKey, 3, noMap) === 3, "no-mapping: other keys share the global cost");
+	assert(globalPerKey.get("DEEPSEEK_API_KEY") === 1, "no-mapping: default key carries official cost only");
+	assert(todayCostFor("DEEPSEEK_API_KEY_2", globalPerKey, 1, noMap) === 1, "no-mapping: other keys share official global cost");
 
 	// Per-key quota evaluation uses the key's own cost.
 	const service = createLimitsService({
@@ -607,15 +620,14 @@ function assert(condition, message) {
 			todayKey: () => "2026-08-18"
 		}
 	});
-	// Key A spends 1.5 < 2 → ok. Key B spends 1.5 < 2 → ok. But the GLOBAL
-	// today cost is 3 ≥ 2 — without per-key attribution both would be exceeded.
+	// Key A spends the official ¥1; key B is associated only with a Token-only
+	// provider, so its DeepSeek quota amount is ¥0.
 	const statusA = await service.evaluateStatus("DEEPSEEK_API_KEY");
 	const statusB = await service.evaluateStatus("DEEPSEEK_API_KEY_2");
-	assert(statusA.status === "normal" && statusA.todayCost === 1.5, `key A status ${statusA.status} cost ${statusA.todayCost}`);
-	assert(statusB.status === "normal" && statusB.todayCost === 1.5, `key B status ${statusB.status} cost ${statusB.todayCost}`);
-	// check() resolves the key from the request's provider route.
-	const checkByProvider = await service.check({ config: { provider: "relay-a" } });
-	assert(checkByProvider.keyRef === "DEEPSEEK_API_KEY_2", `check resolves provider→key: ${checkByProvider.keyRef}`);
+	assert(statusA.status === "normal" && statusA.todayCost === 1, `key A status ${statusA.status} cost ${statusA.todayCost}`);
+	assert(statusB.status === "normal" && statusB.todayCost === 0, `key B status ${statusB.status} cost ${statusB.todayCost}`);
+	const tokenOnlyCheck = await service.check({ config: { provider: "relay-a" } });
+	assert(tokenOnlyCheck.status === "not_applicable" && tokenOnlyCheck.blocked === false, "token-only providers bypass DeepSeek quota checks");
 	console.log("per-key cost attribution ok");
 }
 
