@@ -113,6 +113,17 @@ async function query(providerId, fetchImpl, extra = {}) {
 	check(calls.length === 1 && authHeader(calls[0].init) === "Bearer test-api-key", "DeepSeek uses Bearer authentication");
 }
 
+// A response without the optional availability flag is still usable; this
+// must match the server-side balance service's fail-open interpretation.
+{
+	const { fetchImpl } = mockFetch([{
+		match: (url) => url === "https://api.deepseek.com/user/balance",
+		response: jsonResponse(200, { balance_infos: [{ currency: "CNY", total_balance: "3.00" }] })
+	}]);
+	const result = await query("deepseek-official", fetchImpl, { baseURL: "https://api.deepseek.com" });
+	check(balanceOf(result)?.available === true, "DeepSeek missing is_available remains available");
+}
+
 // OpenRouter must tolerate one source failing as long as /key or /credits
 // succeeds.  Here /key is rejected while /credits supplies the result.
 {
@@ -176,6 +187,16 @@ const minimaxBody = {
 	const result = await query("minimax", fetchImpl, { baseURL: "https://api.minimax.io/anthropic" });
 	check(statusOf(result) === "ok", "MiniMax legacy fallback succeeds");
 	check(calls.length === 2 && calls[0].url.endsWith("/v1/token_plan/remains") && calls[1].url.endsWith("/v1/api/openplatform/coding_plan/remains"), "MiniMax fallback order is new then legacy");
+}
+
+// A configured host must match a complete MiniMax DNS suffix; attacker-like
+// suffixes must fall back to the provider's documented origin.
+{
+	const { fetchImpl, calls } = mockFetch([
+		{ match: (url) => url.startsWith("https://api.minimaxi.com/"), response: jsonResponse(404, { error: "not found" }) }
+	]);
+	await query("minimax-cn", fetchImpl, { baseURL: "https://minimaxi.com.evil.example/anthropic" });
+	check(calls.length === 2 && calls.every((call) => call.url.startsWith("https://api.minimaxi.com/")), "MiniMax rejects attacker-like configured hostnames");
 }
 
 // Z.ai quota response uses explicit unit values to classify the windows.

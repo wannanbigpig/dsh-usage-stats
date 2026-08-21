@@ -5,3 +5,4 @@ node_modules/
 .dsh-vision-toolkit/
 .npm-token
 .claude
+.codegraph

@@ -37,6 +37,7 @@ import {
 	validateSettings
 } from "../lib/index.js";
 import { dayKey, defaultPricing } from "../lib/usage.js";
+import { appendLedger } from "../lib/ledger.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,6 +83,9 @@ function assert(condition, message) {
 	assert(custom.pricing.peakMultiplier === 1.5, "custom peak multiplier");
 	assert(JSON.stringify(custom.pricing.peakHours) === "[[0,8]]", "custom peak hours");
 	assert(custom.pricing.currency === "CNY", "custom currency");
+	let incompleteCustomModel = null;
+	try { validateConfig({ pricing: { pricing: { "my-custom-model": { inputMiss: 1 } } } }); } catch (error) { incompleteCustomModel = error; }
+	assert(incompleteCustomModel instanceof Error && /complete|inputHit|output/.test(incompleteCustomModel.message), "unknown custom models must not silently fill missing prices with zero");
 
 	const partialPricing = validateConfig({ pricing: { pricing: { "deepseek-v4-flash": { inputMiss: 9 } } } });
 	assert(partialPricing.pricing.pricing["deepseek-v4-flash"].inputMiss === 9, "partial pricing override input miss");
@@ -240,6 +244,10 @@ function assert(condition, message) {
 	await dataRoute.handler({ method: "POST", body: { action: "clear" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidClearResponse);
 	const invalidClearPayload = JSON.parse(invalidClearResponse.body);
 	assert(invalidClearResponse.status === 400 && invalidClearPayload.error === "invalid-payload", "data clear route rejects missing confirmation before touching storage");
+	const rebuildResponse = routeResponse();
+	await dataRoute.handler({ method: "POST", body: { action: "rebuild" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, rebuildResponse);
+	const rebuildPayload = JSON.parse(rebuildResponse.body);
+	assert(rebuildResponse.status === 400 && rebuildPayload.error === "invalid-payload", "data route must not expose a false-success rebuild action");
 	assert(listeners.has("agent/request"), "agent/request listener registered");
 	assert(listeners.has("llm/stream"), "llm/stream listener registered");
 
@@ -443,6 +451,11 @@ function assert(condition, message) {
 //#region balance.js transport errors classify as unavailable
 {
 	const { queryDeepSeekBalance } = await import("../lib/balance.js");
+	const missingAvailability = await queryDeepSeekBalance("https://api.deepseek.com", "sk-x", 1000, async () => ({
+		ok: true,
+		json: async () => ({ balance_infos: [{ currency: "CNY", total_balance: "1.00" }] })
+	}));
+	assert(missingAvailability.isAvailable === true, "missing is_available must use the same fail-open semantics as providers.js");
 	let threw = null;
 	try {
 		await queryDeepSeekBalance("https://api.deepseek.com", "sk-x", 1000, async () => { throw new TypeError("fetch failed"); });
@@ -840,6 +853,55 @@ function assert(condition, message) {
 	console.log("llm/stream ledger capture ok");
 }
 
+//#region llm/stream pending samples correlate by identity, not route LIFO
+{
+	const listeners = new Map();
+	const ledger = [];
+	const ctx = {
+		logger: { warn: () => {} },
+		get: () => void 0,
+		effect: (fn) => { fn(); },
+		on: (event, handler) => { listeners.set(event, handler); return () => listeners.delete(event); },
+		webServer: { register: () => {} }
+	};
+	apply(ctx, {}, {
+		disableBackgroundRefresh: true,
+		balanceService: { refreshAll: async () => [], get: async () => ({}) },
+		limitsService: { check: async () => ({ status: "ok" }) },
+		recordLedger: async (entry) => { appendLedger(ledger, entry); }
+	});
+	const streamHandler = listeners.get("llm/stream");
+	async function* usageStream(inputTokens) {
+		yield { type: "usage", usage: { inputTokens, outputTokens: 1 } };
+	}
+	async function drain(payload, inputTokens) {
+		for await (const _ of streamHandler(payload, () => usageStream(inputTokens))) {}
+	}
+	await drain({ provider: "deepseek-official", model: "deepseek-v4-flash", turn: 1, step: 1 }, 10);
+	await drain({ provider: "deepseek-official", model: "deepseek-v4-flash" }, 20);
+	const sessionEventHandler = listeners.get("session/event");
+	// The explicit event arrives before the later anonymous stream's event. A
+	// route-level LIFO queue would incorrectly consume the anonymous sample.
+	await sessionEventHandler({}, {
+		time: Date.now(), type: "assistant/message", data: {
+			turn: 1, step: 1,
+			message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } },
+			usage: { inputTokens: 11, outputTokens: 2 }
+		}
+	});
+	await sessionEventHandler({}, {
+		time: Date.now(), type: "assistant/message", data: {
+			turn: 2, step: 1,
+			message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } },
+			usage: { inputTokens: 21, outputTokens: 2 }
+		}
+	});
+	assert(ledger.length === 2, `out-of-order finalized samples must keep two entries, got ${ledger.length}`);
+	assert(ledger.find((entry) => entry.turn === 1)?.usage.inputTokens === 11, "turn 1 usage must not be replaced by turn 2");
+	assert(ledger.find((entry) => entry.turn === 2)?.usage.inputTokens === 21, "turn 2 usage must not be replaced by turn 1");
+	console.log("pending usage correlation ok");
+}
+
 //#region ledger writes are durable before the next usage read
 {
 	const previousDshHome = process.env.DSH_HOME;
@@ -1175,22 +1237,22 @@ function assert(condition, message) {
 	const invalidQuotaThresholds = validateSettings({ notifications: { planQuota: { warningRemainingPercent: 5, criticalRemainingPercent: 20, windows: { five_hour: { warningRemainingPercent: 5, criticalRemainingPercent: 20 } } } } });
 	assert(invalidQuotaThresholds.notifications.planQuota.warningRemainingPercent === 30 && invalidQuotaThresholds.notifications.planQuota.criticalRemainingPercent === 10, "invalid plan quota threshold order falls back safely");
 	assert(invalidQuotaThresholds.notifications.planQuota.windows.five_hour.warningRemainingPercent === 30 && invalidQuotaThresholds.notifications.planQuota.windows.five_hour.criticalRemainingPercent === 10, "invalid plan quota window order falls back safely");
-	assert(loaded.conversation.enabled === true && loaded.conversation.showTokenUsage === true, "conversation defaults enabled");
-	const explicitConversation = validateSettings({ conversation: { enabled: false, showTokenUsage: false } });
-	assert(explicitConversation.conversation.enabled === false && explicitConversation.conversation.showTokenUsage === false, "conversation accepts explicit boolean values");
+	assert(loaded.conversation.enabled === true && loaded.conversation.showTokenUsage === false && loaded.conversation.showSessionTokenUsage === false, "conversation defaults enabled with token modes off");
+	const explicitConversation = validateSettings({ conversation: { enabled: false, showTokenUsage: true, showSessionTokenUsage: true } });
+	assert(explicitConversation.conversation.enabled === false && explicitConversation.conversation.showTokenUsage === true && explicitConversation.conversation.showSessionTokenUsage === true, "conversation accepts explicit boolean values");
 	const partialConversation = validateSettings({ conversation: { enabled: false } });
-	assert(partialConversation.conversation.enabled === false && partialConversation.conversation.showTokenUsage === true, "conversation partial validation restores the omitted default");
-	const invalidConversation = validateSettings({ conversation: { enabled: "false", showTokenUsage: 0 } });
-	assert(invalidConversation.conversation.enabled === true && invalidConversation.conversation.showTokenUsage === true, "conversation rejects non-boolean values");
+	assert(partialConversation.conversation.enabled === false && partialConversation.conversation.showTokenUsage === false && partialConversation.conversation.showSessionTokenUsage === false, "conversation partial validation restores the omitted defaults");
+	const invalidConversation = validateSettings({ conversation: { enabled: "false", showTokenUsage: 0, showSessionTokenUsage: "true" } });
+	assert(invalidConversation.conversation.enabled === true && invalidConversation.conversation.showTokenUsage === false && invalidConversation.conversation.showSessionTokenUsage === false, "conversation rejects non-boolean values");
 	const updated = await service.update({ refreshMs: null, display: { balance: false } });
 	assert(updated.refreshMs === null, "refreshMs can be disabled via null");
 	assert(updated.display.balance === false && updated.display.todayCost === true, "display patch merged, unset fields default");
 	assert(saved.length === 1 && saved[0].refreshMs === null, "update persists via saveSettings");
-	const conversationUpdated = await service.update({ conversation: { enabled: false, showTokenUsage: false } });
-	assert(conversationUpdated.conversation.enabled === false && conversationUpdated.conversation.showTokenUsage === false, "conversation update persists both switches");
+	const conversationUpdated = await service.update({ conversation: { enabled: false, showTokenUsage: false, showSessionTokenUsage: true } });
+	assert(conversationUpdated.conversation.enabled === false && conversationUpdated.conversation.showTokenUsage === false && conversationUpdated.conversation.showSessionTokenUsage === true, "conversation update persists both token modes");
 	const conversationPatched = await service.update({ conversation: { enabled: true } });
-	assert(conversationPatched.conversation.enabled === true && conversationPatched.conversation.showTokenUsage === false, "conversation partial update preserves the other switch");
-	assert(saved.length === 3 && saved[2].conversation.showTokenUsage === false, "conversation updates persist through saveSettings");
+	assert(conversationPatched.conversation.enabled === true && conversationPatched.conversation.showTokenUsage === false && conversationPatched.conversation.showSessionTokenUsage === true, "conversation partial update preserves the other switches");
+	assert(saved.length === 3 && saved[2].conversation.showSessionTokenUsage === true, "conversation updates persist through saveSettings");
 	assert(service.snapshot() === conversationPatched, "snapshot reflects latest settings");
 	console.log("runtime settings store ok");
 }
@@ -1209,7 +1271,7 @@ function assert(condition, message) {
 		ctx,
 		config: validateConfig({}),
 		deps: {
-			loadSettings: async () => ({ conversation: { enabled: true, showTokenUsage: false } }),
+			loadSettings: async () => ({ conversation: { enabled: true, showTokenUsage: false, showSessionTokenUsage: false } }),
 			saveSettings: async (next) => { saved = next; }
 		}
 	});
@@ -1236,16 +1298,16 @@ function assert(condition, message) {
 	const getResponse = response();
 	await accountsRoute.handler(request("GET"), getResponse);
 	const getPayload = JSON.parse(getResponse.body);
-	assert(getResponse.status === 200 && getPayload.settings?.conversation?.enabled === true && getPayload.settings?.conversation?.showTokenUsage === false, "accounts GET returns conversation settings");
+	assert(getResponse.status === 200 && getPayload.settings?.conversation?.enabled === true && getPayload.settings?.conversation?.showTokenUsage === false && getPayload.settings?.conversation?.showSessionTokenUsage === false, "accounts GET returns conversation settings");
 	assert(getPayload.accounts?.["deepseek-official"]?.status === "ok" && getPayload.accounts?.["deepseek-official"]?.id === "DEEPSEEK_API_KEY", "accounts are keyed by provider id while DeepSeek reads the key-ref cache");
 	assert(!Object.hasOwn(getPayload.accounts ?? {}, "DEEPSEEK_API_KEY"), "accounts do not expose credential refs as parallel provider rows");
 
 	const postResponse = response();
-	await accountsRoute.handler(request("POST", { conversation: { enabled: false, showTokenUsage: true } }), postResponse);
+	await accountsRoute.handler(request("POST", { conversation: { enabled: false, showTokenUsage: false, showSessionTokenUsage: true } }), postResponse);
 	const postPayload = JSON.parse(postResponse.body);
 	assert(postResponse.status === 200 && postPayload.ok === true, "accounts POST accepts conversation settings");
-	assert(postPayload.settings?.conversation?.enabled === false && postPayload.settings?.conversation?.showTokenUsage === true, "accounts POST returns updated conversation settings");
-	assert(saved?.conversation?.enabled === false && saved?.conversation?.showTokenUsage === true, "accounts POST persists conversation settings");
+	assert(postPayload.settings?.conversation?.enabled === false && postPayload.settings?.conversation?.showTokenUsage === false && postPayload.settings?.conversation?.showSessionTokenUsage === true, "accounts POST returns updated conversation settings");
+	assert(saved?.conversation?.enabled === false && saved?.conversation?.showTokenUsage === false && saved?.conversation?.showSessionTokenUsage === true, "accounts POST persists conversation settings");
 
 	const invalidResponse = response();
 	await accountsRoute.handler(request("POST", { conversation: { enabled: "false" } }), invalidResponse);
@@ -1352,6 +1414,7 @@ function assert(condition, message) {
 	let evaluated = await service.evaluateAll();
 	assert(evaluated.alerts.length === 1 && evaluated.alerts[0].type === "alert" && evaluated.alerts[0].status === "exceeded", `alert history captures crossing: ${JSON.stringify(evaluated.alerts)}`);
 	assert(evaluated.alerts[0].keyRef !== null && evaluated.alerts[0].message !== "", "alert carries keyRef + message");
+	assert(evaluated.alerts[0].providerId === "deepseek-official" && JSON.stringify(evaluated.alerts[0].providerIds) === JSON.stringify(["deepseek-official"]), "unmapped alerts default to the official DeepSeek provider");
 	evaluated = await service.evaluateAll();
 	assert(evaluated.alerts.length === 1, "cooldown dedups repeated evaluations from history");
 	console.log("alerts history ok");

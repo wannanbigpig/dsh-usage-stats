@@ -132,6 +132,9 @@ if (typeof exports_.DataCard !== "function") throw new Error("missing DataCard e
 if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 5) throw new Error("SETTINGS_TABS must declare five settings tabs");
 if (exports_.SETTINGS_TABS.some((tab) => tab.id === "pricing")) throw new Error("provider pricing must live under billing and limits, not a separate tab");
 if (!source.includes('"data-usage-provider-billing-settings": true')) throw new Error("budget and limits must group provider-scoped limits and pricing");
+if (!source.includes('"settings.tabLimits": "供应商用量与计费"') || !source.includes('"settings.tabLimits": "Provider Usage & Billing"')) throw new Error("billing tab must communicate provider scope");
+if (!source.includes('"notifications.desc": "这里只配置所有供应商共用的告警输出通道')) throw new Error("notifications tab must explain its shared scope");
+if (source.includes('translate("notifications.planQuota')) throw new Error("provider plan quota labels must live in the billing namespace");
 if (typeof exports_.ConversationCard !== "function") throw new Error("missing ConversationCard export");
 if (typeof exports_.CompactConversationController !== "function") throw new Error("missing CompactConversationController export");
 if (typeof exports_.windowResetCountdownOf !== "function") throw new Error("missing reset countdown formatter export");
@@ -280,6 +283,7 @@ if (!source.includes('.usg_btnDanger{background:')) throw new Error("danger butt
 if (!source.includes("className: S.alertList")) throw new Error("notifications card must render the alert history list");
 if (source.includes('run("rebuild")')) throw new Error("data card must not expose the server-side no-op rebuild action");
 if (!source.includes('run("clear", { confirmation: confirmText.trim() })') || !source.includes('run("trim"')) throw new Error("data card must expose clear/trim actions with server-side clear confirmation");
+if (source.includes('key: "path1"') || source.includes('key: "polyline1"')) throw new Error("refresh SVG keys must be passed through jsx runtime key arguments");
 // Notification linkage: the sidebar delivers in-page toasts with a fixed
 // five-second lifecycle, ignores pre-session history on first hydration,
 // honors the sidebar channel on the status dot, and polls alerts.
@@ -288,6 +292,8 @@ if (!source.includes('function UsageAlertToast')) throw new Error("notifications
 if (!source.includes('notificationSessionStartedAtRef')) throw new Error("notifications must track the current page session start");
 if (!source.includes('const sessionStartedAt = notificationSessionStartedAtRef.current') || !source.includes('itemAt < sessionStartedAt')) throw new Error("notifications must ignore alert history from before the page session");
 if (!source.includes('deliverAlerts')) throw new Error("sidebar must deliver new alerts from the alerts poll");
+if (!source.includes('Array.isArray(item.providerIds)') || !source.includes('providerIds.includes(currentProviderId)')) throw new Error("sidebar Toasts must follow the current provider");
+if (!source.includes('notificationProviderRef.current !== currentProviderId')) throw new Error("provider changes must clear stale Toasts");
 if (!source.includes('notifications.channels?.sidebar !== false')) throw new Error("sidebar status dot must honor the notification sidebar channel");
 if (!source.includes('fetchJson("/api/usage-stats/alerts")')) throw new Error("sidebar must poll the alerts endpoint for toast delivery");
 // Limits card grouping: daily limit and alert thresholds stay together; balance
@@ -404,10 +410,16 @@ if (!dataMarkup.includes("data-usage-data-card") || !dataMarkup.includes("data.t
 if (!dataMarkup.includes("data.desc")) throw new Error("data card render missing description");
 console.log("data card render ok, length:", dataMarkup.length);
 
-const conversationMarkup = renderToStaticMarkup(react.createElement(exports_.ConversationCard, { translate: (key) => key, conversation: { enabled: true, showTokenUsage: true }, onConversationUpdated: () => {} }));
+const conversationMarkup = renderToStaticMarkup(react.createElement(exports_.ConversationCard, { translate: (key) => key, conversation: { enabled: true, showTokenUsage: false, showSessionTokenUsage: false }, onConversationUpdated: () => {} }));
 if (!conversationMarkup.includes("data-usage-conversation-card") || !conversationMarkup.includes("conversation.title")) throw new Error("conversation card render missing title/identity");
 if (!conversationMarkup.includes("conversation.enable")) throw new Error("conversation card render missing enable toggle");
 if (!conversationMarkup.includes("conversation.showTokenUsage")) throw new Error("conversation card render missing token usage toggle");
+if (!conversationMarkup.includes("conversation.showSessionTokenUsage")) throw new Error("conversation card render missing session token toggle");
+if (!conversationMarkup.includes("conversation.showTokenUsageDesc") || !conversationMarkup.includes("conversation.showSessionTokenUsageDesc")) throw new Error("conversation card render missing token accuracy explanations");
+if ((conversationMarkup.match(/class="usg_toggleRow"/g) ?? []).length !== 3) throw new Error("conversation settings must render three stacked toggle rows");
+const turnTokenIndex = conversationMarkup.indexOf("conversation.showTokenUsage");
+const sessionTokenIndex = conversationMarkup.indexOf("conversation.showSessionTokenUsage");
+if (turnTokenIndex < 0 || sessionTokenIndex <= turnTokenIndex) throw new Error("conversation token toggles must render in order");
 console.log("conversation card render ok, length:", conversationMarkup.length);
 
 const countdownNow = Date.UTC(2026, 7, 21, 0, 0, 0);

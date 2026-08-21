@@ -350,6 +350,21 @@ assert(markers[0].textContent.includes("2 次工具"), `nested tool calls must b
 assert(!markers[1].textContent.includes("执行错误") && markers[1].textContent.includes("次失败"), `local tool failures must be counted without marking the whole activity as an execution error, got ${markers[1].textContent}`);
 assert(processMarkers[1].textContent.includes("已处理") && !processMarkers[1].textContent.includes("处理错误"), `outer process with a returned result must be marked done, got ${processMarkers[1].textContent}`);
 assert(!markers[0].textContent.includes("输入") && !markers[1].textContent.includes("输出"), "token usage must be omitted when disabled");
+
+// Session projection mode must use the same cumulative token value as the Harness bottom stats,
+// show it only once on the latest fold, and never repeat it on historical turns.
+await act(async () => {
+	window.dispatchEvent(new CustomEvent("usage-stats:conversation-settings", { detail: { enabled: true, showTokenUsage: false, showSessionTokenUsage: true } }));
+	await flush();
+});
+processMarkers = [...flow.querySelectorAll("details[data-usc-process]")];
+assert(!processMarkers[0].textContent.includes("输入") && !processMarkers[0].textContent.includes("输出"), "session token usage must not repeat on historical folds");
+assert(processMarkers[1].textContent.includes("输入 105") && processMarkers[1].textContent.includes("输出 8"), "session token usage must match the Harness projection on the latest fold");
+
+await act(async () => {
+	window.dispatchEvent(new CustomEvent("usage-stats:conversation-settings", { detail: { enabled: true, showTokenUsage: false, showSessionTokenUsage: false } }));
+	await flush();
+});
 assert(!flow.querySelector('[data-chat-flow-key="a-final"]').classList.contains("usc-fold-child"), "first final reply must stay visible");
 assert(!flow.querySelector('[data-chat-flow-key="b-final"]').classList.contains("usc-fold-child"), "second final reply must stay visible");
 assert(!flow.querySelector('[data-chat-flow-key="a-final"]').classList.contains("usc-process-child"), "first final reply must stay outside the outer process fold");
@@ -369,6 +384,100 @@ processMarkers = [...flow.querySelectorAll("details[data-usc-process]")];
 assert(!markers[0].textContent.includes("输入") && !markers[1].textContent.includes("输出"), "inner activity folds must omit session token usage");
 assert(processMarkers[0].textContent.includes("输入 105") && processMarkers[0].textContent.includes("输出 8"), "outer process fold must show only the first turn token usage");
 assert(!processMarkers[1].textContent.includes("输入 105") && processMarkers[1].textContent.includes("输入 75") && processMarkers[1].textContent.includes("输出 5"), "outer process fold must show the second turn token usage instead of session cumulative usage");
+
+// A turn may start with a direct user row and still contain later steering or
+// user-message boundaries. The leading boundary must not make the outer fold
+// start at the later process row or disappear entirely.
+const edgeTurn = { turn: 14, status: "closed", start: { time: 40_000 }, end: { time: 45_000 }, steps: [], data: { get: () => undefined } };
+const edgeLocation = locationOf(edgeTurn);
+const edgeNodes = new Map([
+	["edge-prompt", { key: "edge-prompt", kind: "user", location: edgeLocation, data: { blocks: [{ kind: "text", text: "edge request" }] } }],
+	["edge-think", { key: "edge-think", kind: "assistant-step", location: edgeLocation, data: { status: "settled", blocks: [{ kind: "reasoning", text: "edge plan" }] } }],
+	["edge-tool", { key: "edge-tool", kind: "tool-call", location: edgeLocation, data: { root: { kind: "tool-result", isError: false, subCalls: [] } } }],
+	["edge-steering", { key: "edge-steering", kind: "steering", location: edgeLocation, data: { blocks: [{ kind: "text", text: "continue" }] } }],
+	["edge-tail", { key: "edge-tail", kind: "assistant-step", location: edgeLocation, data: { status: "settled", blocks: [{ kind: "reasoning", text: "edge follow-up" }] } }]
+]);
+snapshot.chat = { order: [...edgeNodes.keys()], nodes: edgeNodes, timeline: { turnOrder: [14], turns: new Map([[14, edgeTurn]]) } };
+flow.innerHTML = [
+	'<div data-chat-flow-key="edge-prompt"><div data-user-message>edge request</div></div>',
+	'<div data-chat-flow-key="edge-think"><details data-native-think open><summary>Think</summary><div data-variant="think">edge plan</div></details></div>',
+	'<div data-chat-flow-key="edge-tool"><details data-native-tool open><summary>Tool</summary></details></div>',
+	'<div data-chat-flow-key="edge-steering"><div data-steering>continue</div></div>',
+	'<div data-chat-flow-key="edge-tail"><details data-native-think open><summary>Think</summary><div data-variant="think">edge follow-up</div></details></div>'
+].join("");
+await act(async () => {
+	root.render(react.createElement(exports_.CompactConversationController, {
+		sessionId: "session-1",
+		useSession: (selector) => selector(snapshot),
+		useProjection: (key) => key === "tokenUsage" ? usage : undefined,
+		t,
+		revision: 4.5
+	}));
+	await flush();
+});
+let edgeProcess = flow.querySelector("details[data-usc-process]");
+assert(edgeProcess !== null && edgeProcess.dataset.uscProcess === "edge-think", "leading user boundary must not shift the outer fold to a later boundary");
+for (const key of ["edge-think", "edge-tool", "edge-tail"]) {
+	assert(flow.querySelector(`[data-chat-flow-key="${key}"]`).classList.contains("usc-process-child"), `${key} must stay inside the outer process fold`);
+}
+
+const boundaryTurn = { turn: 15, status: "closed", start: { time: 50_000 }, end: { time: 54_000 }, steps: [], data: { get: () => undefined } };
+const boundaryLocation = locationOf(boundaryTurn);
+const boundaryNodes = new Map([
+	["boundary-prompt", { key: "boundary-prompt", kind: "user", location: boundaryLocation, data: { blocks: [{ kind: "text", text: "boundary request" }] } }],
+	["boundary-think", { key: "boundary-think", kind: "assistant-step", location: boundaryLocation, data: { status: "settled", blocks: [{ kind: "reasoning", text: "boundary plan" }] } }],
+	["boundary-tool", { key: "boundary-tool", kind: "tool-call", location: boundaryLocation, data: { root: { kind: "tool-result", isError: false, subCalls: [] } } }],
+	["boundary-user-message", { key: "boundary-user-message", kind: "user-message", location: boundaryLocation, data: { blocks: [{ kind: "text", text: "continue" }] } }]
+]);
+snapshot.chat = { order: [...boundaryNodes.keys()], nodes: boundaryNodes, timeline: { turnOrder: [15], turns: new Map([[15, boundaryTurn]]) } };
+flow.innerHTML = [
+	'<div data-chat-flow-key="boundary-prompt"><div data-user-message>boundary request</div></div>',
+	'<div data-chat-flow-key="boundary-think"><details data-native-think open><summary>Think</summary><div data-variant="think">boundary plan</div></details></div>',
+	'<div data-chat-flow-key="boundary-tool"><details data-native-tool open><summary>Tool</summary></details></div>',
+	'<div data-chat-flow-key="boundary-user-message"><div data-user-message>continue</div></div>'
+].join("");
+await act(async () => {
+	root.render(react.createElement(exports_.CompactConversationController, {
+		sessionId: "session-1",
+		useSession: (selector) => selector(snapshot),
+		useProjection: (key) => key === "tokenUsage" ? usage : undefined,
+		t,
+		revision: 4.6
+	}));
+	await flush();
+});
+edgeProcess = flow.querySelector("details[data-usc-process]");
+assert(edgeProcess !== null && edgeProcess.dataset.uscProcess === "boundary-think", "a later user-message boundary must not erase the process fold after a leading user row");
+assert(flow.querySelector('[data-chat-flow-key="boundary-think"]').classList.contains("usc-process-child"), "process rows before a later boundary must remain grouped");
+
+// Restore the multi-turn snapshot for the remaining locale and cleanup checks.
+snapshot.chat = {
+	order: [...multiNodes.keys()],
+	nodes: multiNodes,
+	timeline: { turnOrder: [11, 12], turns: new Map([[11, turnA], [12, turnB]]) }
+};
+flow.innerHTML = [
+	'<div data-chat-flow-key="a-context"><div data-context-injection>startup context</div></div>',
+	'<div data-chat-flow-key="a-prompt"><div data-user-message>first request</div></div>',
+	'<div data-chat-flow-key="a-post-context"><div data-context-injection>system context</div></div>',
+	'<div data-chat-flow-key="a-think"><details data-native-think open><summary>Think A</summary><div data-variant="think">first plan</div></details></div>',
+	'<div data-chat-flow-key="a-tool"><details data-native-tool open><summary>Tool A</summary></details></div>',
+	'<div data-chat-flow-key="a-final"><div data-variant="think">first wrap-up</div><div data-final-answer>First final</div></div>',
+	'<div data-chat-flow-key="user-boundary"><div data-user-message>continue</div></div>',
+	'<div data-chat-flow-key="b-think"><details data-native-think open><summary>Think B</summary><div data-variant="think">second plan</div></details></div>',
+	'<div data-chat-flow-key="b-tool"><div data-tool data-state="stopped"><details data-native-tool open><summary>Tool B</summary></details></div></div>',
+	'<div data-chat-flow-key="b-final"><div data-final-answer>Second final</div></div>'
+].join("");
+await act(async () => {
+	root.render(react.createElement(exports_.CompactConversationController, {
+		sessionId: "session-1",
+		useSession: (selector) => selector(snapshot),
+		useProjection: (key) => key === "tokenUsage" ? usage : undefined,
+		t,
+		revision: 4.7
+	}));
+	await flush();
+});
 
 // Changing locale must update already-mounted summaries, and unmount must remove all injected state.
 t = createTranslator("en");
