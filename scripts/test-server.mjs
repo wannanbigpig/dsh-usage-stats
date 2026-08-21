@@ -16,6 +16,7 @@ import {
 	todayCostFor,
 	USAGE_PATH,
 	KEYS_PATH,
+	PROVIDERS_PATH,
 	BALANCE_PATH,
 	LIMITS_PATH,
 	ACCOUNTS_PATH,
@@ -120,7 +121,22 @@ function assert(condition, message) {
 	const listeners = new Map();
 	const ctx = {
 		logger: { warn: () => {} },
-		get: () => void 0,
+		get: (name) => name === "llm" ? {
+			listProviders: () => [
+				{ id: "deepseek-official", name: "DeepSeek" },
+				{ id: "openrouter", name: "OpenRouter" },
+				{ id: "zai", name: "Z.ai" },
+				{ id: "zai-coding-cn", name: "zai-coding-cn" },
+				{ id: "vision-toolkit-zai-coding-cn", name: "vision-toolkit-zai-coding-cn" }
+			],
+			// The directory distinguishes official catalog routes from user-owned
+			// aliases. Both aliases are active, but neither is official.
+			listConfigurableProviders: () => [
+				{ provider: "zai-coding-cn", displayName: "Z.ai Coding custom", declared: true, settingsNs: "llm-pi-ai", settingsPath: ["providers", "zai-coding-cn"] },
+				{ provider: "openrouter", displayName: "OpenRouter", declared: false, settingsNs: "llm-pi-ai", settingsPath: ["providers", "openrouter"] },
+				{ provider: "zai", displayName: "Z.ai", declared: false, settingsNs: "llm-pi-ai", settingsPath: ["providers", "zai"] }
+			]
+		} : void 0,
 		effect: (fn) => { fn(); },
 		on: (event, handler) => {
 			listeners.set(event, handler);
@@ -139,14 +155,15 @@ function assert(condition, message) {
 		}
 	});
 	const routes = registrations.filter((entry) => entry !== null && typeof entry === "object" && entry.kind === "exact");
-	assert(routes.length === 8, `expected 8 routes, got ${routes.length}`);
+	assert(routes.length === 9, `expected 9 routes, got ${routes.length}`);
 	const paths = routes.map((route) => route.path).sort();
 	assert(
 		paths[0] === ACCOUNTS_PATH && paths[1] === ALERTS_PATH && paths[2] === BALANCE_PATH && paths[3] === DATA_PATH
-		&& paths[4] === KEYS_PATH && paths[5] === LIMITS_PATH && paths[6] === PRICING_PATH && paths[7] === USAGE_PATH,
+		&& paths[4] === KEYS_PATH && paths[5] === LIMITS_PATH && paths[6] === PRICING_PATH && paths[7] === PROVIDERS_PATH && paths[8] === USAGE_PATH,
 		`routes ${JSON.stringify(paths)}`
 	);
 	const dataRoute = routes.find((route) => route.path === DATA_PATH);
+	const providersRoute = routes.find((route) => route.path === PROVIDERS_PATH);
 	const pricingRoute = routes.find((route) => route.path === PRICING_PATH);
 	function routeResponse() {
 		return {
@@ -158,6 +175,21 @@ function assert(condition, message) {
 		};
 	}
 	const invalidPricingResponse = routeResponse();
+	const providersResponse = routeResponse();
+	await providersRoute.handler({ method: "GET", headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, providersResponse);
+	const providersPayload = JSON.parse(providersResponse.body);
+	assert(providersResponse.status === 200 && providersPayload.ok === true && Array.isArray(providersPayload.providers), "providers route returns provider directory");
+	assert(providersPayload.defaultProviderId === "deepseek-official", "providers route defaults to official DeepSeek");
+	assert(JSON.stringify(providersPayload.providers.map((entry) => entry.id)) === JSON.stringify(["deepseek-official", "openrouter", "zai"]), "providers route only exposes active official providers");
+	assert(providersPayload.providers.find((entry) => entry.id === "openrouter")?.settingsNs === "llm-pi-ai", "active provider keeps its settings metadata");
+	assert(providersPayload.providers.find((entry) => entry.id === "zai")?.label === "Z.ai" && !providersPayload.providers.some((entry) => entry.label === "智谱 Coding"), "official Z.ai keeps its official name");
+	const defaultProviderResponse = routeResponse();
+	await routes.find((route) => route.path === ACCOUNTS_PATH).handler({ method: "POST", body: { defaultProviderId: "openrouter" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, defaultProviderResponse);
+	const defaultProviderPayload = JSON.parse(defaultProviderResponse.body);
+	assert(defaultProviderResponse.status === 200 && defaultProviderPayload.settings?.defaultProviderId === "openrouter", "accounts route persists default provider");
+	const invalidProviderResponse = routeResponse();
+	await routes.find((route) => route.path === ACCOUNTS_PATH).handler({ method: "POST", body: { defaultProviderId: "not-a-provider" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidProviderResponse);
+	assert(invalidProviderResponse.status === 400, "accounts route rejects unknown default provider");
 	await pricingRoute.handler({ method: "POST", body: { mode: "custom", pricing: { peakHours: [[25, 30]] } }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidPricingResponse);
 	const invalidPricingPayload = JSON.parse(invalidPricingResponse.body);
 	assert(invalidPricingResponse.status === 400 && invalidPricingPayload.error === "invalid-payload" && /peakHours/.test(invalidPricingPayload.message), "pricing route rejects invalid peak hours");

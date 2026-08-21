@@ -27,12 +27,18 @@ const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", 
 // server half registers, and must never embed credentials.
 if (!source.includes('fetchJson("/api/usage-stats/usage")')) throw new Error("client must fetch the usage endpoint");
 if (!source.includes('fetchJson("/api/usage-stats/keys")')) throw new Error("client must fetch the keys endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/providers")')) throw new Error("client must fetch the providers endpoint");
 if (!source.includes('fetchJson(`/api/usage-stats/balance${query}`)')) throw new Error("client must fetch the balance endpoint");
 if (!source.includes('fetchJson("/api/usage-stats/limits")')) throw new Error("client must fetch the limits endpoint");
 if (!source.includes('name: "settings.section"')) throw new Error("client must register the settings.section slot");
 if (!source.includes('width:760px')) throw new Error("query panel must use the 760px responsive layout");
 if (!source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must split into overview/details tabs");
 if (!source.includes('"data-usage-stats-settings-link"')) throw new Error("query panel must expose the go-to-settings affordance");
+if (source.includes('"data-usage-provider-select": true')) throw new Error("query panel must follow the settings-selected provider without a second selector");
+if (!source.includes('"data-usage-default-provider-select": true')) throw new Error("settings must expose the default provider selector");
+if (!source.includes("const providerQuery = providerId ? `?provider=${encodeURIComponent(providerId)}` : \"\";")) throw new Error("sidebar must derive provider queries from the settings default");
+if (!source.includes("fetchJson(`/api/usage-stats/balance${providerQuery}`)")) throw new Error("sidebar must query the selected provider balance");
+if (!source.includes("const usagePayload = usageResult.status === \"fulfilled\" ? filterUsageByProvider(usageResult.value, providerId) : null;")) throw new Error("sidebar must filter usage to the settings-selected provider");
 if (/api[_-]?key\s*[:=]\s*["']sk-/i.test(source)) throw new Error("client must not embed credentials");
 new Function(source)(); // executes the window.__ModuleLoader__.load call
 
@@ -78,6 +84,7 @@ if (!source.includes(".usg_hourTooltipHead{justify-content:space-between")) thro
 if (!source.includes(".usg_hourTooltipAmount")) throw new Error("tooltip head must wrap the amount in a dedicated span");
 if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
 if (!source.includes(".usg_hourRangeSelect:focus,.usg_hourRangeSelect:focus-visible{outline:none")) throw new Error("hour range selector must not show a blue focus border");
+if (!source.includes(".usg_select:focus,.usg_select:focus-visible") || !source.includes(".usg_input:focus,.usg_input:focus-visible")) throw new Error("all plugin fields must suppress blue focus borders");
 if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
 if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");
 if (!source.includes("className: S.hourControls")) throw new Error("hourly range selector must share the header controls with date navigation");
@@ -365,6 +372,15 @@ const sidebarSummary = sidebarSummaryOf(
 if (!sidebarSummary.balance.includes("65.12")) throw new Error(`sidebar balance ${sidebarSummary.balance}`);
 if (sidebarSummary.today !== "¥0.12" || sidebarSummary.todayTokens !== 450) throw new Error(`sidebar usage ${JSON.stringify(sidebarSummary)}`);
 if (sidebarSummary.balanceStatus !== "muted" || sidebarSummary.todayStatus !== "muted") throw new Error("sidebar indicators must stay hidden without configured limits");
+const externalSidebarSummary = sidebarSummaryOf(
+	{ ok: true, days: [wireDay], pricing: { currency: "CNY" } },
+	{ ok: true, account: { windows: [{ kind: "weekly", remainingPercent: 78 }] } },
+	{ ok: true, defaultKeyRef: "DEEPSEEK_API_KEY", status: { DEEPSEEK_API_KEY: { balanceAlertStatus: "ok", spendStatus: "warning" } } },
+	undefined,
+	"zai",
+	"Z.ai"
+);
+if (externalSidebarSummary.providerLabel !== "Z.ai" || externalSidebarSummary.balanceStatus !== "muted" || externalSidebarSummary.todayStatus !== "muted") throw new Error(`sidebar provider selection ${JSON.stringify(externalSidebarSummary)}`);
 const coloredSidebarSummary = sidebarSummaryOf(
 	{ ok: true, days: [wireDay], pricing: { currency: "CNY" } },
 	{ ok: true, account: { balance: { total: 65.12, currency: "CNY" } } },
