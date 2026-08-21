@@ -296,6 +296,9 @@ const locationOf = (target, step = 1) => ({ kind: "step", turn: target, step: { 
 const locationA = locationOf(turnA);
 const locationB = locationOf(turnB);
 const multiNodes = new Map([
+	["a-context", { key: "a-context", kind: "context", location: locationA, data: { blocks: [{ kind: "text", text: "startup context" }] } }],
+	["a-prompt", { key: "a-prompt", kind: "user", location: locationA, data: { blocks: [{ kind: "text", text: "first request" }] } }],
+	["a-post-context", { key: "a-post-context", kind: "context", location: locationA, data: { blocks: [{ kind: "text", text: "system context" }] } }],
 	["a-think", { key: "a-think", kind: "assistant-step", location: locationA, data: { status: "settled", blocks: [{ kind: "reasoning", text: "first plan" }], usage: { inputTokens: 0, outputTokens: 0 } } }],
 	["a-tool", { key: "a-tool", kind: "tool-call", location: locationA, data: { root: { kind: "tool-result", isError: false, subCalls: [{ kind: "tool-result", isError: false, subCalls: [] }] } } }],
 	["a-final", { key: "a-final", kind: "assistant-step", location: locationA, data: { status: "settled", finalNode: { seq: 103 }, blocks: [{ kind: "reasoning", text: "first wrap-up" }, { kind: "text", text: "First final" }], usage: { inputTokens: 100, cacheReadTokens: 5, outputTokens: 8 } } }],
@@ -312,6 +315,9 @@ snapshot.chat = {
 	timeline: { turnOrder: [11, 12], turns: new Map([[11, turnA], [12, turnB]]) }
 };
 flow.innerHTML = [
+	'<div data-chat-flow-key="a-context"><div data-context-injection>startup context</div></div>',
+	'<div data-chat-flow-key="a-prompt"><div data-user-message>first request</div></div>',
+	'<div data-chat-flow-key="a-post-context"><div data-context-injection>system context</div></div>',
 	'<div data-chat-flow-key="a-think"><details data-native-think open><summary>Think A</summary><div data-variant="think">first plan</div></details></div>',
 	'<div data-chat-flow-key="a-tool"><details data-native-tool open><summary>Tool A</summary></details></div>',
 	'<div data-chat-flow-key="a-final"><div data-variant="think">first wrap-up</div><div data-final-answer>First final</div></div>',
@@ -334,6 +340,10 @@ let markers = [...flow.querySelectorAll("details[data-usc-fold]")];
 assert(markers.length === 2, `two turns must produce two activity groups, got ${markers.length}`);
 let processMarkers = [...flow.querySelectorAll("details[data-usc-process]")];
 assert(processMarkers.length === 2, `two turns must produce two outer process groups, got ${processMarkers.length}`);
+assert(processMarkers[0].dataset.uscProcess === "a-post-context" && processMarkers[1].dataset.uscProcess === "b-think", "the outer process group must start after the direct user prompt");
+assert(processMarkers[0].previousElementSibling === flow.querySelector('[data-chat-flow-key="a-prompt"]'), "the outer process marker must stay below the direct user prompt");
+assert(!flow.querySelector('[data-chat-flow-key="a-context"]').classList.contains("usc-process-child"), "startup context before the direct user prompt must stay outside the process fold");
+assert(flow.querySelector('[data-chat-flow-key="a-post-context"]').classList.contains("usc-process-child"), "system context after the direct user prompt must stay inside the process fold");
 assert(processMarkers[0].textContent.includes("已处理1 分钟 59 秒"), `outer process duration must use Codex-style minute/second units, got ${processMarkers[0].textContent}`);
 assert(markers[0].dataset.uscFold === "a-think" && markers[1].dataset.uscFold === "b-think", "groups must start at each turn's first activity row");
 assert(markers[0].textContent.includes("2 次工具"), `nested tool calls must be counted, got ${markers[0].textContent}`);
@@ -344,6 +354,7 @@ assert(!flow.querySelector('[data-chat-flow-key="a-final"]').classList.contains(
 assert(!flow.querySelector('[data-chat-flow-key="b-final"]').classList.contains("usc-fold-child"), "second final reply must stay visible");
 assert(!flow.querySelector('[data-chat-flow-key="a-final"]').classList.contains("usc-process-child"), "first final reply must stay outside the outer process fold");
 assert(!flow.querySelector('[data-chat-flow-key="b-final"]').classList.contains("usc-process-child"), "second final reply must stay outside the outer process fold");
+assert(!flow.querySelector('[data-chat-flow-key="a-prompt"]').classList.contains("usc-process-child"), "the user prompt must remain visible between startup context and process rows");
 assert(!flow.querySelector('[data-chat-flow-key="user-boundary"]').classList.contains("usc-fold-child"), "user boundary must stay outside activity groups");
 assert(flow.querySelector('[data-chat-flow-key="a-final"] [data-final-answer]').textContent === "First final", "first final text must not be swallowed");
 assert(flow.querySelector('[data-chat-flow-key="b-final"] [data-final-answer]').textContent === "Second final", "second final text must not be swallowed");

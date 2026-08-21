@@ -1,6 +1,6 @@
 # dsh-usage-stats
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 网页端（`dsh web`）提供的多供应商用量与计费插件：侧栏「用量/余额」查询中心展示所选官方供应商的余额或 Token Plan、**Token 用量/贡献热图/按小时统计**；设置页提供独立的「用量与计费」配置入口。查询与配置分离：弹窗只读，会改变计费或调用行为的设置全部在设置页。默认供应商为 `deepseek-official`，也可切换到 Harness 当前配置的其他官方供应商。
+为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 网页端（`dsh web`）提供用量、余额与计费估算能力。侧栏「用量/余额」查询中心提供概览和明细；所有会改变计费、限额、通知或会话展示行为的配置都位于「设置 → 用量与计费」，查询浮层保持只读。默认展示供应商为 `deepseek-official`，也可跟随 Harness「模型」设置中当前已添加的 provider route。
 
 DeepSeek official balance, token usage, a contribution heatmap, and per-hour statistics for the DeepSeek Harness Web GUI — opened from a dedicated sidebar action with model and API-key switchers.
 
@@ -8,32 +8,69 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 
 | | 能力 | 说明 |
 | --- | --- | --- |
-| 💳 | 供应商余额与套餐 | 支持 DeepSeek、OpenRouter、Kimi Coding、MiniMax、Z.ai 的 API Key 余额或 Token Plan；未支持远端查询的供应商仍展示本地 Token 用量 |
+| 💳 | 供应商余额与套餐 | 按模型设置中已添加的 provider route 展示余额、套餐窗口或本地 Token；未支持远端查询的供应商显示「暂不支持查询」 |
 | 🧭 | 独立侧栏入口 | 使用 Harness 原生 `sidebar.footer.action`；宽侧栏直接显示余额与今日消费，点击打开 760px 响应式查询中心 |
 | 🗂️ | 查询中心双标签 | 「概览」：余额卡、四张摘要卡、年度热图、按小时统计；「明细」：模型筛选与按日明细，弹窗内不含任何配置表单 |
-| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，含账户与余额 / 预算与限额 / 价格设置 / 通知与提示 / 折叠会话 / 数据管理六个标签；弹窗提供「前往设置」链接 |
+| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，含供应商与账户 / 计费与限额 / 通知与提示 / 折叠会话 / 数据管理五个标签；价格编辑器位于「计费与限额」 |
 | 🧩 | 折叠会话过程 | 每个问答（turn）的思考、工具和过程说明收进一个外层大折叠；原有思考/工具小折叠保留，最终回复始终显示在外层大折叠之外。整体耗时与本轮 Token 只显示在大折叠上，小折叠不显示这些汇总信息 |
 | 📊 | Token 用量统计 | 今日 / 本月 / 累计 Token，按 `provider/model` 归集，缓存命中率 |
 | 🟩 | 贡献热图 | GitHub Contributions 风格按自然年展示每日 Token 强度，右上角可切换年份 |
 | ⏱️ | 按小时统计 | 选中日期的 24 小时输入/输出柱状图；悬停显示 Token、费用和模型明细，高峰时段自动标注 |
-| 💰 | 消费金额 | 仅估算 `deepseek-official` 的消费（CNY）；其他供应商保留 Token 明细但不计费。远端余额/套餐与本地费用估算分开。费用按**请求完成时间（usage 上报时间）**归属小时与峰谷 |
-| ⚠️ | 用量提醒与限额 | 每日消费限额 + 最低余额保障 + 预警百分比，**按 API Key 独立配置** |
-| 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，官方今日消费**达到每日限额（100%）**或余额跌破保障线时，在 `llm/stream` 拦截官方模型调用；临界预警比例只触发红色警告，不拦截 |
+| 💰 | 消费金额 | 仅估算 `deepseek-official` 的消费（CNY）；其他供应商保留 Token 明细但不计费。费用按**请求完成时间（usage 上报时间）**归属小时与峰谷 |
+| ⚠️ | 用量提醒与限额 | DeepSeek 每日消费限额、余额提醒、预警比例和可选硬停止；套餐 provider 的 5 小时/每周阈值只控制状态点颜色 |
+| 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，官方今日消费达到每日限额（100%）时，在 `llm/stream` 拦截新的官方模型调用；临界预警只提醒，不拦截 |
 | 🔑 | 按 API Key 统计 | `keyProviders` 将 `deepseek-official` 路由映射到具体 Key，官方今日消费按 Key 归集、限额按 Key 判定 |
-| 🔄 | 后台监测 | 服务端启动即刷新，之后按 `refreshMs` 更新余额与本地 Token 聚合；设置为“关闭”时停用定时刷新 |
+| 🔄 | 后台监测 | 服务端启动时会刷新一次；账户页可配置周期刷新，设置为“关闭”时停用服务端周期定时器。侧栏打开/关闭时分别按 1 分钟/5 分钟轮询摘要 |
 | 🔒 | 本机安全边界 | 端点仅接受回环请求（`usage`/`keys`/`balance` 仅 GET，`limits`/`accounts`/`pricing`/`alerts`/`data` 支持 GET/POST）；API Key 只在服务端解析，绝不进入浏览器或日志 |
 
-界面支持中文和英文。供应商列表以 Harness 的 `ctx.llm.listProviders()` 当前已注册路由为基础，但只保留官方 catalog/官方 adapter 路由；用户声明的别名（例如 `zai-coding-cn`、`xiaomi-token-plan-cn`）和 `vision-toolkit-*` 包装路由不展示。`ctx.llm.listConfigurableProviders()` 仅用于补充官方活动 provider 的 `settingsNs/settingsPath`，不会把休眠的内置 catalog 展示出来。插件不会复制一份静态 Harness 供应商清单。Token 的采集入口是会话事件/流中的 provider-reported `usage`（`assistant/chunk`、`assistant/message` 或 `llm/stream` usage chunk），服务端随后写入调用级 ledger；统计 API 不做本地 tokenizer 估算，而是读取持久化 ledger 与 legacy 快照。对话折叠中的 Token 按**单个问答（turn）**聚合：大折叠只显示该轮所有 assistant step 的输入/缓存/输出 Token 之和，不使用整个会话的累计 projection；小折叠不显示 Token。当前「消费金额」、余额限额硬停止只适用于 `deepseek-official`；外部供应商显示 Token-only，不会使官方今日消费变为空值或触发官方限额。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
+界面支持中文和英文。供应商列表以 Harness 的 `ctx.llm.listProviders()` 和 `ctx.llm.listConfigurableProviders()` 为基础，只保留当前模型设置中存在的可配置 route；`vision-toolkit-*` facade route 不展示。provider 名称沿用 Harness 模型设置中的预设名称，因此 `zai-coding-cn`、`xiaomi-token-plan-cn` 会按原名出现。没有内置远端适配器的 provider 仍可显示本地 Token，但不会发起猜测请求。Token 采集入口是 provider-reported `usage`（`assistant/chunk`、`assistant/message` 或 `llm/stream` usage chunk），服务端写入调用级 ledger；统计 API 不做本地 tokenizer 估算。对话折叠中的 Token 按**单个问答（turn）**聚合，大折叠只显示该轮 assistant step 的输入/缓存/输出之和。当前消费金额和 DeepSeek 官方限额只适用于 `deepseek-official`；统计、限额判定和「今日」口径均按北京时间。
+
+### Provider 能力矩阵
+
+| route 示例 | 远端查询 | 本地/计费行为 |
+| --- | --- | --- |
+| `deepseek-official` | `/user/balance` 余额 | CNY 估算、每日消费限额和余额提醒 |
+| `openrouter` | `/api/v1/key`、`/api/v1/credits` | 余额展示，Token-only |
+| `kimi-coding` | `/coding/v1/usages` | 5 小时/每周 Token 窗口，Token-only |
+| `minimax`、`minimax-cn` | Token Plan remains API | 5 小时/每周比例窗口，Token-only |
+| `zai`、`zai-coding-cn` | `/api/monitor/usage/quota/limit` | 5 小时/每周剩余比例和重置时间，Token-only |
+| `xiaomi-token-plan-cn` | 暂无 API-key 适配器 | 显示本地 Token 或「暂不支持查询」，不读取 Cookie/CDP |
+
+`declared` 只表示 Harness 目录来源，不是官方标志。插件只过滤 `vision-toolkit-*` facade，其他已添加 route 会按 Harness 原名出现在供应商列表中。
+
+## 设置页行为
+
+「设置 → 用量与计费」当前包含五个标签：
+
+- **供应商与账户**：默认展示供应商、账户快照、刷新周期、侧栏余额/今日消费/状态点开关和手动刷新。默认 provider 会同步到侧栏、查询浮层和计费标签，但不会改变模型调用路由。
+- **计费与限额**：DeepSeek 的每日消费限额、预警比例、余额提醒和可选硬停止；DeepSeek 价格编辑器也在此处。套餐 provider 在此设置 5 小时/每周剩余比例的状态点颜色；阈值只影响颜色，不改变远端额度。
+- **通知与提示**：侧栏状态点和页面 Toast 通道、预警/超限/余额不足/恢复事件、冷却时间和当前进程内告警历史。插件页面 Toast 固定显示 5 秒，刷新页面不会重复播放旧告警。
+- **折叠会话**：过程大折叠和本轮 Token 摘要开关。最终回复始终显示在折叠之外，小折叠仍可展开。
+- **数据管理**：账本数量、容量、legacy 折叠数量和日期范围；按北京日历一次性裁剪或二次确认清空本地数据。裁剪不是持续后台策略。
+
+每日消费进度横幅只在设置了每日消费限额时出现，只表达「今日消费 / 每日限额」；余额提醒不会改变它，也不会改变侧栏今日消费圆点。套餐阈值配置虽然由状态点消费，但为了和套餐数据相邻，放在「计费与限额」标签。
 
 ## 界面预览 / Screenshots
 
-「用量/余额」查询中心（概览标签）：DeepSeek 官方余额卡、用量预警、Token 汇总、年度贡献热图与按小时统计。
+「用量/余额」查询中心（概览标签）：余额/套餐卡、Token 汇总、年度贡献热图与按小时统计。每日消费进度只有在设置每日消费限额后显示，使用中性灰黑色进度，不跟随告警颜色。
 
-![用量/余额查询中心（概览）](assets/screenshots/usage-panel.png)
+![DeepSeek 用量与余额概览](assets/screenshots/deepseek-overview.png)
 
-「设置 → 用量与计费」：按 API Key（或全局）配置每日消费限额、余额提醒线与预警比例，硬停止默认关闭。
+「设置 → 用量与计费 → 供应商与账户」：只显示模型设置中已添加的 provider，默认展示供应商同步影响侧栏、查询浮层和计费标签。
 
-![设置 → 用量与计费（限额配置）](assets/screenshots/limits-settings.png)
+![供应商与账户设置](assets/screenshots/provider-accounts-settings.png)
+
+「设置 → 用量与计费 → 折叠会话」：控制过程大折叠和本轮 Token 摘要。
+
+![折叠会话设置](assets/screenshots/conversation-settings.png)
+
+「用量/余额」查询中心（Z.ai 套餐）：展示 5 小时、每周剩余比例和可用的重置倒计时。
+
+![Z.ai 套餐用量](assets/screenshots/zai-plan-overview.png)
+
+折叠会话示例：最终回复保留在外层大折叠之外。
+
+![折叠会话示例](assets/screenshots/conversation-folding-example.png)
 
 ## 快速安装 / Quick start
 
@@ -93,7 +130,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
           - DEEPSEEK_API_KEY_2   # 第二个账号的凭据引用
 ```
 
-浮层顶部的余额卡片会显示「API Key」下拉框，可在多个 Key 之间切换（余额按所选 Key 查询）。Token 统计来自本机会话日志，日志不记录「用哪个 Key」，但记录 provider 路由；当前只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额（见下）。
+当当前 provider 暴露多个 API Key 时，浮层余额卡片会显示「API Key」下拉框，可按 Key 查询余额。Token 统计来自调用级 ledger，日志不记录「用哪个 Key」，但记录 provider route；只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额。
 
 其他 Harness provider 的 `apiKeyEnv` 由对应 provider profile 提供，例如 `OPENROUTER_API_KEY`、`KIMI_API_KEY`、`MINIMAX_API_KEY`、`ZAI_API_KEY`。插件只解析 credential ref，不会把密钥写入插件设置或发送到浏览器。
 
@@ -106,17 +143,18 @@ DEEPSEEK_API_KEY: sk-your-key-here
 | `keys` | `string[]` | `["DEEPSEEK_API_KEY"]` | 余额查询使用的凭据引用列表 |
 | `defaultKeyRef` | `string` | `DEEPSEEK_API_KEY` | 默认选中的 Key |
 | `baseURL` | `string` | `https://api.deepseek.com` | DeepSeek API 地址（`/user/balance` 相对此地址） |
-| `refreshMs` | `number` | `300000` | 启动配置中的余额与用量后台刷新间隔（毫秒，最小 5000）；设置页可选“关闭”停用定时刷新 |
+| `refreshMs` | `number` | `300000` | 启动配置中的余额缓存/刷新基线（毫秒，最小 5000）；设置页可选“关闭”停用服务端周期刷新 |
 | `pricing.pricing` | `object` | 见下 | `deepseek-official` 模型单价（CNY / 1M tokens）覆盖 |
 | `pricing.peakMultiplier` | `number` | `2` | 官方高峰时段价格为空闲时段的 2 倍 |
 | `pricing.peakHours` | `[start,end)[]` | `[[9,12],[14,18]]` | 官方高峰时段，北京时间 09:00–12:00、14:00–18:00 |
 | `pricing.currency` | `string` | `CNY` | 消费金额显示货币；与 DeepSeek 中国区余额默认币种保持一致 |
 | `keyProviders` | `object` | `{}` | Key → provider 路由列表；开启后今日消费按 Key 归集、限额按 Key 判定 |
+| `maxLedgerEntries` | `number` | `5000` | 调用级 ledger 容量，超出后旧记录折叠进 legacy 快照 |
 | `allowInsecure` | `boolean` | `false` | 允许非 HTTPS `baseURL`（不推荐） |
 
-页面中的“默认展示供应商”属于运行时设置，不写入启动配置，保存在 `~/.dsh/storages/usage-settings.json`，默认值为 `deepseek-official`。查询面板不再单独切换 provider，侧栏和查询面板都跟随这里的选择；供应商不可用时回退到 `deepseek-official`，不会把其他供应商的数据静默混入余额卡。
+页面中的“默认展示供应商”属于运行时设置，保存在 `~/.dsh/storages/usage-settings.json`，默认值为 `deepseek-official`。查询面板不提供第二个 provider 选择器，侧栏、查询面板和计费标签都跟随这里的选择；它不会修改模型调用路由。
 
-首期远端查询接口为固定内置适配器：DeepSeek `GET /user/balance`、OpenRouter `/api/v1/key` 与 `/api/v1/credits`、Kimi `/coding/v1/usages`、MiniMax `/v1/token_plan/remains`（回退旧 `coding_plan/remains`）、Z.ai `/api/monitor/usage/quota/limit`。这些套餐接口可能变更，失败时会显示明确状态；未支持的 provider 仍可使用本地 Token 统计。插件首期不执行任意用户 JavaScript 查询脚本。
+当前内置远端适配器为：DeepSeek `GET /user/balance`、OpenRouter `/api/v1/key` 与 `/api/v1/credits`、Kimi `/coding/v1/usages`、MiniMax `/v1/token_plan/remains`（回退旧路径）、Z.ai `/api/monitor/usage/quota/limit`。小米 `xiaomi-token-plan-cn` 当前没有 API-key 配额接口，不读取 MIMO-CLI Cookie、浏览器或外部 CLI 配置；接口失败时保留明确状态，不会把错误当作零额度。
 
 ### 按 API Key 统计（keyProviders）
 
@@ -137,19 +175,19 @@ DEEPSEEK_API_KEY: sk-your-key-here
 
 未映射的 `deepseek-official` 消费归到 `defaultKeyRef`。**未配置 `keyProviders` 时**，所有 Key 共享官方全局今日消费（此时每个 Key 的每日限额按该金额判定）。余额始终按所选 Key 单独查询。
 
-### 用量提醒与限额（设置 → 用量与计费）
+### 用量提醒与限额（设置 → 用量与计费 → 计费与限额）
 
-「设置 → 用量与计费」页面承载限额配置（已从查询弹窗迁出，弹窗保持只读）。可**按 Key（或全局）**配置；**仅配置一个 API Key 时，「目标 API Key」选择器自动隐藏**，直接配置全局规则即可（单 Key 下全局规则就是生效规则）：
+该标签自动跟随「供应商与账户」中的默认展示供应商，不提供第二个供应商选择器。DeepSeek 可**按 Key（或全局）**配置；**仅配置一个 API Key 时，「目标 API Key」选择器自动隐藏**：
 
 - **启用限额**：开关。
 - **每日消费限额**（CNY）：今日估算消费达到限额 × `alertPercent`（默认 80%）→ 黄色预警；达到限额 × `criticalPercent`（默认 90%）→ 红色已超限（仅提醒与告警，不拦截）；两个比例都可在设置页调整。
-- **余额提醒线**：新鲜余额低于该值 → 预警；余额过期或查询失败时显示灰色状态且 fail-open。
+- **余额提醒线**：新鲜余额低于该值 → 余额预警；只影响余额状态和通知，不改变今日消费进度或侧栏今日消费圆点。余额过期或查询失败时显示灰色状态且 fail-open。
 - **预警百分比**：可调整数范围；`alertPercent` 为 1–99%，`criticalPercent` 为 2–100%，且临界值必须高于预警值。
-- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费**达到每日限额（100%）**或余额跌破最低余额保障线时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`，消息会提示去调整限额）；临界预警（默认 90%）只显示红色已超限并触发告警，不拦截。余额查询失败或快照过期时，最低余额规则 fail-open，不会阻断调用。当前 UI 开启硬停止前会要求确认，关闭或其他限额变更会立即保存。
+- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费达到每日限额（100%）时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`）。临界预警只显示状态并触发告警，不拦截；余额查询失败或快照过期时 fail-open。当前 UI 开启硬停止前会要求确认，其他限额变更会立即保存。
 
 限额保存在 `~/.dsh/storages/usage-limits.json`，当前 schema 为 v2。旧 v1 文件会安全迁移：保留提醒规则，但不会自动继承旧 `stopOnExceed` / `minBalance` 为硬停止；用户需在设置页重新确认开启。v2 会拒绝未知配置字段。**规则解析采用全局兜底**：某个 Key 未设置数值（或仅有空壳规则）时，沿用全局限额；Key 设置了数值则覆盖全局、未设置的字段继续继承全局，因此全局限额始终是底线，不会被空壳 Key 规则静默绕过。拦截采用 **fail-open** 策略：限额检查本身出错时放行调用，绝不因插件故障阻塞模型。
 
-状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`（`unpriced`：当日出现未定价的**官方**模型，消费金额不可靠，日限额不参与拦截且 fail-open；外部 Token-only 模型不触发此状态。硬停止消息会点名真实触发原因——达到 100% 每日限额或余额跌破保障线，而非 90% 预警文案）。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件，避免每次轮询或模型请求重复提醒。
+状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`。`unpriced` 表示当日含未定价的 DeepSeek 模型，消费金额不可靠，日限额不参与拦截且 fail-open。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件。
 
 默认单价（CNY / 1M tokens，严格对应 DeepSeek 官方中文价格页，2026-08）：
 
@@ -161,7 +199,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 
 高峰时段为北京时间 09:00–12:00、14:00–18:00，其余为空闲时段；高峰单价为空闲单价的 2 倍。未识别的官方模型与所有外部供应商均显示 Token；费用显示 `—`，不会静默套用其他模型价格。官方价格可能调整，请定期对照 <https://api-docs.deepseek.com/zh-cn/quick_start/pricing/>；可在 `pricing.pricing` 中按模型 id 覆盖。
 
-价格覆盖可以只填写需要调整的字段，未填写的输入命中/未命中/输出单价会继承当前模型值；在设置页点击「自定义价格」会优先带入已保存的自定义价，没有自定义价时带入官方价，所有字段都可编辑后保存。空值、非数字和负数会被前后端拒绝；用户通过 pricing API 提交的 `peakHours` 必须满足 `0 <= start < end <= 24`。
+价格覆盖可以只填写需要调整的字段，未填写的输入命中/未命中/输出单价会继承当前模型值；在「计费与限额」中点击「自定义价格」会带入当前方案，保存后新账本使用新价格。空值、非数字和负数会被前后端拒绝；`peakHours` 必须满足 `0 <= start < end <= 24`。
 
 ## 使用 / Usage
 
@@ -170,7 +208,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 3. 顶部余额卡片：DeepSeek 官方余额 + 充值/赠送明细；多个 Key 时可切换；右上角刷新时图标会持续旋转到请求结束，旁边有「前往设置」链接。余额查询失败会缓存错误快照并在 `refreshMs`（默认 5 分钟）内复用，网络错误时余额显示「暂不可用」。
 4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停方块查看整日日期、Token、输入/输出、缓存、费用和模型摘要，点击方块联动当天明细。
 5. 「按小时统计」：展示所选日期的 24 小时输入/输出柱状图；零用量小时不渲染数据柱，高峰时段以跨全图的浅色背景区段提示；鼠标悬停、键盘聚焦或触屏点击某小时可查看总 Token、输入、输出、缓存、费用和模型拆分。费用与 Token 按**请求完成时间（usage 上报时间）**（北京时）归入对应小时：跨整点边界的流式请求同样按完成时间归属（如 17:59 发起、18:01 完成的请求计入 18 点小时并按空闲价计费，而不是计入 17 点高峰价），与官方账单口径一致。
-6. 限额等配置请在「设置 → 用量与计费」中操作，按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否超限停止调用；开启硬停止时会弹出确认，请确认目标 Key 与规则后再开启。
+6. 限额、价格、通知和展示配置请在「设置 → 用量与计费」中操作；「计费与限额」自动跟随默认展示供应商。DeepSeek 可按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否停止新调用；开启硬停止时会弹出确认。
 7. 「折叠会话」设置只控制过程折叠与大折叠 Token 显示；每个大折叠对应一个问答 turn，最终回复不被折叠。Token 缺失时不回退到整个会话累计值，避免把跨问答用量重复显示。
 
 ## 官方 tokenizer 离线计算
@@ -193,7 +231,7 @@ npm run tokens -- \
 
 - API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。
 - 端点仅接受回环地址请求（peer socket 校验 + Host 二次校验）；`usage` / `keys` / `providers` / `balance` 仅 GET，`limits` / `accounts` / `pricing` / `alerts` / `data` 支持 GET/POST（本机设置写入）。非允许方法返回 405，非回环返回 403。
-- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 occurredAt、完成时间 completedAt、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，缺失时回退发起时间，流结束后立即原子落盘）和 **legacy 快照**（切换前或账本截断时折叠的历史聚合，无请求时间明细、费用按当前价格估算，展示时保留但不伪装精确账单）；账本设有上限（默认 5000 条，可在「设置 → 用量与计费 → 数据管理」配置），条目超过上限时最旧的条目折叠进 legacy 快照并截断账本，不会无限增长；折叠后的历史降级为估算口径。不保存提示词、回复或文件路径。Token 的采集入口是 `llm/stream` usage chunk 与 `assistant/message` 事件，但 `/usage` 统计实际读取持久化调用级 ledger/legacy 快照。限额配置 `~/.dsh/storages/usage-limits.json` 只保存限额数值与开关。
+- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 `occurredAt`、完成时间 `completedAt`、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，流结束后立即原子落盘）和 **legacy 快照**（历史聚合，无请求时间明细，费用按当前价格估算）；账本默认上限 5000 条，超出后最旧记录折叠进 legacy，不会无限增长。不保存提示词、回复或文件路径。Token 的采集入口是 `llm/stream` usage chunk 与 `assistant/message` 事件，`/usage` 读取持久化 ledger/legacy 快照。限额配置保存于 `~/.dsh/storages/usage-limits.json`。
 - 本机反向代理会让插件看到代理自身的回环地址；请勿把端点经反向代理暴露到局域网或公网。
 
 ## API
@@ -207,13 +245,13 @@ npm run tokens -- \
 | `GET` | `/api/usage-stats/limits` | v2 限额配置 + 每个 Key 的统一实时状态及告警跨越/冷却/恢复元数据 |
 | `POST` | `/api/usage-stats/limits` | 保存限额配置（本机回环），返回最新状态 |
 | `GET` | `/api/usage-stats/accounts` | 各 Key/供应商的余额快照状态 + 默认供应商、刷新周期与侧栏展示开关 |
-| `POST` | `/api/usage-stats/accounts` | 保存 `defaultProviderId`、刷新周期与侧栏展示开关（本机回环） |
+| `POST` | `/api/usage-stats/accounts` | 保存 `defaultProviderId`、刷新周期、侧栏展示开关和会话折叠设置（本机回环） |
 | `GET` | `/api/usage-stats/pricing` | 当前价格方案 + 官方只读基线（含核对时间、来源 URL） |
 | `POST` | `/api/usage-stats/pricing` | 保存自定义方案（`mode=custom`）或恢复官方（`action=restore`） |
 | `GET` | `/api/usage-stats/alerts` | 告警历史 + 通知策略（通道/事件/冷却） |
 | `POST` | `/api/usage-stats/alerts` | 保存通知策略（本机回环） |
 | `GET` | `/api/usage-stats/data` | 本地聚合元信息（账本条目、上限、日期范围、折叠计数） |
-| `POST` | `/api/usage-stats/data` | 执行 `rebuild` / `trim`（保留天数）/ `clear`（必须携带 `confirmation: "清除"` 或 `"DELETE"`；服务端也会校验） |
+| `POST` | `/api/usage-stats/data` | 重新读取聚合、执行 `trim`（保留天数）或 `clear`（必须携带 `confirmation: "清除"` 或 `"DELETE"`；服务端也会校验） |
 
 ## 开发与验证 / Development
 
