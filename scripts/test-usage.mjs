@@ -22,8 +22,11 @@ import {
 	freezeLedgerEntry,
 	ledgerToEvents,
 	foldLedger,
-	renderLedger
+	renderLedger,
+	pricingVersionOf
 } from "../lib/ledger.js";
+import { renderCombinedUsage } from "../lib/index.js";
+import { normalizePricing, validatePricingInput } from "../lib/pricing.js";
 
 let failures = 0;
 function assert(condition, message) {
@@ -37,6 +40,28 @@ function assert(condition, message) {
 // independent of the machine's local timezone.
 assert(dayKey(Date.UTC(2026, 0, 1, 16, 0, 0)) === "2026-01-02", "Beijing day boundary");
 assert(hourKey(Date.UTC(2026, 0, 1, 1, 0, 0)) === 9, "Beijing peak-hour boundary");
+
+//#region pricing input validation preserves lenient persisted normalization
+{
+	const legacy = normalizePricing({ peakHours: [[25, 30]] });
+	assert(JSON.stringify(legacy.peakHours) === "[[25,30]]", "normalizePricing remains lenient for persisted settings");
+	let threw = null;
+	try { validatePricingInput({ peakHours: [[25, 30]] }); } catch (error) { threw = error; }
+	assert(threw instanceof TypeError && /peakHours/.test(threw.message), "pricing input rejects out-of-range peak hours");
+	threw = null;
+	try { validatePricingInput({ peakHours: [[9, "bad"]] }); } catch (error) { threw = error; }
+	assert(threw instanceof TypeError && /peakHours/.test(threw.message), "pricing input rejects non-numeric peak hours");
+	const valid = validatePricingInput({ peakHours: [[0, 8], [14, 18]] });
+	assert(valid.peakHours[0][1] === 8, "pricing input accepts valid peak hours");
+	console.log("pricing input validation ok");
+}
+
+{
+	const base = defaultPricing();
+	const changedPeak = structuredClone(base);
+	changedPeak.pricing["deepseek-v4-flash"] = { ...changedPeak.pricing["deepseek-v4-flash"], peak: { inputMiss: 99, inputHit: 88, output: 77 } };
+	assert(pricingVersionOf(base) !== pricingVersionOf(changedPeak), "pricing version includes explicit peak prices");
+}
 
 function sampleEvent(seq, time, type, data) {
 	return { type, seq, time, data };
@@ -199,6 +224,40 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(totals?.inputTokens === 120 && totals?.outputTokens === 12 && totals?.cacheReadTokens === 30,
 		"ledger projection must replace an early usage sample with the final same turn/step sample");
 	console.log("ledger same turn/step replacement ok");
+}
+
+//#region renderCombinedUsage keeps official cost when token-only providers coexist
+{
+	const pricing = defaultPricing();
+	const mixed = renderCombinedUsage({
+		legacy: null,
+		ledger: [
+			{
+				id: "official-call",
+				occurredAt: beijingTime(2026, 0, 6, 11),
+				completedAt: beijingTime(2026, 0, 6, 11),
+				provider: "deepseek-official",
+				model: "deepseek-v4-flash",
+				usage: { inputTokens: 100, outputTokens: 20 },
+				costCny: 0.0002
+			},
+			{
+				id: "token-only-call",
+				occurredAt: beijingTime(2026, 0, 6, 11),
+				completedAt: beijingTime(2026, 0, 6, 11),
+				provider: "zai-coding-cn",
+				model: "glm-5.2",
+				usage: { inputTokens: 900, outputTokens: 10 },
+				costCny: null
+			}
+		]
+	}, 123, pricing);
+	const day = mixed.days[0];
+	assert(day.cost === 0.0002, `token-only provider must not blank combined day cost: ${day.cost}`);
+	assert(day.hours[11].cost === 0.0002, `token-only provider must not blank combined hour cost: ${day.hours[11].cost}`);
+	assert(mixed.total.cost === 0.0002, `token-only provider must not blank combined total cost: ${mixed.total.cost}`);
+	assert(day.models.some((model) => model.model === "zai-coding-cn/glm-5.2" && model.cost === null), "token-only model remains unpriced");
+	console.log("renderCombinedUsage mixed-provider cost isolation ok");
 }
 
 {

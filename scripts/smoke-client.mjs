@@ -72,16 +72,20 @@ if (source.includes('button[aria-label*="设置"') || source.includes('button[ti
 if (!source.includes("@keyframes usg_spin")) throw new Error("refresh button must define a spin animation");
 if (!source.includes(".usg_refreshButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a compact borderless glyph");
 if (!source.includes(".usg_refreshGlyph")) throw new Error("refresh glyph must receive the spin animation");
+if (source.includes(".usc-fold-summary:hover{background:")) throw new Error("conversation fold summary must not change background on hover");
 if (!source.includes('react_jsx_runtime.jsxs("svg"')) throw new Error("refresh button must use SVG icon for reliable rotation");
 if (!source.includes(".usg_hourTooltipHead{justify-content:space-between")) throw new Error("tooltip head must lay time and amount on one row");
 if (!source.includes(".usg_hourTooltipAmount")) throw new Error("tooltip head must wrap the amount in a dedicated span");
 if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
+if (!source.includes(".usg_hourRangeSelect:focus,.usg_hourRangeSelect:focus-visible{outline:none")) throw new Error("hour range selector must not show a blue focus border");
 if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
 if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");
 if (!source.includes("className: S.hourControls")) throw new Error("hourly range selector must share the header controls with date navigation");
 if (!source.includes(".usg_hourRangeSelect{height:28px;color:var(--dsw-alias-label-secondary);background:transparent;border:0")) throw new Error("hourly range selector must not render a white bordered field");
 if (!source.includes('"aria-label": translate("usage.year")')) throw new Error("heatmap must expose a year selector");
 if (!source.includes("width:10px;height:10px")) throw new Error("heatmap must use compact square day cells");
+if (!source.includes("onMouseEnter: (event) => setHoveredCell") || !source.includes("day.inputTokens") || !source.includes("day: entry?.day ?? entry ?? null")) throw new Error("heatmap cells must show full-day hover details");
+if (!source.includes('"aria-label": title')) throw new Error("heatmap cells must retain an accessible label");
 if (!source.includes(".usg_hourTooltip{")) throw new Error("hourly chart must define an interactive tooltip");
 if (!source.includes("onMouseEnter: () => setHoveredHour(hour.hour)")) throw new Error("hourly bars must react to pointer hover");
 if (!source.includes('"data-hour": hour.hour')) throw new Error("hourly bars must expose their hour for interaction tests");
@@ -89,7 +93,10 @@ if (source.includes(".usg_hourSlot.usg_peak{background:")) throw new Error("peak
 if (!source.includes(".usg_peakRegion{")) throw new Error("peak hours must be rendered as a background region");
 if (!source.includes('"data-peak-region"')) throw new Error("peak regions must be identifiable in the DOM");
 if (source.includes("min-height:3px")) throw new Error("zero-token hours must not fake a bar with min-height");
-if (!source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly bars must support tap-to-toggle on touch");
+if (!source.includes('onMouseLeave: () => setHoveredHour(null)')) throw new Error("hourly chart tooltip must clear when the pointer leaves");
+if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly tooltip must not persist after a click");
+if (!source.includes('filteredActiveDay !== null && react_jsx_runtime.jsx(DayDetail')) throw new Error("single-day view must retain the model detail summary");
+if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
 if (!source.includes("100 * cost / maxCost")) throw new Error("hourly bars must scale by cost, not raw token count");
 if (!source.includes("Math.max(input + output, 1)")) throw new Error("hourly input/output split must not count cache read against the visible bars");
 if (source.includes("className: S.hourCache")) throw new Error("cache tokens must not use an invisible standalone segment");
@@ -102,8 +109,12 @@ if (!source.includes('usage-stats:accounts-updated')) throw new Error("sidebar s
 if (!source.includes('display.balance !== false')) throw new Error("sidebar summary must respect the balance display toggle");
 if (!source.includes('display.todayCost !== false')) throw new Error("sidebar summary must respect the today-spend display toggle");
 if (!source.includes('display.statusDot !== false')) throw new Error("sidebar summary must respect the status-dot display toggle");
-if (!source.includes("const [stopOnExceed, setStopOnExceed] = react.useState(false)")) throw new Error("hard stop must default to off in the settings UI");
-if (source.includes("window.confirm(translate(\"limits.stopConfirm\"))")) throw new Error("hard stop must not open a confirmation dialog");
+if (!source.includes('t("panel.balance")') || !source.includes('t("panel.today")')) throw new Error("sidebar summary labels must use the active locale");
+if (source.includes('`余额 ${summary.balance}`') || source.includes('`今日 ${summary.today}`')) throw new Error("sidebar summary must not hard-code Chinese labels");
+if (!source.includes("const stopOnExceed = rule?.stopOnExceed === true")) throw new Error("hard stop must reflect the saved limit rule");
+if (!source.includes("window.confirm(translate(\"limits.stopConfirm\"))")) throw new Error("enabling hard stop must require confirmation");
+if (!source.includes('key: `${targetKey}:daily:${limits === null ? "loading" : "ready"}`')) throw new Error("daily limit input must remount when the selected key changes");
+if (!source.includes('key: `${targetKey}:balance:${limits === null ? "loading" : "ready"}`')) throw new Error("balance limit input must remount when the selected key changes");
 if (!source.includes('status === "blocked" || status === "exceeded"')) throw new Error("client must map blocked and exceeded through one shared tone helper");
 if (!source.includes('"stale", "unavailable"')) throw new Error("client must render stale and unavailable limit states");
 // Settings controls must remain usable inside the host application's global
@@ -113,14 +124,14 @@ if (!source.includes('"stale", "unavailable"')) throw new Error("client must ren
 if (!source.includes("handleSave({ lowBalanceWarning:")) throw new Error("low-balance input must autosave its current value");
 if (!source.includes(".usg_switch input{position:absolute;inset:0;width:100%;height:100%")) throw new Error("switch input must own the full control hit area");
 if (!source.includes("background-color:rgba(128,128,128,.28)")) throw new Error("switch track must have a visible theme-independent off state");
-if (!source.includes(".usg_section{--usg-blue:#1f6feb;")) throw new Error("settings section must define the switch selected-state color");
+if (!source.includes(".usg_section{--usg-blue:var(--dsw-alias-brand-primary,#1f6feb);")) throw new Error("settings section must define the switch selected-state color");
 if (source.includes("saveMsg") || source.includes("usg_saveSuccess") || source.includes('"limits.saved"')) throw new Error("settings must not render a saved-success message");
 if (!source.includes("className: S.toggleGrid")) throw new Error("limit toggles must use the compact responsive grid");
 if (!source.includes("className: S.alertRange")) throw new Error("alert percentage must use the segmented range control");
 if (!source.includes('"--alert-percent": `${alertPercent}%`') || !source.includes('"--critical-percent": `${criticalPercent}%`')) throw new Error("dual range must track both configured percentages");
 if (!source.includes("className: `${S.alertRange} is-overlay`")) throw new Error("alert control must render a second draggable handle");
 if (!source.includes('alertTrack: "usg_alertTrack"')) throw new Error("dual range track must be bound to its positioned wrapper");
-if (!source.includes("--usg-success:#22a06b;--usg-warning:#d99b00;--usg-danger:#e5484d;")) throw new Error("semantic range colors must not depend on optional host theme tokens");
+if (!source.includes("--usg-success:var(--dsw-alias-state-success-primary,#22a06b);--usg-warning:var(--dsw-alias-state-warn-primary,#d99b00);--usg-danger:var(--dsw-alias-state-error-primary,#e5484d);")) throw new Error("semantic range colors must follow the host theme with fallbacks");
 if (!source.includes(".usg_alertCard input.usg_alertRange{appearance:none!important;")) throw new Error("range control must override host input styles");
 if (!source.includes(".usg_alertCard input.usg_alertRange::-webkit-slider-runnable-track")) throw new Error("range control must paint an explicit WebKit track");
 if (!source.includes(".usg_saveBtn{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;")) throw new Error("save button must use the settings-page primary button palette");
@@ -161,7 +172,7 @@ if (!source.includes('usingCustom ? translate("pricing.edit")')) throw new Error
 if (!source.includes('background:var(--usg-action)')) throw new Error("primary buttons must use the solid action palette");
 if (!source.includes('.usg_btnDanger{background:')) throw new Error("danger buttons must use a solid error fill");
 if (!source.includes("className: S.alertList")) throw new Error("notifications card must render the alert history list");
-if (!source.includes('run("rebuild")') || !source.includes('run("clear")') || !source.includes('run("trim"')) throw new Error("data card must expose rebuild/clear/trim actions");
+if (!source.includes('run("rebuild")') || !source.includes('run("clear", { confirmation: confirmText.trim() })') || !source.includes('run("trim"')) throw new Error("data card must expose rebuild/clear/trim actions with server-side clear confirmation");
 // Notification linkage: the sidebar delivers in-page toasts via the native
 // primitive, honors the sidebar channel on the status dot, and polls alerts.
 if (!source.includes('primitives.Toast')) throw new Error("notifications must deliver in-page toasts via the native Toast primitive");
@@ -175,6 +186,12 @@ if (!source.includes('S.limitSub')) throw new Error("limits card must render gro
 // Pricing custom input keeps raw draft strings so decimals are not swallowed.
 if (!source.includes('toNumericModels')) throw new Error("pricing card must convert draft strings to numbers on save");
 if (!source.includes('value: row?.[period]?.[field] ?? ""')) throw new Error("pricing edit inputs must render the raw draft string");
+if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) throw new Error("pricing card must reject blank, invalid, and negative values");
+if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
+if (!source.includes('M433.493333 548.693333') || !source.includes('M831.573333 511.146667') || !source.includes('atomDot.setAttribute("fill", "currentColor")')) throw new Error("thought metric must use the supplied atom icon");
+if (!source.includes('.usg_hourInput{background:#3b82f6') || !source.includes('.usg_hourOutput{background:#22c55e')) throw new Error("hourly input/output bars must use blue/green colors");
+if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:#f59e0b')) throw new Error("daily range bars must use orange");
+if (!source.includes('M944.140673 718.412117') || !source.includes('tool.setAttribute("fill", "currentColor")')) throw new Error("tool metric must use the replacement tool icon");
 // Data card must be organized into plain-language groups.
 if (!source.includes('translate("data.overview")') || !source.includes('translate("data.retentionGroup")') || !source.includes('translate("data.dangerGroup")')) throw new Error("data card must use plain-language group headings");
 
@@ -423,6 +440,14 @@ console.log("data helpers ok");
 	if (!heat.weeks.flat().some((cell) => cell?.key === "2026-01-01")) throw new Error("January 1 missing");
 	if (!heat.weeks.flat().some((cell) => cell?.key === "2026-12-31")) throw new Error("December 31 missing");
 	if (heat.max !== 4321) throw new Error(`heat max ${heat.max}`);
+	for (const year of [2028, 2056]) {
+		const edgeHeat = buildYearContributionHeatmap(new Map(), year);
+		if (edgeHeat.weeks.length !== 53) throw new Error(`${year} contribution heatmap must not render a 54th column`);
+		const cells = edgeHeat.weeks.flat();
+		if (!cells.some((cell) => cell?.key === `${year}-01-01`) || !cells.some((cell) => cell?.key === `${year}-12-31`)) {
+			throw new Error(`${year} contribution heatmap lost a year edge cell`);
+		}
+	}
 	const day13 = heat.weeks.flat().find((cell) => cell?.key === "2026-08-13");
 	if (day13?.tokens !== 1234 || day13?.hitRate !== 88.8) throw new Error(`heat day 13 ${JSON.stringify(day13)}`);
 	if (heat.months.length !== 12 || !heat.months.some((month) => month.month === 7)) throw new Error(`year month labels invalid: ${JSON.stringify(heat.months)}`);

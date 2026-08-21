@@ -27,14 +27,18 @@ import {
 	createSettingsService,
 	runtimePricingOf,
 	maxLedgerEntriesOf,
+	refreshCadenceOf,
+	readJsonBody,
 	trimCache,
 	dataInfoOf,
+	isDataClearConfirmation,
 	validateSettings
 } from "../lib/index.js";
 import { dayKey, defaultPricing } from "../lib/usage.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 
 let failures = 0;
 function assert(condition, message) {
@@ -77,6 +81,11 @@ function assert(condition, message) {
 	assert(JSON.stringify(custom.pricing.peakHours) === "[[0,8]]", "custom peak hours");
 	assert(custom.pricing.currency === "CNY", "custom currency");
 
+	const partialPricing = validateConfig({ pricing: { pricing: { "deepseek-v4-flash": { inputMiss: 9 } } } });
+	assert(partialPricing.pricing.pricing["deepseek-v4-flash"].inputMiss === 9, "partial pricing override input miss");
+	assert(partialPricing.pricing.pricing["deepseek-v4-flash"].inputHit === 0.05, "partial pricing preserves input hit");
+	assert(partialPricing.pricing.pricing["deepseek-v4-flash"].output === 4.5, "partial pricing preserves output");
+
 	let threw = null;
 	try { validateConfig({ refreshMs: 100 }); } catch (error) { threw = error; }
 	assert(threw !== null && /refreshMs/.test(threw.message), "rejects too-small refreshMs");
@@ -87,6 +96,22 @@ function assert(condition, message) {
 	try { validateConfig({ pricing: { peakHours: [[5, 2]] } }); } catch (error) { threw = error; }
 	assert(threw !== null && /peakHours/.test(threw.message), "rejects inverted peak hours");
 	console.log("config validation ok");
+}
+
+//#region JSON body size cap
+{
+	let threw = null;
+	try { await readJsonBody({ body: "x".repeat(17) }, 16); } catch (error) { threw = error; }
+	assert(threw !== null && /payload too large/.test(threw.message), "body string honors the size cap");
+	const request = new EventEmitter();
+	request.destroyed = false;
+	request.setEncoding = () => {};
+	request.destroy = () => { request.destroyed = true; };
+	const pending = readJsonBody(request, 4);
+	request.emit("data", "12345");
+	await pending.then(() => { threw = null; }, (error) => { threw = error; });
+	assert(threw !== null && /payload too large/.test(threw.message) && request.destroyed === true, "stream body stops and destroys oversized requests");
+	console.log("JSON body size cap ok");
 }
 
 //#region apply + routes & interceptors
@@ -121,6 +146,43 @@ function assert(condition, message) {
 		&& paths[4] === KEYS_PATH && paths[5] === LIMITS_PATH && paths[6] === PRICING_PATH && paths[7] === USAGE_PATH,
 		`routes ${JSON.stringify(paths)}`
 	);
+	const dataRoute = routes.find((route) => route.path === DATA_PATH);
+	const pricingRoute = routes.find((route) => route.path === PRICING_PATH);
+	function routeResponse() {
+		return {
+			status: null,
+			headers: null,
+			body: "",
+			writeHead(status, headers) { this.status = status; this.headers = headers; },
+			end(body) { this.body = body ?? ""; }
+		};
+	}
+	const invalidPricingResponse = routeResponse();
+	await pricingRoute.handler({ method: "POST", body: { mode: "custom", pricing: { peakHours: [[25, 30]] } }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidPricingResponse);
+	const invalidPricingPayload = JSON.parse(invalidPricingResponse.body);
+	assert(invalidPricingResponse.status === 400 && invalidPricingPayload.error === "invalid-payload" && /peakHours/.test(invalidPricingPayload.message), "pricing route rejects invalid peak hours");
+	const validPricingResponse = routeResponse();
+	await pricingRoute.handler({ method: "POST", body: { mode: "custom", pricing: { peakHours: [[0, 8], [14, 18]] } }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, validPricingResponse);
+	const validPricingPayload = JSON.parse(validPricingResponse.body);
+	assert(validPricingResponse.status === 200 && validPricingPayload.ok === true && JSON.stringify(validPricingPayload.current.peakHours) === "[[0,8],[14,18]]", "pricing route accepts valid peak hours");
+	const invalidModelPricingResponse = routeResponse();
+	await pricingRoute.handler({ method: "POST", body: { mode: "custom", pricing: { models: { "deepseek-v4-flash": { offPeak: { inputMiss: "not-a-number" } } } } }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidModelPricingResponse);
+	const invalidModelPricingPayload = JSON.parse(invalidModelPricingResponse.body);
+	assert(invalidModelPricingResponse.status === 400 && invalidModelPricingPayload.error === "invalid-payload" && /inputMiss/.test(invalidModelPricingPayload.message), "pricing route rejects non-numeric model prices");
+	const negativeModelPricingResponse = routeResponse();
+	await pricingRoute.handler({ method: "POST", body: { mode: "custom", pricing: { models: { "deepseek-v4-flash": { offPeak: { output: -1 } } } } }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, negativeModelPricingResponse);
+	const negativeModelPricingPayload = JSON.parse(negativeModelPricingResponse.body);
+	assert(negativeModelPricingResponse.status === 400 && negativeModelPricingPayload.error === "invalid-payload" && /output/.test(negativeModelPricingPayload.message), "pricing route rejects negative model prices");
+	const invalidClearResponse = {
+		status: null,
+		headers: null,
+		body: "",
+		writeHead(status, headers) { this.status = status; this.headers = headers; },
+		end(body) { this.body = body ?? ""; }
+	};
+	await dataRoute.handler({ method: "POST", body: { action: "clear" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidClearResponse);
+	const invalidClearPayload = JSON.parse(invalidClearResponse.body);
+	assert(invalidClearResponse.status === 400 && invalidClearPayload.error === "invalid-payload", "data clear route rejects missing confirmation before touching storage");
 	assert(listeners.has("agent/request"), "agent/request listener registered");
 	assert(listeners.has("llm/stream"), "llm/stream listener registered");
 
@@ -286,6 +348,13 @@ function assert(condition, message) {
 	});
 	const failed = await failing.get("DEEPSEEK_API_KEY");
 	assert(failed.status === "unauthorized", `failed status ${failed.status}`);
+	const malformed = createBalanceService({
+		credentials: { resolve: async () => ({ value: "sk-x" }) },
+		config: validateConfig({}),
+		deps: { queryBalance: async () => ({ isAvailable: true, currency: "CNY", total: "not-a-number" }) }
+	});
+	const malformedAccount = await malformed.get("DEEPSEEK_API_KEY");
+	assert(malformedAccount.status === "invalid-response" && malformedAccount.balance === void 0, "non-numeric balance total must not be cached as an ok account");
 	console.log("balance service ok");
 }
 
@@ -324,6 +393,16 @@ function assert(condition, message) {
 		threw = error;
 	}
 	assert(threw !== null && threw.providerStatus === "unavailable", `transport errors must carry providerStatus=unavailable, got ${threw?.providerStatus ?? "no error"}`);
+	let malformedPayloadError = null;
+	try {
+		await queryDeepSeekBalance("https://api.deepseek.com", "sk-x", 1000, async () => ({
+			ok: true,
+			json: async () => ({ is_available: true, balance_infos: [{ currency: "CNY", total_balance: "not-a-number" }] })
+		}));
+	} catch (error) {
+		malformedPayloadError = error;
+	}
+	assert(malformedPayloadError?.providerStatus === "invalid-response", "balance parser rejects a non-numeric total amount");
 	// Via createBalanceService the same failure must surface as unavailable,
 	// never invalid-response (regression for the fetchBalance catch branch).
 	const failingService = createBalanceService({
@@ -1116,6 +1195,8 @@ function assert(condition, message) {
 	assert(maxLedgerEntriesOf(validateSettings({ maxLedgerEntries: 800 }), config) === 800, "settings capacity wins");
 	assert(maxLedgerEntriesOf(validateSettings({}), validateConfig({ maxLedgerEntries: 3000 })) === 3000, "config capacity used when settings unset");
 	assert(maxLedgerEntriesOf(validateSettings({}), config) === 5000, "default capacity 5000");
+	assert(refreshCadenceOf({ refreshMs: null }, config) === 0, "null refresh cadence disables background timer");
+	assert(refreshCadenceOf({}, config) === config.refreshMs, "missing refresh cadence falls back to startup config");
 	console.log("runtime pricing + ledger capacity resolution ok");
 }
 
@@ -1173,6 +1254,15 @@ function assert(condition, message) {
 	trimCache(two, 2);
 	assert(two.ledger.length === 2, `retention=2 keeps today + yesterday (got ${two.ledger.length})`);
 	console.log("trim retention calendar-day semantics ok");
+}
+
+//#region data clear confirmation contract
+{
+	assert(isDataClearConfirmation("清除"), "data clear accepts the Chinese UI confirmation word");
+	assert(isDataClearConfirmation(" DELETE "), "data clear trims and accepts the English UI confirmation word");
+	assert(!isDataClearConfirmation(undefined), "data clear rejects a missing confirmation");
+	assert(!isDataClearConfirmation("clear"), "data clear rejects an unrecognized confirmation");
+	console.log("data clear confirmation contract ok");
 }
 
 //#region alerts history captured by evaluateAll (dedup + fields)

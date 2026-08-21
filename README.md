@@ -11,7 +11,8 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 | 💳 | DeepSeek 官方余额 | `GET /user/balance`，展示总余额、充值余额、赠送余额，可切换多个 API Key |
 | 🧭 | 独立侧栏入口 | 使用 Harness 原生 `sidebar.footer.action`；宽侧栏直接显示余额与今日消费，点击打开 760px 响应式查询中心 |
 | 🗂️ | 查询中心双标签 | 「概览」：余额卡、四张摘要卡、年度热图、按小时统计；「明细」：模型筛选与按日明细，弹窗内不含任何配置表单 |
-| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，含账户与余额 / 预算与限额 / 价格设置 / 通知与提示 / 数据管理五个标签；弹窗提供「前往设置」链接 |
+| ⚙️ | 独立设置入口 | 使用 Harness 原生 `settings.section` 注册「设置 → 用量与计费」，含账户与余额 / 预算与限额 / 价格设置 / 通知与提示 / 折叠会话 / 数据管理六个标签；弹窗提供「前往设置」链接 |
+| 🧩 | 折叠会话过程 | 每个问答（turn）的思考、工具和过程说明收进一个外层大折叠；原有思考/工具小折叠保留，最终回复始终显示在外层大折叠之外。整体耗时与本轮 Token 只显示在大折叠上，小折叠不显示这些汇总信息 |
 | 📊 | Token 用量统计 | 今日 / 本月 / 累计 Token，按 `provider/model` 归集，缓存命中率 |
 | 🟩 | 贡献热图 | GitHub Contributions 风格按自然年展示每日 Token 强度，右上角可切换年份 |
 | ⏱️ | 按小时统计 | 选中日期的 24 小时输入/输出柱状图；悬停显示 Token、费用和模型明细，高峰时段自动标注 |
@@ -19,10 +20,10 @@ DeepSeek official balance, token usage, a contribution heatmap, and per-hour sta
 | ⚠️ | 用量提醒与限额 | 每日消费限额 + 最低余额保障 + 预警百分比，**按 API Key 独立配置** |
 | 🛑 | 超限停止调用 | 默认仅提醒；显式开启 `stopOnExceed` 后，官方今日消费**达到每日限额（100%）**或余额跌破保障线时，在 `llm/stream` 拦截官方模型调用；临界预警比例只触发红色警告，不拦截 |
 | 🔑 | 按 API Key 统计 | `keyProviders` 将 `deepseek-official` 路由映射到具体 Key，官方今日消费按 Key 归集、限额按 Key 判定 |
-| 🔄 | 后台监测 | 服务端启动即刷新，之后每 5 分钟更新余额与本地 Token 聚合 |
+| 🔄 | 后台监测 | 服务端启动即刷新，之后按 `refreshMs` 更新余额与本地 Token 聚合；设置为“关闭”时停用定时刷新 |
 | 🔒 | 本机安全边界 | 端点仅接受回环请求（`usage`/`keys`/`balance` 仅 GET，`limits`/`accounts`/`pricing`/`alerts`/`data` 支持 GET/POST）；API Key 只在服务端解析，绝不进入浏览器或日志 |
 
-界面支持中文和英文。Token 数据来自会话事件中的 provider-reported `usage`（`assistant/chunk` 或 `assistant/message`），不是本地估算；全部供应商按 `provider/model` 分组保存。当前「消费金额」、余额与限额只适用于 `deepseek-official`；外部供应商显示 Token-only，不会使官方今日消费变为空值或触发官方限额。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
+界面支持中文和英文。Token 的采集入口是会话事件/流中的 provider-reported `usage`（`assistant/chunk`、`assistant/message` 或 `llm/stream` usage chunk），服务端随后写入调用级 ledger；统计 API 不做本地 tokenizer 估算，而是读取持久化 ledger 与 legacy 快照。对话折叠中的 Token 按**单个问答（turn）**聚合：大折叠只显示该轮所有 assistant step 的输入/缓存/输出 Token 之和，不使用整个会话的累计 projection；小折叠不显示 Token。当前「消费金额」、余额与限额只适用于 `deepseek-official`；外部供应商显示 Token-only，不会使官方今日消费变为空值或触发官方限额。统计、限额判定与「今日」口径均按**北京时间**（服务端下发 `today` 字段，客户端优先使用），机器或浏览器时区不是 UTC+8 也保持一致。
 
 ## 界面预览 / Screenshots
 
@@ -103,7 +104,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 | `keys` | `string[]` | `["DEEPSEEK_API_KEY"]` | 余额查询使用的凭据引用列表 |
 | `defaultKeyRef` | `string` | `DEEPSEEK_API_KEY` | 默认选中的 Key |
 | `baseURL` | `string` | `https://api.deepseek.com` | DeepSeek API 地址（`/user/balance` 相对此地址） |
-| `refreshMs` | `number` | `300000` | 余额与用量后台刷新间隔（毫秒，最小 5000） |
+| `refreshMs` | `number` | `300000` | 启动配置中的余额与用量后台刷新间隔（毫秒，最小 5000）；设置页可选“关闭”停用定时刷新 |
 | `pricing.pricing` | `object` | 见下 | `deepseek-official` 模型单价（CNY / 1M tokens）覆盖 |
 | `pricing.peakMultiplier` | `number` | `2` | 官方高峰时段价格为空闲时段的 2 倍 |
 | `pricing.peakHours` | `[start,end)[]` | `[[9,12],[14,18]]` | 官方高峰时段，北京时间 09:00–12:00、14:00–18:00 |
@@ -137,8 +138,8 @@ DEEPSEEK_API_KEY: sk-your-key-here
 - **启用限额**：开关。
 - **每日消费限额**（CNY）：今日估算消费达到限额 × `alertPercent`（默认 80%）→ 黄色预警；达到限额 × `criticalPercent`（默认 90%）→ 红色已超限（仅提醒与告警，不拦截）；两个比例都可在设置页调整。
 - **余额提醒线**：新鲜余额低于该值 → 预警；余额过期或查询失败时显示灰色状态且 fail-open。
-- **预警百分比**：50% / 70% / 80% / 90% / 95%。
-- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费**达到每日限额（100%）**或余额跌破最低余额保障线时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`，消息会提示去调整限额）；临界预警（默认 90%）只显示红色已超限并触发告警，不拦截。余额查询失败或快照过期时，最低余额规则 fail-open，不会阻断调用。
+- **预警百分比**：可调整数范围；`alertPercent` 为 1–99%，`criticalPercent` 为 2–100%，且临界值必须高于预警值。
+- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费**达到每日限额（100%）**或余额跌破最低余额保障线时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`，消息会提示去调整限额）；临界预警（默认 90%）只显示红色已超限并触发告警，不拦截。余额查询失败或快照过期时，最低余额规则 fail-open，不会阻断调用。当前 UI 开启硬停止前会要求确认，关闭或其他限额变更会立即保存。
 
 限额保存在 `~/.dsh/storages/usage-limits.json`，当前 schema 为 v2。旧 v1 文件会安全迁移：保留提醒规则，但不会自动继承旧 `stopOnExceed` / `minBalance` 为硬停止；用户需在设置页重新确认开启。v2 会拒绝未知配置字段。**规则解析采用全局兜底**：某个 Key 未设置数值（或仅有空壳规则）时，沿用全局限额；Key 设置了数值则覆盖全局、未设置的字段继续继承全局，因此全局限额始终是底线，不会被空壳 Key 规则静默绕过。拦截采用 **fail-open** 策略：限额检查本身出错时放行调用，绝不因插件故障阻塞模型。
 
@@ -154,14 +155,17 @@ DEEPSEEK_API_KEY: sk-your-key-here
 
 高峰时段为北京时间 09:00–12:00、14:00–18:00，其余为空闲时段；高峰单价为空闲单价的 2 倍。未识别的官方模型与所有外部供应商均显示 Token；费用显示 `—`，不会静默套用其他模型价格。官方价格可能调整，请定期对照 <https://api-docs.deepseek.com/zh-cn/quick_start/pricing/>；可在 `pricing.pricing` 中按模型 id 覆盖。
 
+价格覆盖可以只填写需要调整的字段，未填写的输入命中/未命中/输出单价会继承当前模型值；在设置页点击「自定义价格」会优先带入已保存的自定义价，没有自定义价时带入官方价，所有字段都可编辑后保存。空值、非数字和负数会被前后端拒绝；用户通过 pricing API 提交的 `peakHours` 必须满足 `0 <= start < end <= 24`。
+
 ## 使用 / Usage
 
 1. 侧栏底部 **用量/余额** 会直接显示默认账户余额与今日消费：查询面板打开时每分钟刷新，关闭时每 5 分钟刷新；点击整行打开查询中心，窄侧栏模式只显示数据图标。
 2. 查询中心分「概览 / 明细」两个标签：概览 = 余额卡、四张摘要卡、年度每日用量热图、按小时统计与所选日期模型摘要；明细 = 模型筛选与最近日期按日明细（点击日期可联动概览小时图）。
 3. 顶部余额卡片：DeepSeek 官方余额 + 充值/赠送明细；多个 Key 时可切换；右上角刷新时图标会持续旋转到请求结束，旁边有「前往设置」链接。余额查询失败会缓存错误快照并在 `refreshMs`（默认 5 分钟）内复用，网络错误时余额显示「暂不可用」。
-4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停查看日期与 Token，点击方块联动当天明细。
+4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停方块查看整日日期、Token、输入/输出、缓存、费用和模型摘要，点击方块联动当天明细。
 5. 「按小时统计」：展示所选日期的 24 小时输入/输出柱状图；零用量小时不渲染数据柱，高峰时段以跨全图的浅色背景区段提示；鼠标悬停、键盘聚焦或触屏点击某小时可查看总 Token、输入、输出、缓存、费用和模型拆分。费用与 Token 按**请求完成时间（usage 上报时间）**（北京时）归入对应小时：跨整点边界的流式请求同样按完成时间归属（如 17:59 发起、18:01 完成的请求计入 18 点小时并按空闲价计费，而不是计入 17 点高峰价），与官方账单口径一致。
-6. 限额等配置请在「设置 → 用量与计费」中操作，按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否超限停止调用；开启硬停止时必须二次确认。
+6. 限额等配置请在「设置 → 用量与计费」中操作，按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否超限停止调用；开启硬停止时会弹出确认，请确认目标 Key 与规则后再开启。
+7. 「折叠会话」设置只控制过程折叠与大折叠 Token 显示；每个大折叠对应一个问答 turn，最终回复不被折叠。Token 缺失时不回退到整个会话累计值，避免把跨问答用量重复显示。
 
 ## 官方 tokenizer 离线计算
 
@@ -183,7 +187,7 @@ npm run tokens -- \
 
 - API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。
 - 端点仅接受回环地址请求（peer socket 校验 + Host 二次校验）；`usage` / `keys` / `balance` 仅 GET，`limits` / `accounts` / `pricing` / `alerts` / `data` 支持 GET/POST（本机设置写入）。非允许方法返回 405，非回环返回 403。
-- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 occurredAt、完成时间 completedAt、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，缺失时回退发起时间，流结束后立即原子落盘）和 **legacy 快照**（切换前或账本截断时折叠的历史聚合，无请求时间明细、费用按当前价格估算，展示时保留但不伪装精确账单）；账本设有上限（默认 5000 条，可在「设置 → 用量与计费 → 数据管理」配置），条目超过上限时最旧的条目折叠进 legacy 快照并截断账本，不会无限增长；折叠后的历史降级为估算口径。不保存提示词、回复或文件路径。限额配置 `~/.dsh/storages/usage-limits.json` 只保存限额数值与开关。
+- 用量缓存 `~/.dsh/storages/usage-stats-cache.json` 保存两部分：**调用级账本**（每次模型请求的稳定 ID、发起时间 occurredAt、完成时间 completedAt、provider/model、usage、当次 `costCny` 和 `pricingVersion`；统计归属按完成时间，缺失时回退发起时间，流结束后立即原子落盘）和 **legacy 快照**（切换前或账本截断时折叠的历史聚合，无请求时间明细、费用按当前价格估算，展示时保留但不伪装精确账单）；账本设有上限（默认 5000 条，可在「设置 → 用量与计费 → 数据管理」配置），条目超过上限时最旧的条目折叠进 legacy 快照并截断账本，不会无限增长；折叠后的历史降级为估算口径。不保存提示词、回复或文件路径。Token 的采集入口是 `llm/stream` usage chunk 与 `assistant/message` 事件，但 `/usage` 统计实际读取持久化调用级 ledger/legacy 快照。限额配置 `~/.dsh/storages/usage-limits.json` 只保存限额数值与开关。
 - 本机反向代理会让插件看到代理自身的回环地址；请勿把端点经反向代理暴露到局域网或公网。
 
 ## API
@@ -202,7 +206,7 @@ npm run tokens -- \
 | `GET` | `/api/usage-stats/alerts` | 告警历史 + 通知策略（通道/事件/冷却） |
 | `POST` | `/api/usage-stats/alerts` | 保存通知策略（本机回环） |
 | `GET` | `/api/usage-stats/data` | 本地聚合元信息（账本条目、上限、日期范围、折叠计数） |
-| `POST` | `/api/usage-stats/data` | 执行 `rebuild` / `trim`（保留天数）/ `clear`（二次确认） |
+| `POST` | `/api/usage-stats/data` | 执行 `rebuild` / `trim`（保留天数）/ `clear`（必须携带 `confirmation: "清除"` 或 `"DELETE"`；服务端也会校验） |
 
 ## 开发与验证 / Development
 
@@ -216,7 +220,8 @@ npm pack --dry-run
 - `scripts/test-usage.mjs`：折叠语义（替换不重复计数、跨日移动）、小时桶、费用计算、真实会话日志折叠（设置 `DSH_SESSION_LOG` 指向 `session.jsonl` 可复现）；
 - `scripts/test-tokenizer.mjs`：`tokenizer.json` / `tokenizer_config.json` 加载、编码计数与缺失文件错误；
 - `scripts/test-server.mjs`：配置校验、路由注册、余额缓存与单飞、凭据不泄露、v1→v2 限额迁移、统一状态机、阻断/fail-open、告警冷却与恢复；
-- `scripts/smoke-client.mjs`：客户端 bundle、侧栏入口、自然年贡献热图、小时悬停浮层、刷新动画、统一状态映射与硬停止二次确认。
+- `scripts/smoke-client.mjs`：客户端 bundle、侧栏入口、自然年贡献热图、小时悬停浮层、刷新动画、统一状态映射与硬停止设置契约。
+- `scripts/test-conversation.mjs`：每个 turn 的大折叠/小折叠、最终回复保留、耗时、单 turn Token 聚合、终止与局部工具失败状态。
 
 真实数据验证需先运行 `dsh web`，然后打开「用量/余额」浮层或：
 
