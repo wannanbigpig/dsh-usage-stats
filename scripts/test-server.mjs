@@ -32,6 +32,7 @@ import {
 	readJsonBody,
 	trimCache,
 	dataInfoOf,
+	providerTodaySummaries,
 	isDataClearConfirmation,
 	validateSettings
 } from "../lib/index.js";
@@ -115,6 +116,22 @@ function assert(condition, message) {
 	console.log("JSON body size cap ok");
 }
 
+//#region provider-local today summaries
+{
+	const summaries = providerTodaySummaries({ days: [{
+		date: "2026-08-21",
+		models: [
+			{ model: "deepseek-official/deepseek-chat", inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1, tokens: 18, cost: 0.02 },
+			{ model: "zai-coding-cn/glm-4.5", inputTokens: 20, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: 24, cost: null },
+			{ model: "vision-toolkit-zai-coding-cn/glm-4.5", inputTokens: 99, outputTokens: 99, tokens: 198, cost: null }
+		]
+	}] }, "2026-08-21");
+	assert(summaries["deepseek-official"]?.tokens === 18 && summaries["deepseek-official"]?.cost === 0.02, "DeepSeek today summary keeps local tokens and cost");
+	assert(summaries["zai-coding-cn"]?.tokens === 24 && summaries["zai-coding-cn"]?.cost === null, "custom provider today summary remains token-only");
+	assert(summaries["vision-toolkit-zai-coding-cn"] === void 0, "today summaries exclude facade routes");
+	console.log("provider-local today summaries ok");
+}
+
 //#region apply + routes & interceptors
 {
 	const registrations = [];
@@ -127,15 +144,21 @@ function assert(condition, message) {
 				{ id: "openrouter", name: "OpenRouter" },
 				{ id: "zai", name: "Z.ai" },
 				{ id: "zai-coding-cn", name: "zai-coding-cn" },
+				{ id: "xiaomi-token-plan-cn", name: "xiaomi-token-plan-cn" },
 				{ id: "vision-toolkit-zai-coding-cn", name: "vision-toolkit-zai-coding-cn" }
 			],
-			// The directory distinguishes official catalog routes from user-owned
-			// aliases. Both aliases are active, but neither is official.
 			listConfigurableProviders: () => [
-				{ provider: "zai-coding-cn", displayName: "Z.ai Coding custom", declared: true, settingsNs: "llm-pi-ai", settingsPath: ["providers", "zai-coding-cn"] },
+				{ provider: "zai-coding-cn", displayName: "zai-coding-cn", declared: true, settingsNs: "llm-pi-ai", settingsPath: ["providers", "zai-coding-cn"] },
+				{ provider: "xiaomi-token-plan-cn", displayName: "xiaomi-token-plan-cn", declared: true, settingsNs: "llm-pi-ai", settingsPath: ["providers", "xiaomi-token-plan-cn"] },
 				{ provider: "openrouter", displayName: "OpenRouter", declared: false, settingsNs: "llm-pi-ai", settingsPath: ["providers", "openrouter"] },
 				{ provider: "zai", displayName: "Z.ai", declared: false, settingsNs: "llm-pi-ai", settingsPath: ["providers", "zai"] }
 			]
+		} : name === "settings" ? {
+			get: (namespace) => namespace === "llm-deepseek"
+				? {}
+				: namespace === "llm-pi-ai"
+					? { providers: { "zai-coding-cn": { apiKeyEnv: "ZAI_CODING_CN_API_KEY" }, "xiaomi-token-plan-cn": { apiKeyEnv: "XIAOMI_TOKEN_PLAN_CN_API_KEY" } } }
+					: null
 		} : void 0,
 		effect: (fn) => { fn(); },
 		on: (event, handler) => {
@@ -180,13 +203,15 @@ function assert(condition, message) {
 	const providersPayload = JSON.parse(providersResponse.body);
 	assert(providersResponse.status === 200 && providersPayload.ok === true && Array.isArray(providersPayload.providers), "providers route returns provider directory");
 	assert(providersPayload.defaultProviderId === "deepseek-official", "providers route defaults to official DeepSeek");
-	assert(JSON.stringify(providersPayload.providers.map((entry) => entry.id)) === JSON.stringify(["deepseek-official", "openrouter", "zai"]), "providers route only exposes active official providers");
-	assert(providersPayload.providers.find((entry) => entry.id === "openrouter")?.settingsNs === "llm-pi-ai", "active provider keeps its settings metadata");
-	assert(providersPayload.providers.find((entry) => entry.id === "zai")?.label === "Z.ai" && !providersPayload.providers.some((entry) => entry.label === "智谱 Coding"), "official Z.ai keeps its official name");
+	assert(JSON.stringify(providersPayload.providers.map((entry) => entry.id)) === JSON.stringify(["deepseek-official", "xiaomi-token-plan-cn", "zai-coding-cn"]), "providers route only exposes model-page configured routes");
+	assert(!providersPayload.providers.some((entry) => entry.id.startsWith("vision-toolkit-") || entry.id === "openrouter" || entry.id === "zai"), "provider directory hides facade and unconfigured catalog routes");
+	assert(providersPayload.providers.find((entry) => entry.id === "zai-coding-cn")?.label === "zai-coding-cn", "configured route keeps its model-page display name verbatim");
+	const xiaomiProvider = providersPayload.providers.find((entry) => entry.id === "xiaomi-token-plan-cn");
+	assert(xiaomiProvider?.queryable === false && xiaomiProvider?.status === "unsupported" && xiaomiProvider?.capabilities?.includes("plan_quota"), "Xiaomi route remains visible with explicit unsupported quota status");
 	const defaultProviderResponse = routeResponse();
-	await routes.find((route) => route.path === ACCOUNTS_PATH).handler({ method: "POST", body: { defaultProviderId: "openrouter" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, defaultProviderResponse);
+	await routes.find((route) => route.path === ACCOUNTS_PATH).handler({ method: "POST", body: { defaultProviderId: "zai-coding-cn" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, defaultProviderResponse);
 	const defaultProviderPayload = JSON.parse(defaultProviderResponse.body);
-	assert(defaultProviderResponse.status === 200 && defaultProviderPayload.settings?.defaultProviderId === "openrouter", "accounts route persists default provider");
+	assert(defaultProviderResponse.status === 200 && defaultProviderPayload.settings?.defaultProviderId === "zai-coding-cn", "accounts route persists default provider");
 	const invalidProviderResponse = routeResponse();
 	await routes.find((route) => route.path === ACCOUNTS_PATH).handler({ method: "POST", body: { defaultProviderId: "not-a-provider" }, headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" } }, invalidProviderResponse);
 	assert(invalidProviderResponse.status === 400, "accounts route rejects unknown default provider");
@@ -514,6 +539,8 @@ function assert(condition, message) {
 	assert(yellowIndicators.spendStatus === "warning" && yellowIndicators.balanceAlertStatus === "warning", "configured indicators yellow at their warning boundaries");
 	const redIndicators = evaluateKeyQuota({ keyRef: "TEST", limits: indicatorLimits, todayCost: 100, balance: { total: 0 } });
 	assert(redIndicators.spendStatus === "exceeded" && redIndicators.balanceAlertStatus === "exceeded", "configured indicators red at zero balance or full spend");
+	const lowBalanceOnly = evaluateKeyQuota({ keyRef: "TEST", limits: indicatorLimits, todayCost: 0, balance: { total: 5 } });
+	assert(lowBalanceOnly.status === "warning" && lowBalanceOnly.reason === "low_balance" && lowBalanceOnly.spendStatus === "normal", "low-balance warning must not change the today-spend indicator");
 	assert(disabledEval.spendStatus === "muted" && disabledEval.balanceAlertStatus === "muted", "unconfigured indicators stay hidden");
 
 	// Legacy minBalance is ignored; the VIP daily limit remains the only rule.
@@ -1140,6 +1167,14 @@ function assert(condition, message) {
 	assert(loaded.refreshMs === 60000, "settings refreshMs loaded");
 	assert(loaded.display.balance === true && loaded.display.statusDot === true, "display defaults kept");
 	assert(loaded.notifications.channels.toast === true && loaded.notifications.channels.sidebar === true, "notification channels merged");
+	assert(loaded.notifications.planQuota.warningRemainingPercent === 30 && loaded.notifications.planQuota.criticalRemainingPercent === 10, "plan quota warning thresholds default when absent");
+	assert(loaded.notifications.planQuota.windows.five_hour.warningRemainingPercent === 30 && loaded.notifications.planQuota.windows.weekly.criticalRemainingPercent === 10, "plan quota window thresholds default when absent");
+	const quotaThresholds = validateSettings({ notifications: { planQuota: { warningRemainingPercent: 25, criticalRemainingPercent: 8, windows: { five_hour: { warningRemainingPercent: 40, criticalRemainingPercent: 15 }, weekly: { warningRemainingPercent: 60, criticalRemainingPercent: 20 } } } } });
+	assert(quotaThresholds.notifications.planQuota.warningRemainingPercent === 25 && quotaThresholds.notifications.planQuota.criticalRemainingPercent === 8, "plan quota warning thresholds persist");
+	assert(quotaThresholds.notifications.planQuota.windows.five_hour.warningRemainingPercent === 40 && quotaThresholds.notifications.planQuota.windows.weekly.criticalRemainingPercent === 20, "plan quota window thresholds persist");
+	const invalidQuotaThresholds = validateSettings({ notifications: { planQuota: { warningRemainingPercent: 5, criticalRemainingPercent: 20, windows: { five_hour: { warningRemainingPercent: 5, criticalRemainingPercent: 20 } } } } });
+	assert(invalidQuotaThresholds.notifications.planQuota.warningRemainingPercent === 30 && invalidQuotaThresholds.notifications.planQuota.criticalRemainingPercent === 10, "invalid plan quota threshold order falls back safely");
+	assert(invalidQuotaThresholds.notifications.planQuota.windows.five_hour.warningRemainingPercent === 30 && invalidQuotaThresholds.notifications.planQuota.windows.five_hour.criticalRemainingPercent === 10, "invalid plan quota window order falls back safely");
 	assert(loaded.conversation.enabled === true && loaded.conversation.showTokenUsage === true, "conversation defaults enabled");
 	const explicitConversation = validateSettings({ conversation: { enabled: false, showTokenUsage: false } });
 	assert(explicitConversation.conversation.enabled === false && explicitConversation.conversation.showTokenUsage === false, "conversation accepts explicit boolean values");
@@ -1180,7 +1215,7 @@ function assert(condition, message) {
 	});
 	apply(ctx, {}, {
 		disableBackgroundRefresh: true,
-		balanceService: { refreshAll: async () => [], get: async () => ({}), cached: () => null },
+		balanceService: { refreshAll: async () => [], get: async () => ({}), cached: (ref) => ({ id: ref, status: "ok", fetchedAt: 123, balance: { total: 8 } }) },
 		limitsService: { check: async () => ({ exceeded: false, stopOnExceed: true, message: "" }) },
 		settingsService
 	});
@@ -1202,6 +1237,8 @@ function assert(condition, message) {
 	await accountsRoute.handler(request("GET"), getResponse);
 	const getPayload = JSON.parse(getResponse.body);
 	assert(getResponse.status === 200 && getPayload.settings?.conversation?.enabled === true && getPayload.settings?.conversation?.showTokenUsage === false, "accounts GET returns conversation settings");
+	assert(getPayload.accounts?.["deepseek-official"]?.status === "ok" && getPayload.accounts?.["deepseek-official"]?.id === "DEEPSEEK_API_KEY", "accounts are keyed by provider id while DeepSeek reads the key-ref cache");
+	assert(!Object.hasOwn(getPayload.accounts ?? {}, "DEEPSEEK_API_KEY"), "accounts do not expose credential refs as parallel provider rows");
 
 	const postResponse = response();
 	await accountsRoute.handler(request("POST", { conversation: { enabled: false, showTokenUsage: true } }), postResponse);

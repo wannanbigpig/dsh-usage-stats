@@ -9,7 +9,7 @@
 // supplied fetch implementation; a mock that is not configured for a URL
 // throws, so this file can never silently access the real network.
 import assert from "node:assert/strict";
-import { queryProvider } from "../lib/providers.js";
+import { listBuiltInProviders, queryProvider } from "../lib/providers.js";
 
 let checks = 0;
 
@@ -77,6 +77,24 @@ async function query(providerId, fetchImpl, extra = {}) {
 		fetchImpl,
 		timeoutMs: extra.timeoutMs ?? 250
 	}));
+}
+
+// Provider metadata is part of the UI contract even when no safe remote
+// query adapter exists yet. Xiaomi MiMo remains selectable as a configured
+// model route, but must be rendered as unsupported instead of being queried.
+{
+	const builtins = listBuiltInProviders();
+	const xiaomi = builtins.find((provider) => provider.id === "xiaomi-token-plan-cn");
+	const zai = builtins.find((provider) => provider.id === "zai-coding-cn");
+	check(xiaomi?.queryable === false && xiaomi?.kind === "plan", "Xiaomi Token Plan metadata is present but not remotely queryable");
+	check(xiaomi?.capabilities?.includes("plan_quota") && Array.isArray(xiaomi?.planQuota?.windows), "Xiaomi advertises plan-quota capability metadata");
+	check(JSON.stringify(zai?.planQuota?.windows) === JSON.stringify(["five_hour", "weekly"]), "Z.ai metadata declares its five-hour and weekly quota windows");
+	let called = false;
+	const result = await queryProvider("xiaomi-token-plan-cn", {
+		apiKey: "test-api-key",
+		fetchImpl: async () => { called = true; throw new Error("must not query Xiaomi"); }
+	});
+	check(statusOf(result) === "unsupported" && called === false, "Xiaomi returns unsupported without making a network request");
 }
 
 // DeepSeek official balance.
@@ -177,6 +195,38 @@ const minimaxBody = {
 	check(statusOf(result) === "ok", "Z.ai quota succeeds");
 	check(Boolean(windowOf(result, ["five_hour", "5h"])) && Boolean(windowOf(result, ["weekly", "weekly_limit"])), "Z.ai exposes both five-hour and weekly windows");
 	check(calls.length === 1 && authHeader(calls[0].init) === "test-api-key", "Z.ai uses its API-key authorization scheme");
+}
+
+// Some regional responses use snake_case/At reset fields; both windows must
+// retain their independent reset timestamps instead of dropping the 5-hour one.
+{
+	const { fetchImpl } = mockFetch([{
+		match: (url) => url === "https://api.z.ai/api/monitor/usage/quota/limit",
+		response: jsonResponse(200, {
+			data: { limits: [
+				{ type: "TOKENS_LIMIT", unit: 3, percentage: 0, next_reset_at: "2026-08-27T09:27:00Z" },
+				{ type: "TOKENS_LIMIT", unit: 6, percentage: 30, resetAt: "2026-08-27T17:27:00Z" }
+			] }
+		})
+	}]);
+	const result = await query("zai", fetchImpl, { baseURL: "https://api.z.ai/api/coding/paas/v4" });
+check(Boolean(windowOf(result, ["five_hour"])?.resetsAt) && Boolean(windowOf(result, ["weekly"])?.resetsAt), "Z.ai preserves reset timestamps for both windows across field variants");
+}
+
+// Z.ai omits nextResetTime for an unused five-hour bucket (0% used). Keep the
+// bucket classified as five-hour so the UI can explain that no timer started.
+{
+	const { fetchImpl } = mockFetch([{
+		match: (url) => url === "https://api.z.ai/api/monitor/usage/quota/limit",
+		response: jsonResponse(200, {
+			data: { limits: [
+				{ type: "TOKENS_LIMIT", unit: 3, percentage: 0, nextResetTime: 0 },
+				{ type: "TOKENS_LIMIT", unit: 6, percentage: 24, nextResetTime: "2026-08-27T17:27:00Z" }
+			] }
+		})
+	}]);
+	const result = await query("zai", fetchImpl, { baseURL: "https://api.z.ai/api/coding/paas/v4" });
+	check(windowOf(result, ["five_hour"])?.remainingPercent === 100 && !windowOf(result, ["five_hour"])?.resetsAt, "Z.ai keeps an unused five-hour bucket without inventing a reset timestamp");
 }
 
 // Z.ai may return usage/remaining/currentValue instead of percentage. The

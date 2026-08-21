@@ -36,6 +36,70 @@ if (!source.includes("panel.tabOverview") || !source.includes("panel.tabDetails"
 if (!source.includes('"data-usage-stats-settings-link"')) throw new Error("query panel must expose the go-to-settings affordance");
 if (source.includes('"data-usage-provider-select": true')) throw new Error("query panel must follow the settings-selected provider without a second selector");
 if (!source.includes('"data-usage-default-provider-select": true')) throw new Error("settings must expose the default provider selector");
+if (!source.includes('function usageKindOf')) throw new Error("client must normalize balance/plan/local provider capabilities");
+if (!source.includes('"data-usage-provider-kind": providerKind')) throw new Error("provider cards must expose their normalized capability kind");
+if (!source.includes('"data-usage-plan-windows": true')) throw new Error("plan providers must expose their quota window group");
+if (!source.includes('"data-usage-window-progress": true')) throw new Error("plan windows must expose a remaining progress bar");
+if (!source.includes('"data-usage-window-reset": true')) throw new Error("plan windows must expose reset information");
+if (!source.includes('.usg_providerAccountRow{align-items:center;gap:12px}')) throw new Error("provider account rows must vertically center identity and values with symmetric inherited padding");
+if (!source.includes('.usg_providerAccountIdentity{align-items:flex-start;flex:1;min-width:0}')) throw new Error("provider account identity must stay left-aligned");
+if (!source.includes('.usg_providerAccountValues{align-items:flex-end;text-align:right;flex:none;gap:3px}')) throw new Error("provider account values must stay right-aligned with compact row spacing");
+if (!source.includes('.usg_providerAccountBalanceValues{display:grid;grid-template-columns:max-content max-content;column-gap:8px;row-gap:3px;align-items:baseline}')) throw new Error("balance provider values must share the widest row columns");
+if (!source.includes('.usg_providerAccountPlanValues{display:grid;grid-template-columns:max-content max-content max-content;column-gap:8px;row-gap:3px;align-items:baseline}')) throw new Error("plan provider values must share the widest row columns");
+if (!source.includes('.usg_providerAccountBalanceValues .usg_providerBalanceRow,.usg_providerAccountPlanValues .usg_providerPlanWindow{grid-column:1 / -1;grid-template-columns:subgrid}')) throw new Error("provider value rows must inherit shared block columns");
+if (!source.includes('.usg_providerBalanceRow{display:grid;grid-template-columns:max-content max-content;column-gap:8px;align-items:baseline;justify-content:end;white-space:nowrap}')) throw new Error("balance provider values must size columns to their content");
+if (!source.includes('.usg_providerBalanceLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerBalanceValue{font-weight:600;text-align:right}')) throw new Error("balance provider labels and values must align within reserved columns");
+if (!source.includes('.usg_providerPlanWindow{display:grid;grid-template-columns:max-content max-content max-content;column-gap:8px;align-items:baseline;justify-content:end;white-space:nowrap}')) throw new Error("provider plan windows must size columns to their content");
+if (!source.includes('.usg_providerPlanLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerPlanPercent{font-weight:600;text-align:right}')) throw new Error("provider plan labels and percentages must align within their reserved columns");
+if (!source.includes('.usg_providerReset{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;white-space:nowrap}')) throw new Error("provider reset text must use a smaller muted style");
+if (!source.includes('account?.status !== "ok"')) throw new Error("provider account rows must hide the realtime status label");
+const accountsCardSource = source.slice(source.indexOf("function AccountsCard"), source.indexOf("function PricingCard"));
+if (!accountsCardSource.includes('S.providerAccountIdentity') || !accountsCardSource.includes('S.providerAccountValues')) throw new Error("provider accounts must use distinct identity and right-aligned value columns");
+if (!accountsCardSource.includes("planWindows.map")) throw new Error("provider accounts must render every plan quota window");
+if (accountsCardSource.includes('"data-usage-window-progress": true')) throw new Error("provider account plan windows must render text without progress bars");
+if (!accountsCardSource.includes("windowResetCountdownForItem(window, translate)") || !accountsCardSource.includes('children: `(${reset})`')) throw new Error("provider account plan windows must show compact reset status in parentheses");
+if (!accountsCardSource.includes('translate("panel.balance")') || !accountsCardSource.includes('translate("accounts.today")')) throw new Error("DeepSeek account rows must label balance and today spend");
+if (!accountsCardSource.includes('translate("accounts.unsupported")')) throw new Error("unsupported provider accounts must show a concise unsupported label");
+if (!source.includes('function providerLogoOf')) throw new Error("provider balance card must expose provider branding");
+if (!source.includes('function windowResetCountdownOf(value, translate, now = Date.now())')) throw new Error("plan quota reset times must be formatted as relative countdowns");
+if (!source.includes('function windowResetDisplayOf(value, translate, now = Date.now())')) throw new Error("plan quota reset display must combine countdown and calendar time");
+if (!source.includes('function windowResetValueOf(item)')) throw new Error("plan quota reset display must accept provider reset aliases");
+if (!source.includes('function windowResetDisplayForItem(item, translate, now = Date.now())')) throw new Error("plan quota reset display must keep an empty five-hour bucket visible");
+if (!source.includes('function windowResetCountdownForItem(item, translate, now = Date.now())')) throw new Error("compact account reset display must keep an empty five-hour bucket visible");
+if (!source.includes('translate("balance.resetNotStarted")')) throw new Error("empty five-hour quota must explain that its reset timer has not started");
+if (!source.includes('.usg_planQuotaWindowReset{color:var(--dsw-alias-label-caption);font-size:11px;line-height:16px;text-align:right;padding-right:8px;font-variant-numeric:tabular-nums}')) throw new Error("plan quota reset rows must use a compact right-aligned muted style");
+const providerLogoSource = source.slice(source.indexOf("function providerLogoOf"), source.indexOf("function pricingOf"));
+if (!providerLogoSource.includes("primitives.FishLogo")) throw new Error("DeepSeek provider branding must reuse the Harness FishLogo primitive");
+if (!providerLogoSource.includes('viewBox: "0 0 1024 1024"') || !providerLogoSource.includes('M422.43584 883.5072H71.68')) throw new Error("Z.ai provider branding must use the supplied official SVG geometry");
+if (!providerLogoSource.includes('fill: "currentColor"')) throw new Error("inline provider SVG logos must inherit the black logo-seat foreground");
+if (!providerLogoSource.includes("XIAOMI_MIMO_LOGO_DATA_URL") || !source.includes('const XIAOMI_MIMO_LOGO_DATA_URL = "data:image/jpeg;base64,')) throw new Error("Xiaomi MiMo provider branding must use the downloaded local image data");
+if (!source.includes('.usg_providerLogoImage{display:block;width:100%;height:100%;object-fit:cover}')) throw new Error("raster provider logos must fill the provider logo seat");
+if (!source.includes('.usg_balanceIcon[data-provider-id=deepseek-official],.usg_balanceIcon[data-provider-id=zai-coding-cn]{color:#fff;background:#111}')) throw new Error("SVG provider logos must use a white foreground on a black seat");
+if (!source.includes('tokenMode ? `${fmt(hovered.tokens)} tokens`')) throw new Error("plan hourly chart must use token counts instead of money");
+if (!source.includes('!tokenMode && peakHours.map')) throw new Error("plan hourly chart must not render peak-hour regions");
+if (!source.includes('selectedProviderKind === "balance" && selectedProviderId === "deepseek-official"')) throw new Error("limit UI must be scoped to the official provider");
+if (!source.includes('"data-usage-limit-provider": selectedLimitProvider?.id ?? providerId')) throw new Error("limit settings must expose their provider scope");
+if (source.includes('"data-usage-limit-provider-selector": true')) throw new Error("limit settings must not duplicate the accounts provider selector");
+if (source.includes('const [billingProviderId, setBillingProviderId]')) throw new Error("billing settings must follow the accounts default provider state");
+if (!source.includes('providers.some((provider) => provider.id === defaultProviderId)')) throw new Error("billing settings must derive the provider from the accounts default provider");
+if (!source.includes('summary.kind === "plan_quota"')) throw new Error("sidebar must switch its compact value for plan providers");
+if (!source.includes('summary.planWindows ?? []')) throw new Error("sidebar must summarize all plan windows");
+if (!source.includes('function planQuotaToneOf')) throw new Error("plan quota dots must derive color from configured remaining thresholds");
+if (!source.includes('planQuotaWindows')) throw new Error("plan quota settings must expose separate five-hour and weekly thresholds");
+if (!source.includes('data-usage-plan-quota-window')) throw new Error("each plan quota window threshold must be identifiable");
+if (!source.includes('function PlanQuotaCard')) throw new Error("plan quota settings must be reusable in the billing tab");
+if (!source.includes('function supportsPlanQuota')) throw new Error("plan quota settings must follow provider metadata instead of a hardcoded provider list");
+if (!source.includes('isZaiProvider')) throw new Error("plan quota settings must be scoped to Z.ai");
+if (!source.includes('planQuotaRef')) throw new Error("plan quota slider saves must use the latest dragged thresholds");
+if (!source.includes('usage-stats:plan-quota-updated')) throw new Error("plan quota dragging must broadcast live threshold updates");
+if (!source.includes('addEventListener("usage-stats:plan-quota-updated"')) throw new Error("sidebar must listen for live plan quota threshold updates");
+if (!source.includes('"data-usage-plan-status-dot": true')) throw new Error("each sidebar plan window must expose a status dot");
+if (!source.includes('className: S.statusDot, "data-tone": item.tone, "data-usage-plan-status-dot": true')) throw new Error("plan quota dots must reuse the balance status-dot style");
+if (!source.includes('.usg_planWindowItem{display:inline-flex;align-items:center;white-space:nowrap}')) throw new Error("plan windows must use fixed inline item layout");
+if (!source.includes('.usg_planWindowDotSlot{width:12px;display:inline-flex;align-items:center;justify-content:flex-start;flex:none}')) throw new Error("plan window dots must reserve the same slot when hidden");
+if (!source.includes('.usg_planWindowSeparator{display:inline-block;margin-inline:6px}')) throw new Error("plan window separators must have stable spacing");
+if (!source.includes('"data-usage-plan-quota-settings": true')) throw new Error("billing settings must expose plan quota thresholds");
+if (source.includes('? `${summary.providerLabel} ${planWindowText')) throw new Error("plan sidebar summary must not repeat the provider label");
 if (!source.includes("const providerQuery = providerId ? `?provider=${encodeURIComponent(providerId)}` : \"\";")) throw new Error("sidebar must derive provider queries from the settings default");
 if (!source.includes("fetchJson(`/api/usage-stats/balance${providerQuery}`)")) throw new Error("sidebar must query the selected provider balance");
 if (!source.includes("const usagePayload = usageResult.status === \"fulfilled\" ? filterUsageByProvider(usageResult.value, providerId) : null;")) throw new Error("sidebar must filter usage to the settings-selected provider");
@@ -65,9 +129,15 @@ if (typeof exports_.AccountsCard !== "function") throw new Error("missing Accoun
 if (typeof exports_.PricingCard !== "function") throw new Error("missing PricingCard export");
 if (typeof exports_.NotificationsCard !== "function") throw new Error("missing NotificationsCard export");
 if (typeof exports_.DataCard !== "function") throw new Error("missing DataCard export");
-if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 6) throw new Error("SETTINGS_TABS must declare six settings tabs");
+if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 5) throw new Error("SETTINGS_TABS must declare five settings tabs");
+if (exports_.SETTINGS_TABS.some((tab) => tab.id === "pricing")) throw new Error("provider pricing must live under billing and limits, not a separate tab");
+if (!source.includes('"data-usage-provider-billing-settings": true')) throw new Error("budget and limits must group provider-scoped limits and pricing");
 if (typeof exports_.ConversationCard !== "function") throw new Error("missing ConversationCard export");
 if (typeof exports_.CompactConversationController !== "function") throw new Error("missing CompactConversationController export");
+if (typeof exports_.windowResetCountdownOf !== "function") throw new Error("missing reset countdown formatter export");
+if (typeof exports_.windowResetDisplayOf !== "function") throw new Error("missing reset display formatter export");
+if (typeof exports_.windowResetDisplayForItem !== "function") throw new Error("missing reset display item formatter export");
+if (typeof exports_.windowResetCountdownForItem !== "function") throw new Error("missing compact reset item formatter export");
 
 // Regression: never locate Settings with a broad substring selector. In the
 // plugin settings page, the Shell card has aria-label="展开设置: 终端" and was
@@ -104,7 +174,7 @@ if (!source.includes('onMouseLeave: () => setHoveredHour(null)')) throw new Erro
 if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly tooltip must not persist after a click");
 if (!source.includes('filteredActiveDay !== null && react_jsx_runtime.jsx(DayDetail')) throw new Error("single-day view must retain the model detail summary");
 if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
-if (!source.includes("100 * cost / maxCost")) throw new Error("hourly bars must scale by cost, not raw token count");
+if (!source.includes("Number(tokenMode ? hour.tokens : hour.cost)")) throw new Error("hourly bars must scale by cost or token count according to provider kind");
 if (!source.includes("Math.max(input + output, 1)")) throw new Error("hourly input/output split must not count cache read against the visible bars");
 if (source.includes("className: S.hourCache")) throw new Error("cache tokens must not use an invisible standalone segment");
 if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entry must derive balance and today usage summary");
@@ -116,7 +186,7 @@ if (!source.includes('usage-stats:accounts-updated')) throw new Error("sidebar s
 if (!source.includes('display.balance !== false')) throw new Error("sidebar summary must respect the balance display toggle");
 if (!source.includes('display.todayCost !== false')) throw new Error("sidebar summary must respect the today-spend display toggle");
 if (!source.includes('display.statusDot !== false')) throw new Error("sidebar summary must respect the status-dot display toggle");
-if (!source.includes('t("panel.balance")') || !source.includes('t("panel.today")')) throw new Error("sidebar summary labels must use the active locale");
+if (!source.includes('t("panel.badge")') || !source.includes('t("panel.today")')) throw new Error("sidebar summary labels must use the active locale");
 if (source.includes('`余额 ${summary.balance}`') || source.includes('`今日 ${summary.today}`')) throw new Error("sidebar summary must not hard-code Chinese labels");
 if (!source.includes("const stopOnExceed = rule?.stopOnExceed === true")) throw new Error("hard stop must reflect the saved limit rule");
 if (!source.includes("window.confirm(translate(\"limits.stopConfirm\"))")) throw new Error("enabling hard stop must require confirmation");
@@ -146,14 +216,35 @@ if (!source.includes(".usg_switch input:checked + .usg_switchSlider{background-c
 if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
 if (!source.includes(".usg_input::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}")) throw new Error("amount inputs must use the native placeholder palette");
 if (!source.includes("const [limitStatusMap, setLimitStatusMap] = react.useState({})")) throw new Error("query panel must load quota indicator statuses");
+if (!source.includes('providerKind === "balance" && status === "ok" && balanceTone !== "muted" ? balanceTone')) throw new Error("DeepSeek balance badge must follow the configured balance alert tone");
+if (!source.includes('"data-status": currentStatus.spendStatus ?? "muted"')) throw new Error("today-spend progress must use its own status, not the combined balance status");
+if (!source.includes('.usg_usageLimitBanner{border-radius:10px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;line-height:20px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-base));border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-primary)}')) throw new Error("usage banner must use the neutral monochrome surface");
+if (!source.includes('.usg_usageLimitBanner strong{font-size:16px;line-height:22px;font-weight:600;color:var(--dsw-alias-label-primary)}')) throw new Error("usage banner title must keep the primary text color");
+if (!source.includes('.usg_usageLimitBanner:before{content:\\\"\\\";position:absolute;inset:0 auto 0 0;width:var(--usage-progress,0%);background:color-mix(in srgb,var(--dsw-alias-label-primary) 8%,transparent);z-index:0}')) throw new Error("usage banner must render monochrome full-height background progress");
+if (source.includes('.usg_usageLimitBanner:after{')) throw new Error("usage banner must not render a separate bottom progress rule");
+const usageLimitBannerCss = source.slice(source.indexOf('.usg_usageLimitBanner{'), source.indexOf('.usg_bannerHead{'));
+if (usageLimitBannerCss.includes('[data-status=')) throw new Error("usage progress must not depend on warning or error status colors");
+if (!source.includes('translate("limits.dailySpendProgress")')) throw new Error("usage progress must use a neutral daily-spend title");
+if (!source.includes('const spendBannerStatus = ["warning", "exceeded", "blocked"].includes(spendStatus) ? spendStatus : "normal"')) throw new Error("limit banner must be scoped to today-spend status");
+if (!source.includes('currentStatus?.reason === "daily_cost" || currentStatus?.reason === "unpriced"')) throw new Error("limit banner must hide balance-only messages");
+if (!source.includes('currentStatus !== null && currentLimit > 0 && react_jsx_runtime.jsxs("div"')) throw new Error("today-spend banner must only render when a daily limit is configured");
+if (!source.includes('translate("limits.dailyLimitStatus")')) throw new Error("today-spend banner must use a daily-limit label instead of the generic usage-warning title");
+if (!source.includes("const loadLimitStatus = react.useCallback")) throw new Error("query panel must have a reusable limit-status refresh");
+if (!source.includes('window.addEventListener("usage-stats:limits-updated", onLimitsUpdated)')) throw new Error("query panel must refresh balance alert linkage after limit changes");
 if (source.includes('"data-balance-indicator": true')) throw new Error("balance card must not render a status dot");
 if (source.includes('"data-usage-cost-indicator": true')) throw new Error("today spend card must not render a status dot");
 if (!source.includes('summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("sidebar must show balance status dots");
+if (source.includes('`${balanceLabel} ${summary.balance}`')) throw new Error("sidebar balance summary must not include provider names");
+if (source.includes('`${summary.providerLabel} ${t("balance.local")}')) throw new Error("sidebar local summary must not include provider names");
+if (!source.includes('todayInputTokens') || !source.includes('todayOutputTokens')) throw new Error("sidebar local summary must expose today's input/output totals");
+if (!source.includes('fmtSidebarTokens')) throw new Error("sidebar local summary must use compact token formatting");
 if (source.includes('!wide && summary.todayStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide today status dot");
 if (source.includes('!wide && summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide balance status dot");
 if (!source.includes('style: { left: `${panelLeft}px` }')) throw new Error("usage panel must anchor to the sidebar edge");
 if (!source.includes('"limits.lowBalance": "余额提醒"')) throw new Error("balance alert field must use the concise label");
 if (!source.includes("const limitsRef = react.useRef(null)")) throw new Error("limits form must retain the latest saved configuration without resyncing edits");
+if (!source.includes("limitsRef.current = next")) throw new Error("limits slider edits must update the synchronous save cache");
+if (!source.includes("onPointerUp: () => handleSave({})") || !source.includes("onKeyUp: () => handleSave({})")) throw new Error("limits slider saves must read the latest edited thresholds");
 const limitsSaveBlock = source.slice(source.indexOf("const handleSave = async"), source.indexOf("const currentStatus ="));
 if (limitsSaveBlock.includes("setLimits(")) throw new Error("save responses must not overwrite the active form fields");
 if (!limitsSaveBlock.includes("limitsRef.current = payload.limits")) throw new Error("save responses must update the latest limits cache");
@@ -164,11 +255,19 @@ if (!source.includes('fetchJson("/api/usage-stats/data")')) throw new Error("cli
 if (!source.includes("SETTINGS_TABS")) throw new Error("settings page must declare its tab list");
 if (!source.includes('"data-usage-billing-tab": tab.id')) throw new Error("settings tabs must be identifiable per tab");
 if (!source.includes('"data-usage-accounts-card"')) throw new Error("accounts card must be identifiable");
+for (const key of ["accounts.desc", "accounts.defaultProviderDesc", "accounts.refreshDesc", "accounts.showBalanceDesc", "accounts.showTodayDesc", "accounts.showStatusDesc"]) {
+	if (!source.includes(`\"${key}\"`)) throw new Error(`accounts settings must explain ${key}`);
+}
 if (!source.includes('accounts.defaultAccount')) throw new Error("single-key account row must use a friendly label, not the raw credential ref");
 if (!source.includes('singleKey ? translate("accounts.defaultAccount") : key.label')) throw new Error("account row label must switch to a friendly name when only one key is configured");
 if (!source.includes('"data-usage-pricing-card"')) throw new Error("pricing card must be identifiable");
+if (!source.includes('"pricing.providerScope"')) throw new Error("pricing settings must explain their provider scope");
 if (!source.includes('"data-usage-notifications-card"')) throw new Error("notifications card must be identifiable");
+for (const key of ["notifications.channelSidebarDesc", "notifications.channelToastDesc", "notifications.eventsDesc", "notifications.cooldownDesc", "notifications.historyDesc"]) {
+	if (!source.includes(`\"${key}\"`)) throw new Error(`notification settings must explain ${key}`);
+}
 if (!source.includes('"data-usage-data-card"')) throw new Error("data card must be identifiable");
+if (!source.includes('"data.retentionNote"')) throw new Error("data retention must explain its inclusive-day behavior");
 if (!source.includes('"data.clearConfirmWord"') || !source.includes('"data.clearConfirmBtn"')) throw new Error("data clear must require typed confirmation");
 if (!source.includes('primitives.Modal')) throw new Error("data clear must use a confirmation dialog");
 if (!source.includes('confirmText.trim() === confirmWord')) throw new Error("data clear must gate the confirm button on the typed word");
@@ -179,10 +278,15 @@ if (!source.includes('usingCustom ? translate("pricing.edit")')) throw new Error
 if (!source.includes('background:var(--usg-action)')) throw new Error("primary buttons must use the solid action palette");
 if (!source.includes('.usg_btnDanger{background:')) throw new Error("danger buttons must use a solid error fill");
 if (!source.includes("className: S.alertList")) throw new Error("notifications card must render the alert history list");
-if (!source.includes('run("rebuild")') || !source.includes('run("clear", { confirmation: confirmText.trim() })') || !source.includes('run("trim"')) throw new Error("data card must expose rebuild/clear/trim actions with server-side clear confirmation");
-// Notification linkage: the sidebar delivers in-page toasts via the native
-// primitive, honors the sidebar channel on the status dot, and polls alerts.
-if (!source.includes('primitives.Toast')) throw new Error("notifications must deliver in-page toasts via the native Toast primitive");
+if (source.includes('run("rebuild")')) throw new Error("data card must not expose the server-side no-op rebuild action");
+if (!source.includes('run("clear", { confirmation: confirmText.trim() })') || !source.includes('run("trim"')) throw new Error("data card must expose clear/trim actions with server-side clear confirmation");
+// Notification linkage: the sidebar delivers in-page toasts with a fixed
+// five-second lifecycle, ignores pre-session history on first hydration,
+// honors the sidebar channel on the status dot, and polls alerts.
+if (!source.includes('const USAGE_TOAST_TOTAL_MS = 5000')) throw new Error("usage toast must have a five-second total lifecycle");
+if (!source.includes('function UsageAlertToast')) throw new Error("notifications must render the plugin-owned usage toast");
+if (!source.includes('notificationSessionStartedAtRef')) throw new Error("notifications must track the current page session start");
+if (!source.includes('const sessionStartedAt = notificationSessionStartedAtRef.current') || !source.includes('itemAt < sessionStartedAt')) throw new Error("notifications must ignore alert history from before the page session");
 if (!source.includes('deliverAlerts')) throw new Error("sidebar must deliver new alerts from the alerts poll");
 if (!source.includes('notifications.channels?.sidebar !== false')) throw new Error("sidebar status dot must honor the notification sidebar channel");
 if (!source.includes('fetchJson("/api/usage-stats/alerts")')) throw new Error("sidebar must poll the alerts endpoint for toast delivery");
@@ -222,6 +326,20 @@ if (!panelMarkup.includes("data-usage-stats-trigger")) throw new Error("sidebar 
 if (!panelMarkup.includes("panel.badge")) throw new Error("sidebar trigger label missing");
 console.log("sidebar panel shell render ok, length:", panelMarkup.length);
 
+const warningBalanceMarkup = renderToStaticMarkup(react.createElement(exports_.BalanceCard, {
+	keys: [],
+	providers: [{ id: "deepseek-official", label: "DeepSeek", capabilities: ["balance"] }],
+	selectedProviderId: "deepseek-official",
+	selectedKey: null,
+	account: { status: "ok", balance: { total: 18.41, currency: "CNY" } },
+	accountLoading: false,
+	accountError: null,
+	balanceTone: "warn",
+	translate: (key) => key
+}));
+if (!warningBalanceMarkup.includes('data-tone="warn"')) throw new Error("DeepSeek balance card must render the configured warning tone");
+console.log("DeepSeek balance alert tone linkage render ok");
+
 const limitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
 	keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }],
 	selectedKey: "DEEPSEEK_API_KEY",
@@ -247,13 +365,13 @@ const multiKeyLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard
 if (!multiKeyLimitsMarkup.includes("limits.apiKey")) throw new Error("multi-key limits card must render the key picker");
 console.log("multi-key limits card picker ok, length:", multiKeyLimitsMarkup.length);
 
-// Settings page now hosts six tabs: account, limits, pricing, notifications, conversation, data.
+// Settings page hosts five tabs: account, provider billing, notifications, conversation, data.
 const tabsMarkup = renderToStaticMarkup(react.createElement(UsageBillingSettingsSection, { t: (key) => key }));
-for (const tab of ["accounts", "limits", "pricing", "notifications", "conversation", "data"]) {
+for (const tab of ["accounts", "limits", "notifications", "conversation", "data"]) {
 	if (!tabsMarkup.includes(`data-usage-billing-tab="${tab}"`)) throw new Error(`settings tab ${tab} missing`);
 }
 if (!tabsMarkup.includes("data-usage-accounts-card")) throw new Error("settings section must mount the accounts card by default");
-console.log("settings six-tab navigation render ok");
+console.log("settings five-tab navigation render ok");
 
 const accountsMarkup = renderToStaticMarkup(react.createElement(exports_.AccountsCard, { keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }], translate: (key) => key }));
 if (!accountsMarkup.includes("data-usage-accounts-card") || !accountsMarkup.includes("accounts.title")) throw new Error("accounts card render missing title/identity");
@@ -268,7 +386,18 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 const notificationsMarkup = renderToStaticMarkup(react.createElement(exports_.NotificationsCard, { translate: (key) => key }));
 if (!notificationsMarkup.includes("data-usage-notifications-card") || !notificationsMarkup.includes("notifications.title")) throw new Error("notifications card render missing title/identity");
 if (!notificationsMarkup.includes("notifications.desc")) throw new Error("notifications card render missing description");
+if (notificationsMarkup.includes("data-usage-plan-quota-window")) throw new Error("plan quota sliders must not live in notifications settings");
 console.log("notifications card render ok, length:", notificationsMarkup.length);
+
+const zaiLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
+	keys: [{ id: "ZAI_CODING_CN_API_KEY", label: "ZAI_CODING_CN_API_KEY", configured: true }],
+	providers: [{ id: "zai-coding-cn", label: "zai-coding-cn", capabilities: ["plan_quota"] }],
+	providerId: "zai-coding-cn",
+	providerKind: "plan",
+	translate: (key) => key
+}));
+if (!zaiLimitsMarkup.includes("data-usage-plan-quota-window") || !zaiLimitsMarkup.includes("usg_alertRange")) throw new Error("Z.ai billing limits must render both plan quota sliders");
+console.log("Z.ai plan quota billing card render ok, length:", zaiLimitsMarkup.length);
 
 const dataMarkup = renderToStaticMarkup(react.createElement(exports_.DataCard, { translate: (key) => key }));
 if (!dataMarkup.includes("data-usage-data-card") || !dataMarkup.includes("data.title")) throw new Error("data card render missing title/identity");
@@ -280,6 +409,20 @@ if (!conversationMarkup.includes("data-usage-conversation-card") || !conversatio
 if (!conversationMarkup.includes("conversation.enable")) throw new Error("conversation card render missing enable toggle");
 if (!conversationMarkup.includes("conversation.showTokenUsage")) throw new Error("conversation card render missing token usage toggle");
 console.log("conversation card render ok, length:", conversationMarkup.length);
+
+const countdownNow = Date.UTC(2026, 7, 21, 0, 0, 0);
+const durationTranslate = (key, params = {}) => ({
+	"balance.resetSoon": "即将重置",
+	"duration.day": `${params.value}天`,
+	"duration.hour": `${params.value}小时`,
+	"duration.minute": `${params.value}分钟`
+}[key] ?? key);
+if (exports_.windowResetCountdownOf(countdownNow + 143 * 60000, durationTranslate, countdownNow) !== "2小时 23分钟") throw new Error("five-hour reset countdown formatting mismatch");
+if (exports_.windowResetCountdownOf(countdownNow + (6 * 1440 + 143) * 60000, durationTranslate, countdownNow) !== "6天 2小时 23分钟") throw new Error("weekly reset countdown formatting mismatch");
+if (exports_.windowResetDisplayOf("2026-08-21T02:23:00Z", durationTranslate, countdownNow) !== "2小时 23分钟 (08/21 10:23)") throw new Error("plan quota reset display must include countdown and local calendar time");
+if (exports_.windowResetDisplayForItem({ kind: "five_hour", remainingPercent: 100 }, (key) => key === "balance.resetNotStarted" ? "尚未开始" : key, countdownNow) !== "尚未开始") throw new Error("empty five-hour quota must show an explicit not-started state");
+if (exports_.windowResetCountdownForItem({ kind: "five_hour", remainingPercent: 100 }, (key) => key === "balance.resetNotStarted" ? "尚未开始" : key, countdownNow) !== "尚未开始") throw new Error("compact empty five-hour quota must show an explicit not-started state");
+console.log("plan quota reset countdown formatting ok");
 
 // Apply against a stub client context: one native sidebar footer action and
 // one settings.section entry.
@@ -381,6 +524,16 @@ const externalSidebarSummary = sidebarSummaryOf(
 	"Z.ai"
 );
 if (externalSidebarSummary.providerLabel !== "Z.ai" || externalSidebarSummary.balanceStatus !== "muted" || externalSidebarSummary.todayStatus !== "muted") throw new Error(`sidebar provider selection ${JSON.stringify(externalSidebarSummary)}`);
+const localSidebarSummary = sidebarSummaryOf(
+	{ ok: true, days: [wireDay], pricing: { currency: "CNY" } },
+	{ ok: true, account: { status: "unsupported", capabilities: ["plan_quota"] } },
+	undefined,
+	undefined,
+	"xiaomi-token-plan-cn",
+	"xiaomi-token-plan-cn",
+	{ capabilities: ["plan_quota"] }
+);
+if (localSidebarSummary.kind !== "local_usage" || localSidebarSummary.todayInputTokens !== 300 || localSidebarSummary.todayOutputTokens !== 100) throw new Error(`local token sidebar summary ${JSON.stringify(localSidebarSummary)}`);
 const coloredSidebarSummary = sidebarSummaryOf(
 	{ ok: true, days: [wireDay], pricing: { currency: "CNY" } },
 	{ ok: true, account: { balance: { total: 65.12, currency: "CNY" } } },
