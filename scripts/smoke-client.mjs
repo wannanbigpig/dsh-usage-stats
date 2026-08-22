@@ -13,6 +13,8 @@ const require = createRequire(import.meta.url);
 const react = require("react");
 const jsxRuntime = require("react/jsx-runtime");
 const { renderToStaticMarkup } = require("react-dom/server");
+const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 
 // Fake primitives: every named export is a no-op component.
 const Stub = () => null;
@@ -22,7 +24,7 @@ let captured = null;
 globalThis.window = { __ModuleLoader__: { load: (entry) => { captured = entry; } } };
 globalThis.document = { querySelector: () => null, createElement: () => ({ dataset: {}, appendChild: () => {} }), head: { appendChild: () => {} } };
 
-const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "client.js"), "utf8");
+const source = readFileSync(join(projectRoot, "lib", "client.js"), "utf8");
 // Endpoint contract: the client must only talk to the loopback endpoints the
 // server half registers, and must never embed credentials.
 if (!source.includes('fetchJson("/api/usage-stats/usage")')) throw new Error("client must fetch the usage endpoint");
@@ -107,7 +109,7 @@ if (/api[_-]?key\s*[:=]\s*["']sk-/i.test(source)) throw new Error("client must n
 new Function(source)(); // executes the window.__ModuleLoader__.load call
 
 if (captured === null) throw new Error("loader did not capture the bundle");
-if (captured.id !== "dsh-usage-stats") throw new Error(`unexpected id ${captured.id}`);
+if (captured.id !== packageJson.name) throw new Error(`unexpected id ${captured.id}; expected ${packageJson.name}`);
 
 const exports_ = captured.factory((spec) => {
 	if (spec === "react") return react;

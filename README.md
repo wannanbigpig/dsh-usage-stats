@@ -95,10 +95,17 @@ dsh plugin --profile web add .
 dsh plugin --profile web add @wannanbigpig/dsh-usage-stats
 ```
 
-**从 GitHub 安装**（开发预览；也可以先 `npm pack` 再 `dsh plugin --profile web add ./dsh-usage-stats-0.1.0.tgz`）：
+**从 GitHub 安装**（开发预览）：
 
 ```bash
 dsh plugin --profile web add github:wannanbigpig/dsh-usage-stats
+```
+
+如需安装本地 tarball，可在 checkout 根目录执行：
+
+```bash
+package_tarball="$(npm pack --silent)"
+dsh plugin --profile web add "./${package_tarball}"
 ```
 
 **升级或卸载**（`update` 只对 npm/GitHub 安装的副本有意义；本地 `link:` 安装始终指向本地目录，直接 `git pull` 后重启 `dsh web` 即可）：
