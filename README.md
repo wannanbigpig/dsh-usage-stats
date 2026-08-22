@@ -123,7 +123,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: usage-stats
-      name: dsh-usage-stats
+      name: "@wannanbigpig/dsh-usage-stats"
       config:
         keys:
           - DEEPSEEK_API_KEY
@@ -164,7 +164,7 @@ DEEPSEEK_API_KEY: sk-your-key-here
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
     - id: usage-stats
-      name: dsh-usage-stats
+      name: "@wannanbigpig/dsh-usage-stats"
       config:
         keys:
           - DEEPSEEK_API_KEY

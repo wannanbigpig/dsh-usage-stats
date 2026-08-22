@@ -1,7 +1,7 @@
 {
   "name": "@wannanbigpig/dsh-usage-stats",
   "description": "DeepSeek 官方余额、Token 用量、月历热图与离线 tokenizer，内置在 Harness 侧栏",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wannanbigpig/dsh-usage-stats.git"
@@ -49,13 +49,14 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/usage.js && node --check lib/balance.js && node --check lib/providers.js && node --check lib/tokenizer.js && node --check lib/client.js && node --check scripts/count-tokens.mjs && node --check scripts/test-providers.mjs && node --check lib/ledger.js && node --check lib/pricing.js && node --check scripts/rebuild-today-legacy.mjs && node --check scripts/test-usage.mjs && node --check scripts/test-server.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-conversation.mjs && node --check scripts/test-tokenizer.mjs",
-    "test": "npm run check && node scripts/test-usage.mjs && node scripts/test-tokenizer.mjs && node scripts/test-providers.mjs && node scripts/test-server.mjs && node scripts/smoke-client.mjs && node scripts/test-conversation.mjs",
+    "check": "node --check lib/index.js && node --check lib/usage.js && node --check lib/balance.js && node --check lib/providers.js && node --check lib/tokenizer.js && node --check lib/client.js && node --check scripts/count-tokens.mjs && node --check scripts/test-providers.mjs && node --check scripts/test-package.mjs && node --check lib/ledger.js && node --check lib/pricing.js && node --check scripts/rebuild-today-legacy.mjs && node --check scripts/test-usage.mjs && node --check scripts/test-server.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-conversation.mjs && node --check scripts/test-tokenizer.mjs",
+    "test": "npm run check && node scripts/test-package.mjs && node scripts/test-usage.mjs && node scripts/test-tokenizer.mjs && node scripts/test-providers.mjs && node scripts/test-server.mjs && node scripts/smoke-client.mjs && node scripts/test-conversation.mjs",
     "test:usage": "node scripts/test-usage.mjs",
     "test:tokenizer": "node scripts/test-tokenizer.mjs",
     "test:server": "node scripts/test-server.mjs",
     "test:providers": "node scripts/test-providers.mjs",
     "test:client": "node scripts/smoke-client.mjs && node scripts/test-conversation.mjs",
+    "test:package": "node scripts/test-package.mjs",
     "tokens": "node scripts/count-tokens.mjs",
     "whoami": "npm whoami --registry=https://registry.npmjs.org",
     "publish:public": "npm publish --registry=https://registry.npmjs.org"
