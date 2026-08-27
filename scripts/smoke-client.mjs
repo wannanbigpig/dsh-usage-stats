@@ -944,7 +944,10 @@ const durationTranslate = (key, params = {}) => ({
 }[key] ?? key);
 if (exports_.windowResetCountdownOf(countdownNow + 143 * 60000, durationTranslate, countdownNow) !== "2小时 23分钟") throw new Error("five-hour reset countdown formatting mismatch");
 if (exports_.windowResetCountdownOf(countdownNow + (6 * 1440 + 143) * 60000, durationTranslate, countdownNow) !== "6天 2小时 23分钟") throw new Error("weekly reset countdown formatting mismatch");
-if (exports_.windowResetDisplayOf("2026-08-21T02:23:00Z", durationTranslate, countdownNow) !== "2小时 23分钟 (08/21 10:23)") throw new Error("plan quota reset display must include countdown and local calendar time");
+const resetAt = new Date("2026-08-21T02:23:00Z");
+const pad = (part) => String(part).padStart(2, "0");
+const localResetTime = `${pad(resetAt.getMonth() + 1)}/${pad(resetAt.getDate())} ${pad(resetAt.getHours())}:${pad(resetAt.getMinutes())}`;
+if (exports_.windowResetDisplayOf(resetAt.toISOString(), durationTranslate, countdownNow) !== `2小时 23分钟 (${localResetTime})`) throw new Error("plan quota reset display must include countdown and local calendar time");
 if (exports_.windowResetDisplayForItem({ kind: "five_hour", remainingPercent: 100 }, (key) => key === "balance.resetNotStarted" ? "尚未开始" : key, countdownNow) !== "尚未开始") throw new Error("empty five-hour quota must show an explicit not-started state");
 if (exports_.windowResetCountdownForItem({ kind: "five_hour", remainingPercent: 100 }, (key) => key === "balance.resetNotStarted" ? "尚未开始" : key, countdownNow) !== "尚未开始") throw new Error("compact empty five-hour quota must show an explicit not-started state");
 console.log("plan quota reset countdown formatting ok");
