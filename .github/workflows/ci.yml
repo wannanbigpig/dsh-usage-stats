@@ -48,6 +48,8 @@ jobs:
           version: 11.7.0
       - name: Install Harness dependencies
         run: pnpm --dir .ci/deepseek-harness install --frozen-lockfile --ignore-scripts
+      - name: Build Harness host libraries
+        run: pnpm --dir .ci/deepseek-harness run build:lib:host
       - name: Install plugin dependencies
         run: npm ci
       - name: Run test suite
