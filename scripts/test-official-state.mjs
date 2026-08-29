@@ -13,6 +13,7 @@ import {
 	USAGE_STATS_SETTINGS_NAMESPACE,
 	USAGE_STATS_SETTINGS_SCHEMA,
 	createUsageStatsSettings,
+	retiredSettingsFieldsOf,
 	validateUsageStatsSettings
 } from "../lib/settings.js";
 import {
@@ -204,6 +205,12 @@ async function testLegacyConverters() {
 	}, { settingsSha256: "s", limitsSha256: "l" });
 	assert.equal(migratedSettings.settingsPatch.refreshMs, 7000);
 	assert.equal(Object.hasOwn(migratedSettings.settingsPatch, "pricing"), false, "legacy null pricing must re-inherit composition base");
+	const migratedRetiredConversation = migrateLegacySettingsToV3({
+		version: 2,
+		conversation: { enabled: true, showTokenUsage: true, showSessionTokenUsage: false }
+	}, { version: 2 });
+	assert.equal(Object.hasOwn(migratedRetiredConversation.settingsPatch, "conversation"), false,
+		"retired plugin conversation settings must not enter the current namespace");
 	assert.equal(migratedSettings.limits.global.dailyCostLimit, 5);
 	assert.equal(migratedSettings.limits.global.enabled, true, "v1 advisory enablement must be preserved");
 	assert.equal(migratedSettings.limits.global.minBalance, null, "v1 hard-stop fields must migrate fail-open");
@@ -296,6 +303,16 @@ async function testSettingsAdapter() {
 		["mutate", USAGE_STATS_SETTINGS_NAMESPACE, [{ op: "set", path: ["limits"], value: { version: 2, global: {}, keys: {} } }]],
 		["mutate", USAGE_STATS_SETTINGS_NAMESPACE, [{ op: "unset", path: ["pricing"] }]]
 	]);
+	assert.deepEqual(retiredSettingsFieldsOf({ conversation: { enabled: true }, display: {} }), ["conversation"]);
+	assert.deepEqual(retiredSettingsFieldsOf({ display: {} }), []);
+	assert.deepEqual(retiredSettingsFieldsOf(null), []);
+	current = { marker: "resolved", conversation: { enabled: true } };
+	await settings.retireStaleFields();
+	assert.deepEqual(calls.at(-1).slice(0, 3), ["mutate", USAGE_STATS_SETTINGS_NAMESPACE, [{ op: "unset", path: ["conversation"] }]], "stale retired conversation field must be pruned from persisted settings");
+	current = { marker: "resolved" };
+	const callsBeforePrune = calls.length;
+	await settings.retireStaleFields();
+	assert.equal(calls.length, callsBeforePrune, "retireStaleFields must not write when no retired fields remain");
 }
 
 async function testMigrationBridge() {

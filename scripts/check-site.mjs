@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const siteDirectory = process.env.SITE_ROOT ?? "docs";
 const siteRoot = resolve(repositoryRoot, siteDirectory);
-const screenshots = ["usage-overview-all.png", "usage-overview-deepseek.png", "usage-overview-zai.png", "usage-details.png", "settings-providers.png", "conversation-folding-demo.png"];
+const screenshots = ["usage-overview-all.png", "usage-overview-deepseek.png", "usage-overview-zai.png", "usage-details.png", "settings-providers.png"];
 const html = await readFile(resolve(siteRoot, "index.html"), "utf8");
 
 assert.match(html, /<title>DSH Usage Stats<\/title>/, "site must expose its product title");

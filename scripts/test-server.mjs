@@ -80,7 +80,6 @@ function createHarness(options = {}) {
 				visibleProviderIds: [],
 				refreshMs: options.base?.refreshMs ?? null,
 				display: { balance: true, todayCost: true, statusDot: true },
-				conversation: { enabled: true, showTokenUsage: false, showSessionTokenUsage: false },
 				pricing: options.base?.pricing ?? null,
 				maxLedgerEntries: options.base?.maxLedgerEntries ?? null,
 				limits: defaultLimits(),

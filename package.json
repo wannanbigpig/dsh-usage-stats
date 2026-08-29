@@ -55,15 +55,15 @@
     }
   },
   "scripts": {
-    "check": "node --check lib/index.js && node --check lib/usage.js && node --check lib/balance.js && node --check lib/providers.js && node --check lib/tokenizer.js && node --check lib/client.js && node --check lib/ledger.js && node --check lib/pricing.js && node --check lib/rebuild.js && node --check lib/rpc.js && node --check lib/settings.js && node --check lib/storage.js && node --check lib/migration.js && node --check docs/interactive.js && node --check scripts/build-site.mjs && node --check scripts/check-site.mjs && node --check scripts/count-tokens.mjs && node --check scripts/test-providers.mjs && node --check scripts/test-package.mjs && node --check scripts/rebuild-today-legacy.mjs && node --check scripts/test-rebuild-legacy.mjs && node --check scripts/test-usage.mjs && node --check scripts/test-server.mjs && node --check scripts/test-rpc.mjs && node --check scripts/test-official-state.mjs && node --check scripts/test-storage-json-integration.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-conversation.mjs && node --check scripts/test-tokenizer.mjs",
-    "test": "npm run check && node scripts/test-package.mjs && node scripts/test-usage.mjs && node scripts/test-tokenizer.mjs && node scripts/test-providers.mjs && node scripts/test-server.mjs && node scripts/test-rpc.mjs && node scripts/test-official-state.mjs && node scripts/test-storage-json-integration.mjs && node scripts/test-rebuild-legacy.mjs && node scripts/smoke-client.mjs && node scripts/test-conversation.mjs",
+    "check": "node --check lib/index.js && node --check lib/usage.js && node --check lib/balance.js && node --check lib/providers.js && node --check lib/tokenizer.js && node --check lib/client.js && node --check lib/ledger.js && node --check lib/pricing.js && node --check lib/rebuild.js && node --check lib/rpc.js && node --check lib/settings.js && node --check lib/storage.js && node --check lib/migration.js && node --check docs/interactive.js && node --check scripts/build-site.mjs && node --check scripts/check-site.mjs && node --check scripts/count-tokens.mjs && node --check scripts/test-providers.mjs && node --check scripts/test-package.mjs && node --check scripts/rebuild-today-legacy.mjs && node --check scripts/test-rebuild-legacy.mjs && node --check scripts/test-usage.mjs && node --check scripts/test-server.mjs && node --check scripts/test-rpc.mjs && node --check scripts/test-official-state.mjs && node --check scripts/test-storage-json-integration.mjs && node --check scripts/smoke-client.mjs && node --check scripts/test-tokenizer.mjs",
+    "test": "npm run check && node scripts/test-package.mjs && node scripts/test-usage.mjs && node scripts/test-tokenizer.mjs && node scripts/test-providers.mjs && node scripts/test-server.mjs && node scripts/test-rpc.mjs && node scripts/test-official-state.mjs && node scripts/test-storage-json-integration.mjs && node scripts/test-rebuild-legacy.mjs && node scripts/smoke-client.mjs",
     "test:usage": "node scripts/test-usage.mjs",
     "test:tokenizer": "node scripts/test-tokenizer.mjs",
     "test:server": "node scripts/test-server.mjs",
 	"test:storage-json": "DSH_REQUIRE_JSON_INTEGRATION=1 node scripts/test-storage-json-integration.mjs",
     "test:providers": "node scripts/test-providers.mjs",
     "test:recovery": "node scripts/test-rebuild-legacy.mjs",
-    "test:client": "node scripts/smoke-client.mjs && node scripts/test-conversation.mjs",
+    "test:client": "node scripts/smoke-client.mjs",
     "test:package": "node scripts/test-package.mjs",
     "check:site": "node scripts/check-site.mjs",
     "build:site": "node scripts/build-site.mjs",

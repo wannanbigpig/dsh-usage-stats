@@ -1,8 +1,8 @@
 # dsh-usage-stats
 
-面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI（`dsh web`）的本地用量中心：统一查看 Token、余额、套餐额度、DeepSeek 费用估算和每日趋势，并可将一轮会话中的思考与工具过程折叠起来，让对话正文保持清爽。
+面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) Web GUI（`dsh web`）的本地用量中心：统一查看 Token、余额、套餐额度、DeepSeek 费用估算和每日趋势。
 
-The local usage, balance, quota, billing, and conversation-folding companion for DeepSeek Harness Web.
+The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 **文档导航：** [核心亮点](#核心亮点--features) · [Provider 支持](#provider-支持) · [界面预览](#界面预览--screenshots) · [快速安装](#快速安装--quick-start) · [配置](#配置--configuration) · [数据与隐私](#数据与隐私--privacy)
 
@@ -14,19 +14,9 @@ The local usage, balance, quota, billing, and conversation-folding companion for
 | 多供应商账户 | 展示 DeepSeek/Moonshot 余额、Z.ai/Kimi/MiniMax/OpenCode Go 套餐窗口、OpenRouter Key 额度与账户 Credits；小米及 MiMo Token Plan 提供官方查询入口；账户概览最多固定 3 个供应商 |
 | 时间与模型分析 | 查看今日 / 本月 / 累计 Token、请求次数、24 小时输入输出、模型拆分、缓存命中率与自然年贡献热图 |
 | 费用与限额 | 冻结 DeepSeek 官方调用费用，配置每日消费限额、余额提醒、预警比例、通知和可选超限停止 |
-| **折叠会话思考过程** | **把同一问答中的思考、工具调用和过程说明收进一个外层折叠，最终回复始终保持可见** |
 | 本机数据边界 | API Key 只在服务端凭据服务中解析；统计账本、设置和告警保存在本机，插件 RPC 仅接受回环请求 |
 
-### 折叠会话思考过程
-
-开启「设置 → 用量与计费 → 折叠会话 → 折叠模型过程」后，每个问答（turn）只生成一个外层过程折叠：
-
-- 思考、工具调用和过程说明默认收起，展开后仍可单独操作原有的小折叠；
-- 最终回复始终位于外层折叠之外，不会因为过程很长而被一起隐藏；
-- 整体耗时与可选 Token 汇总只显示在外层折叠上，避免每个步骤重复展示；
-- 「本轮 Token（近似）」与「会话 Token」互斥且默认关闭：前者按当前问答节点估算，后者与 Harness 底部会话累计统计保持同口径。
-
-> 查询面板保持只读。默认展示供应商、计费、限额、通知、会话折叠和数据管理统一位于「设置 → 用量与计费」。切换默认展示供应商不会改变模型调用路由。
+> 查询面板保持只读。默认展示供应商、计费、限额、通知和数据管理统一位于「设置 → 用量与计费」。切换默认展示供应商不会改变模型调用路由。会话过程显示由 Harness 原生「设置 → 通用设置 → Conversation display」控制。
 
 ### 数据口径
 
@@ -55,14 +45,13 @@ The local usage, balance, quota, billing, and conversation-folding companion for
 
 ## 设置结构
 
-「设置 → 用量与计费」按职责拆分为五个标签：
+「设置 → 用量与计费」按职责拆分为四个标签：
 
 | 标签 | 内容 |
 | --- | --- |
 | 供应商与账户 | 选择默认供应商和最多 3 个账户概览项，查看账户快照，配置额外只写查询凭据、刷新周期与侧栏摘要；不会修改模型调用路由 |
 | 供应商用量与计费 | DeepSeek 限额、余额提醒、峰谷价格与可选硬停止；套餐 provider 的窗口状态阈值 |
 | 通知与提示 | 侧栏状态点、页面 Toast、预警/超限/余额不足/恢复事件、冷却时间和进程内告警历史 |
-| **折叠会话** | **过程大折叠、本轮 Token 近似统计、会话累计 Token 统计** |
 | 数据管理 | 近期精细记录、冻结金额精确归档与历史估算范围；按北京日历裁剪、恢复估算或二次确认清空本地数据 |
 
 每日消费进度只表达「今日消费 / 每日限额」，不会被余额提醒状态改变。套餐阈值仅控制状态提示颜色，不会修改供应商真实额度。
@@ -81,11 +70,6 @@ The local usage, balance, quota, billing, and conversation-folding companion for
     <td align="center"><a href="assets/screenshots/usage-overview-xiaomi-token-plan.png"><img src="assets/screenshots/usage-overview-xiaomi-token-plan.png" alt="MiMo Token Plan 用量概览" width="280" /></a><br /><sub>MiMo Token Plan</sub></td>
     <td align="center"><a href="assets/screenshots/usage-details.png"><img src="assets/screenshots/usage-details.png" alt="最近用量明细" width="280" /></a><br /><sub>按日明细</sub></td>
     <td align="center"><a href="assets/screenshots/settings-providers.png"><img src="assets/screenshots/settings-providers.png" alt="供应商与账户设置" width="280" /></a><br /><sub>供应商与账户设置</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><a href="assets/screenshots/settings-conversation-folding.png"><img src="assets/screenshots/settings-conversation-folding.png" alt="折叠会话设置" width="280" /></a><br /><sub>折叠会话设置</sub></td>
-    <td align="center"><a href="assets/screenshots/conversation-folding-demo.png"><img src="assets/screenshots/conversation-folding-demo.png" alt="会话过程折叠演示" width="280" /></a><br /><sub>会话过程折叠演示</sub></td>
-    <td></td>
   </tr>
 </table>
 
@@ -243,7 +227,6 @@ OpenRouter 是唯一需要双凭据的内置适配器：普通 `OPENROUTER_API_K
 4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停方块查看整日日期、Token、输入/输出、缓存、费用和模型摘要，点击方块联动当天明细。
 5. 「按小时统计」：展示所选日期的 24 小时输入/输出柱状图；零用量小时不渲染数据柱，工作日高峰时段以跨全图的浅色背景区段提示，周末不显示高峰区段并标注全天低谷价；鼠标悬停、键盘聚焦或触屏点击某小时可查看总 Token、输入、输出、缓存、费用和模型拆分。费用与 Token 按**请求完成时间（usage 上报时间）**（北京时）归入对应日期与小时：跨整点或跨日边界的流式请求同样按完成时间归属（如 17:59 发起、18:01 完成的请求计入 18 点小时并按低谷价计费，而不是计入 17 点高峰价），与官方账单口径一致。
 6. 限额、价格、通知和展示配置请在「设置 → 用量与计费」中操作；「供应商用量与计费」自动跟随默认展示供应商。DeepSeek 可按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否停止新调用；套餐供应商只显示其支持的窗口阈值；开启硬停止时会弹出确认。
-7. 「折叠会话」设置只控制过程折叠与大折叠 Token 显示；每个大折叠对应一个问答 turn，最终回复不被折叠。本轮 Token 是当前聊天节点的近似汇总，可能因 Harness 的多步调用、usage 实时发布、分页或压缩而不等于实际用量；会话 Token 模式直接复用 Harness 的 `tokenUsage` projection，与底部统计一致，但只表示整个会话累计，不能记录单条消息用量。
 
 ## 官方 tokenizer 离线计算
 
@@ -295,7 +278,6 @@ npm pack --dry-run
 - `scripts/test-storage-json-integration.mjs`：目标 Harness JSON backend 的 v2 迁移首次写入、120 并发写、压缩、关闭重启和改价冻结；
 - `scripts/test-providers.mjs`：DeepSeek/Moonshot/OpenRouter/OpenCode Go/Kimi/MiniMax/Z.ai 适配器的离线 mock、鉴权错误、超时和 MiniMax 回退顺序；
 - `scripts/smoke-client.mjs`：客户端 bundle、侧栏入口、自然年贡献热图、小时悬停浮层、刷新动画、统一状态映射与硬停止设置契约。
-- `scripts/test-conversation.mjs`：每个 turn 的大折叠/小折叠、最终回复保留、耗时、单 turn Token 聚合、终止与局部工具失败状态。
 
 真实数据验证需运行 `dsh web`，然后打开「用量/余额」浮层；不再提供旧 REST curl 接口。
 

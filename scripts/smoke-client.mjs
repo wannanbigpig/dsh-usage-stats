@@ -224,7 +224,6 @@ if (typeof exports_.UsageBillingSettingsSection !== "function") throw new Error(
 if (typeof exports_.openHarnessSettings !== "function") throw new Error("missing openHarnessSettings export");
 if (typeof exports_.freshAlertsForProvider !== "function") throw new Error("missing provider-scoped alert selector export");
 if (typeof exports_.pricingWritePayload !== "function") throw new Error("missing pricing write payload helper export");
-if (typeof exports_.compactActivityGroups !== "function") throw new Error("missing compact activity grouping helper export");
 const rpcMappings = [
 	["/api/usage-stats/usage", "GET", undefined, "usage/get"],
 	["/api/usage-stats/keys", "GET", undefined, "keys/list"],
@@ -277,14 +276,12 @@ if (typeof exports_.DataCard !== "function") throw new Error("missing DataCard e
 if (typeof exports_.normalizeLedgerCapacity !== "function") throw new Error("missing ledger capacity validator export");
 if (exports_.normalizeLedgerCapacity("100") !== 100 || exports_.normalizeLedgerCapacity(5000) !== 5000) throw new Error("ledger capacity boundaries must be accepted");
 for (const value of [99, 5001, 100.5, "nope", ""]) if (exports_.normalizeLedgerCapacity(value) !== null) throw new Error(`invalid ledger capacity accepted: ${String(value)}`);
-if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 5) throw new Error("SETTINGS_TABS must declare five settings tabs");
+if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 4) throw new Error("SETTINGS_TABS must declare four settings tabs");
 if (exports_.SETTINGS_TABS.some((tab) => tab.id === "pricing")) throw new Error("provider pricing must live under billing and limits, not a separate tab");
 if (!source.includes('"data-usage-provider-billing-settings": true')) throw new Error("budget and limits must group provider-scoped limits and pricing");
 if (!source.includes('"settings.tabLimits": "供应商用量与计费"') || !source.includes('"settings.tabLimits": "Provider Usage & Billing"')) throw new Error("billing tab must communicate provider scope");
 if (!source.includes('"notifications.desc": "这里只配置所有供应商共用的告警输出通道')) throw new Error("notifications tab must explain its shared scope");
 if (source.includes('translate("notifications.planQuota')) throw new Error("provider plan quota labels must live in the billing namespace");
-if (typeof exports_.ConversationCard !== "function") throw new Error("missing ConversationCard export");
-if (typeof exports_.CompactConversationController !== "function") throw new Error("missing CompactConversationController export");
 if (typeof exports_.windowResetCountdownOf !== "function") throw new Error("missing reset countdown formatter export");
 if (typeof exports_.windowResetDisplayOf !== "function") throw new Error("missing reset display formatter export");
 if (typeof exports_.windowResetDisplayForItem !== "function") throw new Error("missing reset display item formatter export");
@@ -299,7 +296,7 @@ if (source.includes('button[aria-label*="设置"') || source.includes('button[ti
 if (!source.includes("@keyframes usg_spin")) throw new Error("refresh button must define a spin animation");
 if (!source.includes(".usg_refreshButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a compact borderless glyph");
 if (!source.includes(".usg_refreshGlyph")) throw new Error("refresh glyph must receive the spin animation");
-if (source.includes(".usc-fold-summary:hover{background:")) throw new Error("conversation fold summary must not change background on hover");
+if (source.includes("conversation.session.header.actions") || source.includes("usc-fold") || source.includes("data-usc-")) throw new Error("client must leave conversation folding to Harness");
 if (!source.includes('react_jsx_runtime.jsxs("svg"')) throw new Error("refresh button must use SVG icon for reliable rotation");
 if (!source.includes(".usg_hourTooltipHead{justify-content:space-between")) throw new Error("tooltip head must lay time and amount on one row");
 if (!source.includes(".usg_hourTooltipAmount")) throw new Error("tooltip head must wrap the amount in a dedicated span");
@@ -477,13 +474,11 @@ if (!source.includes('toNumericModels')) throw new Error("pricing card must conv
 if (!source.includes('value: row?.[period]?.[field] ?? ""')) throw new Error("pricing edit inputs must render the raw draft string");
 if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) throw new Error("pricing card must reject blank, invalid, and negative values");
 if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
-if (!source.includes('M433.493333 548.693333') || !source.includes('M831.573333 511.146667') || !source.includes('atomDot.setAttribute("fill", "currentColor")')) throw new Error("thought metric must use the supplied atom icon");
 if (!source.includes('.usg_hourInput{background:var(--dsw-static-blue-500,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-static-green-500,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
 if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-fill-l2);border-radius:3px;height:6px;flex:1;min-width:80px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:var(--usg-blue);opacity:.72}')) throw new Error("recent-day details must use a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
 if (!source.includes('color-mix(in srgb,var(--dsw-alias-state-business-primary) ${intensity}%,var(--usg-cellEmpty))')) throw new Error("heatmap intensity must follow the Harness business accent in both themes");
-if (!source.includes('M944.140673 718.412117') || !source.includes('tool.setAttribute("fill", "currentColor")')) throw new Error("tool metric must use the replacement tool icon");
 // Data card must be organized into plain-language groups.
 if (!source.includes('translate("data.overview")') || !source.includes('translate("data.retentionGroup")') || !source.includes('translate("data.dangerGroup")')) throw new Error("data card must use plain-language group headings");
 if (!source.includes('.usg_dataStatMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))') || !source.includes('.usg_dataStatRange{grid-template-columns:auto minmax(0,1fr)')) throw new Error("data overview must group three numeric metrics and give the date range its own row");
@@ -647,13 +642,13 @@ const multiKeyLimitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard
 if (!multiKeyLimitsMarkup.includes("limits.apiKey")) throw new Error("multi-key limits card must render the key picker");
 console.log("multi-key limits card picker ok, length:", multiKeyLimitsMarkup.length);
 
-// Settings page hosts five tabs: account, provider billing, notifications, conversation, data.
+// Settings page hosts account, provider billing, notifications, and data tabs.
 const tabsMarkup = renderToStaticMarkup(react.createElement(UsageBillingSettingsSection, { t: (key) => key }));
-for (const tab of ["accounts", "limits", "notifications", "conversation", "data"]) {
+for (const tab of ["accounts", "limits", "notifications", "data"]) {
 	if (!tabsMarkup.includes(`data-usage-billing-tab="${tab}"`)) throw new Error(`settings tab ${tab} missing`);
 }
 if (!tabsMarkup.includes("data-usage-accounts-card")) throw new Error("settings section must mount the accounts card by default");
-console.log("settings five-tab navigation render ok");
+console.log("settings four-tab navigation render ok");
 
 const accountsMarkup = renderToStaticMarkup(react.createElement(exports_.AccountsCard, { keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }], translate: (key) => key }));
 if (!accountsMarkup.includes("data-usage-accounts-card") || !accountsMarkup.includes("accounts.title")) throw new Error("accounts card render missing title/identity");
@@ -923,18 +918,6 @@ if (!dataMarkup.includes('data-usage-retention-panel="true"') || !dataMarkup.inc
 if (!dataMarkup.includes('data-usage-ledger-capacity-control="true"') || !dataMarkup.includes('min="100"') || !dataMarkup.includes('max="5000"') || !dataMarkup.includes('step="100"')) throw new Error("data card must render the editable 100-5000 ledger capacity control with a 100-record step");
 console.log("data card render ok, length:", dataMarkup.length);
 
-const conversationMarkup = renderToStaticMarkup(react.createElement(exports_.ConversationCard, { translate: (key) => key, conversation: { enabled: true, showTokenUsage: false, showSessionTokenUsage: false }, onConversationUpdated: () => {} }));
-if (!conversationMarkup.includes("data-usage-conversation-card") || !conversationMarkup.includes("conversation.title")) throw new Error("conversation card render missing title/identity");
-if (!conversationMarkup.includes("conversation.enable")) throw new Error("conversation card render missing enable toggle");
-if (!conversationMarkup.includes("conversation.showTokenUsage")) throw new Error("conversation card render missing token usage toggle");
-if (!conversationMarkup.includes("conversation.showSessionTokenUsage")) throw new Error("conversation card render missing session token toggle");
-if (!conversationMarkup.includes("conversation.showTokenUsageDesc") || !conversationMarkup.includes("conversation.showSessionTokenUsageDesc")) throw new Error("conversation card render missing token accuracy explanations");
-if ((conversationMarkup.match(/class="usg_toggleRow"/g) ?? []).length !== 3) throw new Error("conversation settings must render three stacked toggle rows");
-const turnTokenIndex = conversationMarkup.indexOf("conversation.showTokenUsage");
-const sessionTokenIndex = conversationMarkup.indexOf("conversation.showSessionTokenUsage");
-if (turnTokenIndex < 0 || sessionTokenIndex <= turnTokenIndex) throw new Error("conversation token toggles must render in order");
-console.log("conversation card render ok, length:", conversationMarkup.length);
-
 const countdownNow = Date.UTC(2026, 7, 21, 0, 0, 0);
 const durationTranslate = (key, params = {}) => ({
 	"balance.resetSoon": "即将重置",
@@ -1015,9 +998,9 @@ await pending.then(
 	() => { throw new Error("aborted RPC call must reject"); },
 	(error) => { if (error.name !== "AbortError") throw error; }
 );
-if (registrations.length !== 3) throw new Error(`expected three slot injections, got ${registrations.length}`);
+if (registrations.length !== 2) throw new Error(`expected two slot injections, got ${registrations.length}`);
 const slotNames = registrations.map(([slot]) => slot).sort();
-if (slotNames[0] !== "conversation.session.header.actions" || slotNames[1] !== "settings.section" || slotNames[2] !== "sidebar.footer.action") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
+if (slotNames[0] !== "settings.section" || slotNames[1] !== "sidebar.footer.action") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
 const footerEntry = registrations.find(([slot]) => slot === "sidebar.footer.action");
 const footerDisposer = footerEntry[1]();
 if (typeof footerDisposer !== "function") throw new Error("footer slot registration must return a disposer");
@@ -1030,21 +1013,12 @@ if (sectionReg.options.id !== "usage-stats") throw new Error(`settings.section i
 if (typeof sectionReg.options.label !== "function" || typeof sectionReg.options.label() !== "string") throw new Error("settings.section must carry a resolving label thunk");
 if (typeof sectionReg.component !== "function") throw new Error("settings.section must mount a component");
 if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.footer.action")?.component !== "function") throw new Error("sidebar.footer.action must mount a component");
-const compactEntry = registrations.find(([slot]) => slot === "conversation.session.header.actions");
-const compactDisposer = compactEntry[1]();
-if (typeof compactDisposer !== "function") throw new Error("compact conversation slot registration must return a disposer");
-const compactReg = registeredOptions.find((entry) => entry.options?.name === "conversation.session.header.actions");
-if (compactReg === void 0) throw new Error("conversation.session.header.actions registration missing");
-if (compactReg.options.id !== "usage-stats-compact-conversation") throw new Error(`compact conversation id ${compactReg.options.id}`);
-if (typeof compactReg.component !== "function") throw new Error("compact conversation must mount a component");
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.
-const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue, compactMutationRelevant, settingsNavMutationRelevant } = exports_;
+const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue, settingsNavMutationRelevant } = exports_;
 const unrelatedMutation = [{ type: "characterData", target: { closest: () => null } }];
-if (compactMutationRelevant(unrelatedMutation) || settingsNavMutationRelevant(unrelatedMutation)) throw new Error("unrelated body mutations must not trigger full plugin scans");
-const chatFlowNode = { nodeType: 1, matches: (selector) => selector === "[data-chat-flow]", querySelector: () => null };
-if (!compactMutationRelevant([{ type: "childList", target: { closest: () => null }, addedNodes: [chatFlowNode], removedNodes: [] }])) throw new Error("chat-flow mutations must trigger conversation synchronization");
+if (settingsNavMutationRelevant(unrelatedMutation)) throw new Error("unrelated body mutations must not trigger plugin scans");
 const navNode = { nodeType: 1, matches: (selector) => selector === "button,a,[role=button], [data-usage-stats-trigger]", querySelector: () => null };
 if (!settingsNavMutationRelevant([{ type: "childList", addedNodes: [navNode], removedNodes: [] }])) throw new Error("navigation mutations must trigger icon synchronization");
 const nullBalanceMarkup = renderToStaticMarkup(exports_.BalanceCard({
@@ -1078,11 +1052,6 @@ if (visibleForB.length !== 1 || alertSeen.size !== 1) throw new Error("an alert 
 const pricingPayload = exports_.pricingWritePayload({ peakHours: [[1, 2]], weekendOffPeakFrom: "2030-01-01", windows: [{ start: "01:00", end: "02:00", tier: "peak" }], pricing: { model: { inputMiss: 99 } } }, "CNY", { model: { offPeak: { inputMiss: 1 } } });
 if (JSON.stringify(pricingPayload.peakHours) !== "[[1,2]]" || pricingPayload.weekendOffPeakFrom !== "2030-01-01" || pricingPayload.windows.length !== 1) throw new Error("pricing saves must preserve the active schedule metadata");
 if (Object.hasOwn(pricingPayload, "pricing") || pricingPayload.models.model.offPeak.inputMiss !== 1) throw new Error("pricing saves must not let the legacy read shape overwrite edited versioned rates");
-
-const interruptedTurn = { turn: 99, status: "interrupted", start: { time: 1 }, end: { time: 2 } };
-const interruptedLocation = { kind: "step", turn: interruptedTurn };
-const interruptedGroups = exports_.compactActivityGroups(["interrupted"], new Map([["interrupted", { key: "interrupted", kind: "assistant-step", location: interruptedLocation, data: { status: "interrupted", blocks: [{ kind: "reasoning", text: "stopped" }] } }]]));
-if (interruptedGroups.length !== 1 || interruptedGroups[0].error !== true || interruptedGroups[0].failures !== 0) throw new Error("an isolated interrupted reasoning activity must be marked as an error without a tool-failure count");
 
 const chartHours = Array.from({ length: 24 }, (_, hour) => ({ hour, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, models: [] }));
 const weekendChartMarkup = renderToStaticMarkup(react.createElement(exports_.HourlyChart, {
