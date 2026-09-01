@@ -57,13 +57,11 @@ code { font-family: var(--font-mono); }
 }
 .head-shell { display: flex; align-items: center; justify-content: space-between; height: 64px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font: 600 1.02rem var(--font-display); letter-spacing: -0.02em; }
-.brand i {
-  width: 22px;
-  height: 22px;
+.brand img {
+  width: 26px;
+  height: 26px;
   border-radius: 7px;
-  background:
-    radial-gradient(10px 10px at 30% 30%, #fff 0 28%, transparent 30%),
-    conic-gradient(from 210deg, var(--blue), var(--blue-soft) 55%, var(--blue));
+  box-shadow: 0 0 0 1px var(--line-strong);
 }
 nav { display: flex; align-items: center; gap: 26px; font-size: 0.92rem; color: var(--muted); }
 nav a { transition: color 0.18s ease; }
@@ -94,11 +92,21 @@ nav a:hover { color: var(--text); }
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 44px 44px;
-  mask-image: radial-gradient(760px 460px at var(--pointer-x) var(--pointer-y), #000 0 38%, transparent 78%);
-  -webkit-mask-image: radial-gradient(760px 460px at var(--pointer-x) var(--pointer-y), #000 0 38%, transparent 78%);
+  mask-image: radial-gradient(820px 520px at var(--pointer-x) var(--pointer-y), #000 0 42%, transparent 80%);
+  -webkit-mask-image: radial-gradient(820px 520px at var(--pointer-x) var(--pointer-y), #000 0 42%, transparent 80%);
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(560px circle at var(--pointer-x) var(--pointer-y), rgba(77, 107, 254, 0.32), transparent 62%),
+    radial-gradient(320px circle at calc(var(--pointer-x) - 12%) calc(var(--pointer-y) + 14%), rgba(115, 163, 210, 0.18), transparent 66%);
+  transition: background 0.12s ease-out;
 }
 .hero > .shell { position: relative; }
 .hero-copy { max-width: 660px; }
