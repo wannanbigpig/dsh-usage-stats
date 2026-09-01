@@ -250,6 +250,9 @@ nav a:hover { color: var(--text); }
 }
 .gallery figure:hover { transform: translateY(-3px); border-color: rgba(115, 163, 210, 0.6); }
 .gallery .wide { grid-column: span 3; }
+.gallery .thumb { cursor: pointer; }
+.gallery .thumb img { pointer-events: none; }
+.gallery .thumb:focus-visible { border-color: var(--blue); outline: none; }
 .gallery img { width: 100%; }
 .gallery figcaption {
   padding: 12px 16px;
