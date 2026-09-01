@@ -239,7 +239,7 @@ nav a:hover { color: var(--text); }
 
 /* ---------- screenshots ---------- */
 .screenshots { padding: 96px 0; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, var(--bg-deep), #0d1226 60%, var(--bg-deep)); }
-.gallery { display: flex; gap: 14px; height: clamp(300px, 40vw, 500px); margin-top: 46px; }
+.gallery { display: flex; gap: 14px; height: clamp(360px, 48vw, 640px); margin-top: 46px; }
 .gallery figure {
   position: relative;
   margin: 0;
