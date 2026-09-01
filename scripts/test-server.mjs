@@ -68,6 +68,11 @@ function unsetAtPath(target, path) {
 	if (cursor !== null && typeof cursor === "object") delete cursor[path.at(-1)];
 }
 
+/** Total live ledger entries across the per-day rows of the fake domain. */
+function ledgerEntriesOf(harness) {
+	return [...harness.domain.ledger.records.values()].reduce((sum, row) => sum + row.entries.length, 0);
+}
+
 function createHarness(options = {}) {
 	let settingsValue;
 	let userSection = {};
@@ -131,19 +136,37 @@ function createHarness(options = {}) {
 		describe: () => [{ ns: "usage-stats", user: clone(userSection) }]
 	};
 
-	const tableRecords = new Map();
 	let closed = false;
-	const table = {
-		get: (key) => tableRecords.get(key),
-		async put(key, value) { tableRecords.set(key, StateSchema.parse(clone(value))); },
-		async update(key, transform) {
-			if (!tableRecords.has(key)) throw new Error("missing-key");
-			const next = transform(tableRecords.get(key));
-			tableRecords.set(key, StateSchema.parse(clone(next)));
-			return tableRecords.get(key);
+	const makeTable = () => {
+		const records = new Map();
+		return {
+			get: (key) => records.get(key),
+			async put(key, value) { records.set(key, clone(value)); },
+			async delete(key) { return records.delete(key); },
+			entries: () => [...records.entries()][Symbol.iterator](),
+			keys: () => [...records.keys()][Symbol.iterator](),
+			get records() { return records; },
+			get size() { return records.size; }
+		};
+	};
+	const domain = {
+		ledger: makeTable(),
+		frozen: makeTable(),
+		global: {
+			stored: null,
+			get() { return this.stored === null ? { installedAt: 0, coverageCutoffsByDay: {}, recentSampleKeys: [], frozenEntryCount: 0, frozenPricingVersionCounts: {}, estimated: { importedLegacy: null, unfrozenLedger: null, sessionRebuild: null }, migration: {} } : clone(this.stored); },
+			async set(value) { this.stored = clone(value); }
+		},
+		table(name) { return this[name]; },
+		async close() { closed = true; }
+	};
+	const storageDomain = {
+		async open(spec) {
+			// A v1 probe sees the pre-v4 single document, which this harness never writes.
+			if (spec.version === 1) return { table: () => ({ get: () => void 0 }), async close() {} };
+			return domain;
 		}
 	};
-	const storageDomain = { open: async () => ({ table: () => table, close: async () => { closed = true; } }) };
 	const listeners = new Map();
 	const effects = [];
 	let rpcRegistration;
@@ -169,7 +192,7 @@ function createHarness(options = {}) {
 	return {
 		ctx,
 		listeners,
-		tableRecords,
+		domain,
 		get rpc() { return rpcRegistration; },
 		get closed() { return closed; },
 		async dispose() {
@@ -293,7 +316,7 @@ function createHarness(options = {}) {
 		assert.equal(harness.rpc.channel, USAGE_RPC_CHANNEL);
 		assert.deepEqual(harness.rpc.options, { authority: "loopback" });
 		assert.equal(harness.ctx.webServer, void 0);
-		assert.equal(harness.tableRecords.get("main").version, 3);
+		assert.ok(harness.domain.global.stored !== null && harness.domain.global.stored.installedAt > 0, "the host lifecycle must install the v4 global commit marker");
 
 		const usageBefore = await harness.rpc.handler("usage/get", { query: {} });
 		assert.equal(usageBefore.ok, true);
@@ -340,32 +363,32 @@ function createHarness(options = {}) {
 			yield { type: "usage", usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
 		for await (const _chunk of stream) { /* drain */ }
-		assert.equal(harness.tableRecords.get("main").ledger.length, 1);
+		assert.equal(ledgerEntriesOf(harness), 1);
 		assert.equal((await collectUsage(harness.ctx)).total.tokens, 2,
 			"a successful ledger write must invalidate the cached rendered usage");
 		const retriedStream = harness.listeners.get("llm/stream")({ sessionId: "s1", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "usage", usage: { inputTokens: 8, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
 		for await (const _chunk of retriedStream) { /* drain */ }
-		assert.equal(harness.tableRecords.get("main").ledger.length, 1, "a stream retry must replace the provisional sample");
-		assert.equal(harness.tableRecords.get("main").ledger[0].usage.inputTokens, 8, "a stream retry must retain its latest usage");
+		assert.equal(ledgerEntriesOf(harness), 1, "a stream retry must replace the provisional sample");
+		assert.equal([...harness.domain.ledger.records.values()][0].entries[0].usage.inputTokens, 8, "a stream retry must retain its latest usage");
 		await harness.listeners.get("session/event")({ id: "s1" }, {
 			type: "assistant/message",
 			time: Date.now(),
 			data: { turn: 1, step: 2, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } }
 		});
-		assert.equal(harness.tableRecords.get("main").ledger.length, 1, "late assistant/message must not duplicate authoritative stream usage");
+		assert.equal(ledgerEntriesOf(harness), 1, "late assistant/message must not duplicate authoritative stream usage");
 		const compaction = harness.listeners.get("llm/stream")({ sessionId: "s1", purpose: "compaction", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "usage", usage: { inputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
 		for await (const _chunk of compaction) { /* drain */ }
-		assert.equal(harness.tableRecords.get("main").ledger.length, 2, "purpose-scoped calls must not reuse the preceding agent step key");
+		assert.equal(ledgerEntriesOf(harness), 2, "purpose-scoped calls must not reuse the preceding agent step key");
 		await harness.listeners.get("session/event")({ id: "s1" }, {
 			type: "assistant/message",
 			time: Date.now(),
 			data: { usage: { inputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } }
 		});
-		assert.equal(harness.tableRecords.get("main").ledger.length, 2, "an unscoped assistant fallback must not duplicate a stream usage sample");
+		assert.equal(ledgerEntriesOf(harness), 2, "an unscoped assistant fallback must not duplicate a stream usage sample");
 		await harness.listeners.get("session/event")({ id: "s1" }, { type: "step/start", time: Date.now(), data: { turn: 1, step: 3 } });
 		const noUsageStream = harness.listeners.get("llm/stream")({ sessionId: "s1", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "text", text: "no usage chunk" };
@@ -376,18 +399,18 @@ function createHarness(options = {}) {
 			time: Date.now(),
 			data: { turn: 1, step: 3, usage: { inputTokens: 2, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } }
 		});
-		assert.equal(harness.tableRecords.get("main").ledger.length, 3, "a later call with no stream usage must still use assistant/message fallback");
+		assert.equal(ledgerEntriesOf(harness), 3, "a later call with no stream usage must still use assistant/message fallback");
 
 		const info = await harness.rpc.handler("data/get", { query: {} });
 		assert.equal(info.value.info.ledgerEntries, 3);
 		assert.equal(info.value.info.ledgerCapacity, 100);
 		const rebuilt = await harness.rpc.handler("data/rebuild-estimated", { body: { dryRun: true } });
 		assert.equal(rebuilt.value.dryRun, true);
-		assert.equal(harness.tableRecords.get("main").archive.estimated.sessionRebuild, null);
+		assert.equal(harness.domain.global.stored.estimated.sessionRebuild, null);
 		const cleared = await harness.rpc.handler("data/clear", { body: { confirmation: "DELETE" } });
 		assert.equal(cleared.value.cleared, true);
-		assert.equal(harness.tableRecords.get("main").ledger.length, 0);
-		assert.equal(harness.tableRecords.get("main").migration.legacyCacheImported, true);
+		assert.equal(ledgerEntriesOf(harness), 0);
+		assert.equal(harness.domain.global.stored.migration.legacyCacheImported, true);
 	} finally {
 		await harness.dispose();
 		await rm(home, { recursive: true, force: true });
@@ -440,8 +463,8 @@ for (const concurrentAction of ["record", "clear", "abort"]) {
 		releaseRead();
 		const result = await rebuilding;
 		assert.equal(result.error?.code, concurrentAction === "abort" ? "cancelled" : "internal", `${concurrentAction} must prevent a stale rebuild commit`);
-		assert.equal(harness.tableRecords.get("main").archive.estimated.sessionRebuild, null);
-		assert.equal(harness.tableRecords.get("main").ledger.length, concurrentAction === "record" ? 1 : 0);
+		assert.equal(harness.domain.global.stored.estimated.sessionRebuild, null);
+		assert.equal(ledgerEntriesOf(harness), concurrentAction === "record" ? 1 : 0);
 	} finally {
 		releaseRead();
 		await harness.dispose();

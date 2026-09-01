@@ -14,7 +14,7 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 | 多供应商账户 | 展示 DeepSeek/Moonshot 余额、Z.ai/Kimi/MiniMax/OpenCode Go 套餐窗口、OpenRouter Key 额度与账户 Credits；小米及 MiMo Token Plan 提供官方查询入口；账户概览最多固定 3 个供应商 |
 | 时间与模型分析 | 查看今日 / 本月 / 累计 Token、请求次数、24 小时输入输出、模型拆分、缓存命中率与自然年贡献热图 |
 | 费用与限额 | 冻结 DeepSeek 官方调用费用，配置每日消费限额、余额提醒、预警比例、通知和可选超限停止 |
-| 本机数据边界 | API Key 只在服务端凭据服务中解析；统计账本、设置和告警保存在本机，插件 RPC 仅接受回环请求 |
+| 本机数据边界 | API Key 只在服务端凭据服务中解析；统计账本、设置和告警保存在本机，插件 RPC 仅经宿主本机认证围栏访问 |
 
 > 查询面板保持只读。默认展示供应商、计费、限额、通知和数据管理统一位于「设置 → 用量与计费」。切换默认展示供应商不会改变模型调用路由。会话过程显示由 Harness 原生「设置 → 通用设置 → Conversation display」控制。
 
@@ -75,7 +75,7 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 ## 快速安装 / Quick start
 
-`0.2.0` 最低要求 DeepSeek Harness `dsh-v0.1.1-rc.2` 对应接口和 `web` profile，以及 Node.js `>=18`。本版本直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。
+`0.4.x` 已适配 DeepSeek Harness `dsh-v0.1.2-alpha.3` 并声明支持，同时保持 `dsh-v0.1.1-rc.2` 兼容；要求 `web` profile 和 Node.js `>=18`。插件直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
 
 升级前请保留 `$DSH_HOME/storages` 备份。首次启动会为旧 `usage-settings.json`、`usage-limits.json`、`usage-stats-cache.json` 创建固定 `.pre-v3.bak` 并迁移到官方存储；降级只能恢复升级前备份，`0.2.0` 期间新增的 v3 数据不会双写回旧格式。
 
@@ -247,8 +247,8 @@ npm run tokens -- \
 ## 数据与隐私 / Privacy
 
 - API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。
-- Host 只注册官方 Connection RPC `/usage-stats`，并声明 `authority: "loopback"`；插件不再注册自有 REST route、Host fence 或 JSON body parser。
-- `usage_stats` storage domain 的 `state/main` 原子记录同时保存近期 ledger、冻结归档、估算来源、coverage cutoff、去重窗口和迁移标记。官方 JSON backend 仍会整文件原子重写，但近期 ledger 有界。
+- Host 只注册官方 Connection RPC `/usage-stats`，不注册自有 REST route、Host fence 或 JSON body parser。`dsh-v0.1.1-rc.x` 上通道由 `authority: "loopback"` 围栏保护；`dsh-v0.1.2-alpha.1` 起宿主忽略该参数，改为在传输层统一认证（签名浏览器 cookie + launch token + 回环围栏），插件注册保持双版本兼容。
+- `usage_stats` storage domain 自存储格式 v4 起采用宿主 per-record 布局：近期 ledger 按北京日历拆为每日一行、精确冻结归档按日一行，去重窗口、coverage cutoff、估算来源和迁移标记存放在全局槽。一次采样只重写当天的日记录和小的全局文档，单个损坏文件读为空行而不影响整个状态；旧版本 v3 单文件在首次打开时自动拆分迁移。
 - 插件不保存提示词、回复、文件路径或 API Key。`llm/stream` 最终 usage 是调用级权威数据，`assistant/message` 仅在没有匹配 stream usage 时补记；缺少 `turn/step` 时按同一 `sessionId/provider/model` 的短期关联键去重。
 
 ## Connection RPC

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { dayKey } from "../lib/usage.js";
 import { filterEventsBeforeCoverage, rebuildEstimatedFromPersistence } from "../lib/rebuild.js";
+import { SessionFormatUnsupportedError } from "@deepseek-ai/dsh-session-persistence";
 import { callRebuildRpc, parseArguments } from "./rebuild-today-legacy.mjs";
 
 assert.deepEqual(parseArguments(["--base-url", "http://127.0.0.1:2026", "--apply", "--timeout-ms", "2000"]), { baseUrl: "http://127.0.0.1:2026", apply: true, timeoutMs: 2000 });
@@ -113,5 +114,33 @@ await assert.rejects(
 	(error) => error?.name === "AbortError",
 	"an abort observed during the final read must reject before producing a committable rebuild"
 );
+
+const mixedPersistence = {
+	listSnapshots: async () => [
+		{ header: { id: "future" }, revision: "r1" },
+		{ header: { id: "readable" }, revision: "r2" }
+	],
+	readFrom: async (id) => {
+		if (id === "future") {
+			throw new SessionFormatUnsupportedError('session "future" contains event type "future/event" (seq 3) unknown to this harness; refusing to interpret the log — it was likely written by a newer harness');
+		}
+		return {
+			meta: { id },
+			events: [{ seq: 0, time: before, type: "assistant/message", data: { usage: { inputTokens: 7 } } }]
+		};
+	}
+};
+const mixed = await rebuildEstimatedFromPersistence(mixedPersistence, { coverageCutoffsByDay: {} }, { now: () => 4321 });
+assert.equal(mixed.unreadableSessions, 1, "a session written by a newer harness must be skipped, not fail the rebuild");
+assert.equal(mixed.sessionCount, 2, "sessionCount keeps reporting every snapshot the registry listed");
+assert.equal(mixed.days[dayKey(before)].totals.inputTokens, 7, "readable sessions must still fold into the rebuild");
+
+const namedUnsupported = Object.assign(new Error('session "legacy" contains event type "old/event" unknown to this harness'), { name: "SessionFormatUnsupportedError" });
+const namedPersistence = {
+	listSnapshots: async () => [{ header: { id: "legacy" } }],
+	readFrom: async () => { throw namedUnsupported; }
+};
+const named = await rebuildEstimatedFromPersistence(namedPersistence, { coverageCutoffsByDay: {} }, { now: () => 4321 });
+assert.equal(named.unreadableSessions, 1, "the skip must also work when the host shapes the error differently");
 
 console.log("official sessionPersistence rebuild contract ok");

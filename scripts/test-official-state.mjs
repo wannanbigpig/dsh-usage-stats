@@ -9,6 +9,8 @@ import {
 	openUsageStatsStorage,
 	usageStatsDomainSpec
 } from "../lib/storage.js";
+import { dayKey } from "../lib/usage.js";
+import { recordLedgerState } from "../lib/ledger.js";
 import {
 	USAGE_STATS_SETTINGS_NAMESPACE,
 	USAGE_STATS_SETTINGS_SCHEMA,
@@ -30,46 +32,88 @@ function clone(value) {
 }
 
 class FakeTable {
-	constructor(value) {
-		this.value = value;
+	constructor() {
+		this.records = new Map();
 		this.putCalls = [];
-		this.updateCalls = 0;
+		this.deleteCalls = [];
 	}
 
 	get(key) {
-		assert.equal(key, "main");
-		return this.value;
+		return this.records.get(key);
 	}
 
 	async put(key, value) {
-		assert.equal(key, "main");
-		this.putCalls.push(clone(value));
-		this.value = value;
+		this.putCalls.push({ key, value: clone(value) });
+		this.records.set(key, clone(value));
 	}
 
-	async update(key, transform) {
-		assert.equal(key, "main");
-		this.updateCalls += 1;
-		const next = transform(this.value);
-		this.value = next;
-		return next;
+	async delete(key) {
+		this.deleteCalls.push(key);
+		return this.records.delete(key);
+	}
+
+	entries() {
+		return [...this.records.entries()][Symbol.iterator]();
+	}
+
+	keys() {
+		return [...this.records.keys()][Symbol.iterator]();
+	}
+
+	get size() {
+		return this.records.size;
 	}
 }
 
-async function testStorageRepository() {
-	assert.equal(usageStatsDomainSpec.name, "usage_stats");
-	assert.equal(usageStatsDomainSpec.version, 1);
-	assert.deepEqual(Object.keys(usageStatsDomainSpec.tables), ["state"]);
-	const representative = createEmptyUsageState();
-	representative.archive.estimated.importedLegacy = { "2026-08-01": { totals: {} } };
-	representative.ledger.push({
-		occurredAt: 1,
+function createFakeDomain() {
+	return {
+		closeCalls: 0,
+		ledger: new FakeTable(),
+		frozen: new FakeTable(),
+		global: {
+			stored: null,
+			setCalls: [],
+			get() {
+				return this.stored === null ? clone(usageStatsDomainSpec.global.initial) : clone(this.stored);
+			},
+			async set(value) {
+				this.setCalls.push(clone(value));
+				this.stored = clone(value);
+			}
+		},
+		table(name) {
+			assert.ok(name === "ledger" || name === "frozen", `unexpected table ${name}`);
+			return this[name];
+		},
+		async close() {
+			this.closeCalls += 1;
+		}
+	};
+}
+
+function sampleEntry(id, at, extra = {}) {
+	return {
+		id,
+		occurredAt: at,
+		completedAt: at,
 		provider: "deepseek-official",
 		model: "deepseek-v4-flash",
 		usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
 		costState: "priced",
-		costNanosCny: "50"
-	});
+		costNanosCny: "50",
+		...extra
+	};
+}
+
+async function testStorageRepository() {
+	assert.equal(usageStatsDomainSpec.name, "usage_stats");
+	assert.equal(usageStatsDomainSpec.version, 2);
+	assert.equal(usageStatsDomainSpec.layout, "per-record");
+	assert.deepEqual(Object.keys(usageStatsDomainSpec.tables), ["ledger", "frozen"]);
+	assert.equal(usageStatsDomainSpec.global.initial.installedAt, 0);
+	const representative = createEmptyUsageState();
+	representative.archive.estimated.importedLegacy = { "2026-08-01": { totals: {} } };
+	representative.ledger.push(sampleEntry("seeded", 1));
 	assert.deepEqual(StateSchema.parse(representative), representative, "state schema must preserve ledger/archive domain fields");
 	assert.throws(() => StateSchema.parse({
 		...createEmptyUsageState(),
@@ -86,69 +130,196 @@ async function testStorageRepository() {
 		archive: { ...createEmptyUsageState().archive, frozen: { days: {}, entryCount: -1, pricingVersionCounts: {} } }
 	}), /Invalid input|entryCount/);
 
-	const table = new FakeTable();
-	let initialCalls = 0;
-	let closeCalls = 0;
-	const ctx = {
-		storageDomain: {
-			async open(spec) {
-				assert.equal(spec, usageStatsDomainSpec);
-				return {
-					table(name) {
-						assert.equal(name, "state");
-						return table;
-					},
-					async close() { closeCalls += 1; }
-				};
-			}
-		}
+	const at = Date.parse("2026-08-25T12:00:00+08:00");
+	const earlierAt = at - 24 * 60 * 60 * 1000;
+
+	// A brand-new v2 medium with no legacy document: the initial-state seed is
+	// distributed into day rows and the global commit marker is written once.
+	const v2Domain = createFakeDomain();
+	const v1Domain = {
+		table(name) {
+			assert.equal(name, "state", "the legacy domain only declares the state table");
+			return { get: () => void 0, entries: () => [][Symbol.iterator](), get size() { return 0; } };
+		},
+		async close() {}
 	};
-	const storage = await openUsageStatsStorage(ctx, {
+	let initialCalls = 0;
+	let v1Opens = 0;
+	const openFake = () => async (spec) => {
+		if (spec.version === 1) {
+			v1Opens += 1;
+			return v1Domain;
+		}
+		return v2Domain;
+	};
+	const ctx = () => ({ storageDomain: { open: openFake() } });
+	const storage = await openUsageStatsStorage(ctx(), {
 		initialState: async () => {
 			initialCalls += 1;
-			return createEmptyUsageState({ migratedAt: 123 });
+			const state = createEmptyUsageState({ migratedAt: 123 });
+			state.ledger.push(sampleEntry("old", earlierAt));
+			return state;
 		}
 	});
 	assert.equal(initialCalls, 1);
-	assert.equal(table.putCalls.length, 1);
+	assert.equal(v2Domain.global.setCalls.length, 1, "the seed must land as exactly one global commit");
+	assert.ok(v2Domain.global.setCalls[0].installedAt > 0, "the seed must install the commit marker");
+	assert.deepEqual([...v2Domain.ledger.records.keys()], [dayKey(earlierAt)], "the seed must split the ledger into day rows");
 	assert.equal(storage.get().migration.migratedAt, 123);
 	assert.equal(storage.snapshot().revision, 0, "a fresh storage snapshot must start at revision zero");
 
-	const durableBefore = clone(table.value);
+	// A routine append rewrites only its own day row plus the small global.
+	const ledgerPutsBefore = v2Domain.ledger.putCalls.length;
+	await storage.update((state) => recordLedgerState(state, sampleEntry("call-1", at, { sampleKey: "sample-1" }), { maxLedgerEntries: 100 }));
+	assert.deepEqual([...v2Domain.ledger.records.keys()].sort(), [dayKey(earlierAt), dayKey(at)].sort(), "an append must create only the new day row");
+	assert.equal(v2Domain.ledger.putCalls.length, ledgerPutsBefore + 1, "an append must rewrite only the touched day row");
+	assert.equal(v2Domain.frozen.putCalls.length, 0, "a routine append must not rewrite archive rows");
+	assert.equal(v2Domain.global.setCalls.length, 2, "an append must rewrite the small global once");
+	assert.equal(storage.snapshot().revision, 1, "a successful storage update must advance the render-cache revision");
+	assert.deepEqual(storage.get().recentSampleKeys.map((entry) => entry.key), ["sample:sample-1", "id:call-1"]);
+
+	// A duplicate sample is a no-op: no durable write, no revision churn.
+	await storage.update((state) => recordLedgerState(state, sampleEntry("call-1", at, { sampleKey: "sample-1" }), { maxLedgerEntries: 100 }));
+	assert.equal(v2Domain.ledger.putCalls.length, ledgerPutsBefore + 1, "a deduplicated append must not rewrite any row");
+	assert.equal(storage.snapshot().revision, 1, "a no-op update must keep the render-cache revision");
+
+	const durableBefore = clone(v2Domain.global.stored);
 	await storage.update((draft) => {
-		draft.recentSampleKeys.push({ key: "sample:sample-1", day: "2026-08-25" });
+		draft.recentSampleKeys.push({ key: "sample:sample-2", day: "2026-08-25" });
 		return draft;
 	});
-	assert.deepEqual(durableBefore.recentSampleKeys, [], "transform must not receive the durable object by reference");
-	assert.deepEqual(storage.get().recentSampleKeys, [{ key: "sample:sample-1", day: "2026-08-25" }]);
-	assert.equal(storage.snapshot().revision, 1, "a successful storage update must advance the render-cache revision");
+	assert.deepEqual(durableBefore.recentSampleKeys, v2Domain.global.setCalls[1].recentSampleKeys, "the transform input must not alias the durable global");
 
 	const detached = storage.get();
 	detached.recentSampleKeys.push("outside");
-	assert.deepEqual(storage.get().recentSampleKeys, [{ key: "sample:sample-1", day: "2026-08-25" }], "reads must be detached");
+	assert.deepEqual(storage.get().recentSampleKeys.map((entry) => entry.key), ["sample:sample-1", "id:call-1", "sample:sample-2"], "reads must be detached");
 
 	await assert.rejects(
 		storage.update((draft) => ({ ...draft, version: 2 })),
 		/version|Invalid input/
 	);
-	assert.equal(table.value.version, 3, "invalid transforms must fail before persistence");
+	assert.equal(v2Domain.ledger.putCalls.length, ledgerPutsBefore + 1, "invalid transforms must fail before persistence");
 
 	await storage.close();
-	assert.equal(closeCalls, 1);
+	// The open orchestration closes the fresh v2 handle once before probing
+	// the legacy medium and reopening; storage.close() adds the final close.
+	// (The fake reuses one instance, so the counts accumulate on it.)
+	assert.ok(v2Domain.closeCalls >= 2, "close must be idempotent and forwarded");
 
-	const existingTable = new FakeTable(createEmptyUsageState());
+	// Existing v2 data must win without probing the legacy medium or reseeding.
+	const populatedDomain = createFakeDomain();
+	populatedDomain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 7, migration: { migratedAt: 9 } };
+	const populatedV1 = createFakeDomain();
+	let populatedOpens = 0;
 	await openUsageStatsStorage({
-		storageDomain: { async open() { return { table: () => existingTable, close() {} }; } }
+		storageDomain: {
+			async open(spec) {
+				if (spec.version === 1) {
+					populatedOpens += 1;
+					return populatedV1;
+				}
+				return populatedDomain;
+			}
+		}
 	}, {
 		initialState: () => {
 			throw new Error("initial state factory must not run for an existing record");
 		}
 	});
+	assert.equal(populatedOpens, 0, "a populated v2 medium must not probe the legacy single document");
+	assert.equal(populatedDomain.ledger.putCalls.length, 0, "opening an existing repository must not write");
+
+	// A fresh v2 medium beside an unmigrated v3 single document must split it.
+	const splitDomain = createFakeDomain();
+	const legacyState = createEmptyUsageState({ migratedAt: 5 });
+	legacyState.ledger.push(sampleEntry("legacy-1", earlierAt));
+	legacyState.ledger.push(sampleEntry("legacy-2", at));
+	const legacyV1 = {
+		table(name) {
+			assert.equal(name, "state", "the legacy domain only declares the state table");
+			return {
+				get: (key) => {
+					assert.equal(key, "main");
+					return clone(legacyState);
+				}
+			};
+		},
+		async close() {}
+	};
+	const migrated = await openUsageStatsStorage({
+		storageDomain: {
+			async open(spec) {
+				if (spec.version === 1) return legacyV1;
+				return splitDomain;
+			}
+		}
+	}, {
+		initialState: () => {
+			throw new Error("durable legacy state must win over the initial-state seed");
+		}
+	});
+	assert.equal(migrated.get().ledger.length, 2, "the legacy ledger must be distributed into day rows");
+	assert.deepEqual([...splitDomain.ledger.records.keys()].sort(), [dayKey(earlierAt), dayKey(at)].sort());
+	assert.equal(splitDomain.global.stored.migration.migratedAt, 5, "the legacy migration markers must survive the split");
+	assert.ok(splitDomain.global.stored.installedAt > 0);
+	await migrated.close();
+
+	// Old hosts ignore the layout hint, so the v2 open itself reports the
+	// v1-stamped single document via version-mismatch; migration still lands.
+	const mismatchDomain = createFakeDomain();
+	const mismatchV1 = {
+		table(name) {
+			assert.equal(name, "state");
+			return { get: (key) => (key === "main" ? clone(legacyState) : void 0) };
+		},
+		async close() {}
+	};
+	let mismatchSeen = false;
+	const onLegacyHost = await openUsageStatsStorage({
+		storageDomain: {
+			async open(spec) {
+				if (spec.version === 1) return mismatchV1;
+				if (!mismatchSeen) {
+					mismatchSeen = true;
+					const error = new Error("unit 'usage_stats': stored version 1 != expected 2");
+					error.code = "version-mismatch";
+					throw error;
+				}
+				return mismatchDomain;
+			}
+		}
+	}, {
+		initialState: () => {
+			throw new Error("legacy migration must supersede the initial-state seed");
+		}
+	});
+	assert.ok(mismatchSeen, "the legacy-host path must surface the version mismatch");
+	assert.equal(onLegacyHost.get().ledger.length, 2, "the v3 single document must migrate through the mismatch path");
+	await onLegacyHost.close();
+
+	// An initialization failure must release the official domain handle.
 	let failedOpenClosed = 0;
-	await assert.rejects(openUsageStatsStorage({
-		storageDomain: { async open() { return { table: () => new FakeTable(), async close() { failedOpenClosed += 1; } }; } }
-	}, { initialState: async () => { throw new Error("migration failed"); } }), /migration failed/);
-	assert.equal(failedOpenClosed, 1, "an initialization failure must release the official domain handle");
+	const failingCtx = {
+		storageDomain: {
+			async open(spec) {
+				if (spec.version === 1) {
+					return { table: () => ({ get: () => void 0 }), async close() {} };
+				}
+				return {
+					global: { get: () => clone(usageStatsDomainSpec.global.initial) },
+					table: () => ({ size: 0, entries: () => [][Symbol.iterator]() }),
+					async close() {
+						failedOpenClosed += 1;
+					}
+				};
+			}
+		}
+	};
+	await assert.rejects(
+		openUsageStatsStorage(failingCtx, { initialState: async () => { throw new Error("migration failed"); } }),
+		/migration failed/
+	);
+	assert.ok(failedOpenClosed >= 1, "an initialization failure must release the official domain handle");
 }
 
 function legacyDay(tokens) {

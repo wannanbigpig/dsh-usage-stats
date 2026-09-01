@@ -754,6 +754,71 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 	console.log("official pricing confirmation flow ok");
 }
 
+// The data card must expose the estimated-history rebuild and, when the host
+// refused to read sessions written by a newer harness build, surface the
+// skipped count instead of staying silent about the undercount.
+{
+	const { JSDOM } = require("jsdom");
+	const previousGlobals = {
+		window: globalThis.window,
+		document: globalThis.document,
+		HTMLElement: globalThis.HTMLElement,
+		Event: globalThis.Event,
+		MouseEvent: globalThis.MouseEvent,
+		actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT
+	};
+	const previousRpcResponder = rpcResponder;
+	const dom = new JSDOM('<!doctype html><div id="root"></div>');
+	globalThis.window = dom.window;
+	globalThis.document = dom.window.document;
+	globalThis.HTMLElement = dom.window.HTMLElement;
+	globalThis.Event = dom.window.Event;
+	globalThis.MouseEvent = dom.window.MouseEvent;
+	globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+	let rebuildPreview = { unreadableSessions: 2, sessionCount: 5, eventCount: 12, days: {} };
+	rpcResponder = async (channel, endpoint, payload) => {
+		const body = payload.body ?? null;
+		if (body?.action === "rebuild-estimated") {
+			return { ok: true, value: { ok: true, rebuilt: true, dryRun: false, preview: rebuildPreview } };
+		}
+		return { ok: true, value: { ok: true, info: { ledgerEntries: 3, ledgerCapacity: 1000, foldedCount: 1 } } };
+	};
+	const { createRoot } = require("react-dom/client");
+	const { act } = react;
+	const dict = { "data.rebuildSkipped": "skipped {count} sessions" };
+	const translate = (key) => dict[key] ?? key;
+	const rootNode = dom.window.document.getElementById("root");
+	const root = createRoot(rootNode);
+	const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+	await act(async () => { root.render(react.createElement(exports_.DataCard, { translate })); await flush(); });
+	const buttonByText = (text) => [...rootNode.querySelectorAll("button")].find((button) => button.textContent === text);
+	const rebuildButton = buttonByText("data.rebuild");
+	if (rebuildButton === undefined) throw new Error("data card must expose an estimated-history rebuild action");
+	await act(async () => { rebuildButton.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); await flush(); });
+	if (!rootNode.textContent.includes("skipped 2 sessions")) {
+		throw new Error("a rebuild that skipped unreadable sessions must surface the skipped count");
+	}
+	if (rootNode.textContent.includes("data.trimmed")) throw new Error("a rebuild must not be reported as a retention trim");
+	await act(async () => { root.unmount(); await flush(); });
+
+	rebuildPreview = { unreadableSessions: 0, sessionCount: 5, eventCount: 12, days: {} };
+	const root2 = createRoot(rootNode);
+	await act(async () => { root2.render(react.createElement(exports_.DataCard, { translate })); await flush(); });
+	const rebuildButton2 = buttonByText("data.rebuild");
+	await act(async () => { rebuildButton2.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); await flush(); });
+	if (!rootNode.textContent.includes("data.rebuilt") || rootNode.textContent.includes("data.rebuildSkipped")) {
+		throw new Error("a rebuild without skipped sessions must report success without the skip hint");
+	}
+	await act(async () => { root2.unmount(); await flush(); });
+	dom.window.close();
+	rpcResponder = previousRpcResponder;
+	for (const [key, value] of Object.entries(previousGlobals)) {
+		if (key === "actEnvironment") globalThis.IS_REACT_ACT_ENVIRONMENT = value;
+		else globalThis[key] = value;
+	}
+	console.log("data card rebuild flow with skipped-session hint ok");
+}
+
 // Model-name tips must be absent for fully visible labels, appear only after
 // real overflow, remain open while entering the tip, and expose selectable text.
 {

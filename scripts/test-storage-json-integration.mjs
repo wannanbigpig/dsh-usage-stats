@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -91,9 +91,86 @@ try {
 	assert.equal(renderLedgerState(after, at, changedPricing).total.cost, frozenCost, "restart and current-price changes must not move frozen history");
 	await reopened.close();
 
-	const medium = JSON.parse(await readFile(join(root, "usage_stats.json"), "utf8"));
-	assert.equal(medium.unit.version, 1);
-	assert.equal(medium.tables.state.main.version, 3);
+	// The per-record medium keeps one file per day row plus the global slot;
+	// frozen days live apart from the live ledger window.
+	const unitDir = join(root, "usage_stats");
+	const ledgerDir = join(unitDir, "ledger");
+	const frozenDir = join(unitDir, "frozen");
+	const ledgerDays = (await readdir(ledgerDir)).sort();
+	assert.ok(ledgerDays.length >= 1 && ledgerDays.length <= 10, `ledger rows must stay bounded, got ${ledgerDays.length}`);
+	for (const day of ledgerDays) {
+		assert.match(day, /^\d{4}-\d{2}-\d{2}\.json$/, "ledger row files must be day-keyed");
+		const document = JSON.parse(await readFile(join(ledgerDir, day), "utf8"));
+		assert.equal(document.version, 2, "every record document carries the unit version stamp");
+		assert.ok(Array.isArray(document.record.entries), "ledger rows hold their day's entries");
+	}
+	const frozenDays = (await readdir(frozenDir)).sort();
+	assert.ok(frozenDays.length >= 1, "compaction must leave frozen day rows on disk");
+	const global = JSON.parse(await readFile(join(unitDir, "global.json"), "utf8"));
+	assert.equal(global.version, 2);
+	assert.ok(global.record.installedAt > 0, "the global commit marker must be installed");
+	assert.equal(global.record.frozenEntryCount, before.archive.frozen.entryCount);
+	console.log("per-record medium layout ok");
+
+	// A pre-v4 single-document medium must split into the row layout on open.
+	const migrationRoot = await mkdtemp(join(tmpdir(), "usage-stats-migrate-"));
+	try {
+		const migrationBackend = new JsonStorageBackend(migrationRoot);
+		const migrationHost = {
+			storage: { backend: { get(name) { assert.equal(name, "json"); return migrationBackend; } } },
+			emit() {},
+			logger: { warn() {} }
+		};
+		const singleState = {
+			version: 3,
+			ledger: [{
+				id: "v3-call",
+				occurredAt: at,
+				completedAt: at,
+				provider: "deepseek-official",
+				model: "deepseek-v4-flash",
+				usage: { inputTokens: 3, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+				costState: "priced",
+				costNanosCny: "700"
+			}],
+			archive: {
+				frozen: { days: {}, entryCount: 0, pricingVersionCounts: {} },
+				estimated: { importedLegacy: null, unfrozenLedger: null, sessionRebuild: null }
+			},
+			coverageCutoffsByDay: {},
+			recentSampleKeys: [],
+			migration: { migratedAt: 77 }
+		};
+		const legacyDocument = {
+			unit: { name: "usage_stats", version: 1 },
+			global: null,
+			tables: { state: { main: singleState } }
+		};
+		await writeFile(join(migrationRoot, "usage_stats.json"), `${JSON.stringify(legacyDocument, null, 2)}\n`);
+		const migrated = await openUsageStatsStorage({ storageDomain: new DomainFacility(migrationHost, { backend: "json", routes: {} }) }, {
+			initialState: () => { throw new Error("durable v3 medium must win over the initial-state seed"); }
+		});
+		const composed = migrated.get();
+		assert.equal(composed.ledger.length, 1);
+		assert.equal(composed.ledger[0].id, "v3-call");
+		assert.equal(composed.migration.migratedAt, 77);
+		assert.ok((await readdir(join(migrationRoot, "usage_stats", "ledger"))).length === 1, "the v3 ledger must split into day rows");
+		const append = await migrated.update((state) => recordLedgerState(state, {
+			id: "post-migration",
+			sampleKey: "post",
+			occurredAt: at + 1,
+			completedAt: at + 1,
+			provider: "deepseek-official",
+			model: "deepseek-v4-flash",
+			usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+		}, { pricing, maxLedgerEntries: 10 }));
+		assert.equal(append.ledger.length, 2, "the migrated repository must keep accepting samples");
+		await migrated.close();
+		await migrationBackend.close();
+	} finally {
+		await rm(migrationRoot, { recursive: true, force: true });
+	}
+
 	console.log("official JSON backend migration/restart/concurrency integration passed");
 } finally {
 	await backend.close();
