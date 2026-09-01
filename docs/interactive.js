@@ -68,33 +68,3 @@ for (const button of document.querySelectorAll(".copy[data-copy]")) {
     }
   });
 }
-
-/* Featured-swap gallery: clicking (or pressing Enter on) a thumbnail trades
-   it with the large featured shot, so the pointed-at image expands while the
-   previous hero recedes. View Transitions smooth the trade when supported. */
-const featured = document.querySelector(".gallery figure.featured");
-if (featured) {
-  const featuredImg = featured.querySelector("img");
-  const featuredCaption = featured.querySelector("figcaption");
-  for (const thumb of document.querySelectorAll(".gallery figure.thumb")) {
-    const trade = () => {
-      const thumbImg = thumb.querySelector("img");
-      const thumbCaption = thumb.querySelector("figcaption");
-      if (thumbImg.src === featuredImg.src) return;
-      const swap = () => {
-        [featuredImg.src, thumbImg.src] = [thumbImg.src, featuredImg.src];
-        [featuredImg.alt, thumbImg.alt] = [thumbImg.alt, featuredImg.alt];
-        [featuredCaption.textContent, thumbCaption.textContent] = [thumbCaption.textContent, featuredCaption.textContent];
-      };
-      if (document.startViewTransition) document.startViewTransition(swap);
-      else swap();
-    };
-    thumb.addEventListener("click", trade);
-    thumb.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        trade();
-      }
-    });
-  }
-}
