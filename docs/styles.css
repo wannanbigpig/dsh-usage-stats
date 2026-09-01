@@ -255,7 +255,7 @@ nav a:hover { color: var(--text); }
 .gallery .wide { flex-grow: 3.4; }
 .gallery:hover figure { flex-grow: 1; }
 .gallery figure:hover {
-  flex-grow: 3.8;
+  flex-grow: 6;
   border-color: rgba(115, 163, 210, 0.65);
 }
 .gallery img {
