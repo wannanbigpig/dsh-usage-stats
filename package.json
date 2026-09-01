@@ -17,7 +17,7 @@
   ],
   "files": [
     "lib/",
-    "assets/",
+    "docs/assets/",
     "cordis.patch.yml",
     "README.md",
     "LICENSE"

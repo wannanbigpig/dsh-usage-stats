@@ -62,14 +62,14 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 <table>
   <tr>
-    <td align="center"><a href="assets/screenshots/usage-overview-all.png"><img src="assets/screenshots/usage-overview-all.png" alt="全部供应商用量概览" width="280" /></a><br /><sub>全部供应商概览</sub></td>
-    <td align="center"><a href="assets/screenshots/usage-overview-deepseek.png"><img src="assets/screenshots/usage-overview-deepseek.png" alt="DeepSeek 用量与余额概览" width="280" /></a><br /><sub>DeepSeek 余额与用量</sub></td>
-    <td align="center"><a href="assets/screenshots/usage-overview-zai.png"><img src="assets/screenshots/usage-overview-zai.png" alt="Z.ai 套餐用量概览" width="280" /></a><br /><sub>Z.ai 套餐额度</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/usage-overview-all.png"><img src="docs/assets/screenshots/usage-overview-all.png" alt="全部供应商用量概览" width="280" /></a><br /><sub>全部供应商概览</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/usage-overview-deepseek.png"><img src="docs/assets/screenshots/usage-overview-deepseek.png" alt="DeepSeek 用量与余额概览" width="280" /></a><br /><sub>DeepSeek 余额与用量</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/usage-overview-zai.png"><img src="docs/assets/screenshots/usage-overview-zai.png" alt="Z.ai 套餐用量概览" width="280" /></a><br /><sub>Z.ai 套餐额度</sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="assets/screenshots/usage-overview-xiaomi-token-plan.png"><img src="assets/screenshots/usage-overview-xiaomi-token-plan.png" alt="MiMo Token Plan 用量概览" width="280" /></a><br /><sub>MiMo Token Plan</sub></td>
-    <td align="center"><a href="assets/screenshots/usage-details.png"><img src="assets/screenshots/usage-details.png" alt="最近用量明细" width="280" /></a><br /><sub>按日明细</sub></td>
-    <td align="center"><a href="assets/screenshots/settings-providers.png"><img src="assets/screenshots/settings-providers.png" alt="供应商与账户设置" width="280" /></a><br /><sub>供应商与账户设置</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/usage-overview-xiaomi-token-plan.png"><img src="docs/assets/screenshots/usage-overview-xiaomi-token-plan.png" alt="MiMo Token Plan 用量概览" width="280" /></a><br /><sub>MiMo Token Plan</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/usage-details.png"><img src="docs/assets/screenshots/usage-details.png" alt="最近用量明细" width="280" /></a><br /><sub>按日明细</sub></td>
+    <td align="center"><a href="docs/assets/screenshots/settings-providers.png"><img src="docs/assets/screenshots/settings-providers.png" alt="供应商与账户设置" width="280" /></a><br /><sub>供应商与账户设置</sub></td>
   </tr>
 </table>
 

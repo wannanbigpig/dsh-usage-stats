@@ -16,6 +16,6 @@ assert.match(html, /<main/, "site must contain a main landmark");
 await access(resolve(siteRoot, "styles.css"));
 for (const screenshot of screenshots) {
   assert.match(html, new RegExp(`assets/screenshots/${screenshot.replaceAll(".", "\\.")}`), `site must reference ${screenshot}`);
-  await access(resolve(siteDirectory === "site" ? resolve(siteRoot, "assets", "screenshots") : resolve(repositoryRoot, "assets", "screenshots"), screenshot));
+  await access(resolve(siteRoot, "assets", "screenshots", screenshot));
 }
 console.log(`site contract passed: ${siteDirectory}`);
