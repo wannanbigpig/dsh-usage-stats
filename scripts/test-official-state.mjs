@@ -109,6 +109,7 @@ async function testStorageRepository() {
 	assert.equal(usageStatsDomainSpec.name, "usage_stats");
 	assert.equal(usageStatsDomainSpec.version, 2);
 	assert.equal(usageStatsDomainSpec.layout, "per-record");
+	assert.equal(usageStatsDomainSpec.invalidRecords, "backup-and-skip", "a corrupt day row must move aside on policy-aware hosts instead of blocking the domain open");
 	assert.deepEqual(Object.keys(usageStatsDomainSpec.tables), ["ledger", "frozen"]);
 	assert.equal(usageStatsDomainSpec.global.initial.installedAt, 0);
 	const representative = createEmptyUsageState();

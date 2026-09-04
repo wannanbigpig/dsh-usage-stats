@@ -75,7 +75,7 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 ## 快速安装 / Quick start
 
-`0.4.x` 已适配 DeepSeek Harness `dsh-v0.1.2-alpha.3` 并声明支持，同时保持 `dsh-v0.1.1-rc.2` 兼容；要求 `web` profile 和 Node.js `>=18`。插件直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
+`0.4.x` 已适配 DeepSeek Harness `dsh-v0.1.2-alpha.5` 并声明支持，同时保持 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 兼容；要求 `web` profile 和 Node.js `>=18`。插件直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），重建估算按代探测两种 seam，新宿主经只读句柄读取并在读取后必达关闭，旧宿主仍走 `listSnapshots`/`readFrom`；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
 
 升级前请保留 `$DSH_HOME/storages` 备份。首次启动会为旧 `usage-settings.json`、`usage-limits.json`、`usage-stats-cache.json` 创建固定 `.pre-v3.bak` 并迁移到官方存储；降级只能恢复升级前备份，`0.2.0` 期间新增的 v3 数据不会双写回旧格式。
 
@@ -250,6 +250,7 @@ npm run tokens -- \
 - Host 只注册官方 Connection RPC `/usage-stats`，不注册自有 REST route、Host fence 或 JSON body parser。`dsh-v0.1.1-rc.x` 上通道由 `authority: "loopback"` 围栏保护；`dsh-v0.1.2-alpha.1` 起宿主忽略该参数，改为在传输层统一认证（签名浏览器 cookie + launch token + 回环围栏），插件注册保持双版本兼容。
 - `usage_stats` storage domain 自存储格式 v4 起采用宿主 per-record 布局：近期 ledger 按北京日历拆为每日一行、精确冻结归档按日一行，去重窗口、coverage cutoff、估算来源和迁移标记存放在全局槽。一次采样只重写当天的日记录和小的全局文档，单个损坏文件读为空行而不影响整个状态；旧版本 v3 单文件在首次打开时自动拆分迁移。
 - 插件不保存提示词、回复、文件路径或 API Key。`llm/stream` 最终 usage 是调用级权威数据，`assistant/message` 仅在没有匹配 stream usage 时补记；缺少 `turn/step` 时按同一 `sessionId/provider/model` 的短期关联键去重。
+- 余额与套餐查询在宿主进程内直接外呼各供应商 API；自 `dsh-v0.1.2` 起宿主为每个 profile 安装进程级代理策略（代理配置可来自 Harness-home `.env` 层），这些查询会透明跟随宿主代理。若配置了拦截型代理策略，查询失败时请先检查宿主代理配置。
 
 ## Connection RPC
 

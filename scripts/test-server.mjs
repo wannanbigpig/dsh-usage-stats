@@ -472,6 +472,38 @@ for (const concurrentAction of ["record", "clear", "abort"]) {
 	}
 }
 
+// The operations factory owns one fold cache for its lifetime: a second
+// rebuild RPC in the same service must not re-read sessions whose revision
+// and coverage cutoffs are unchanged.
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-stats-rebuild-cache-"));
+	const rebuildReads = [];
+	const harness = createHarness({
+		sessionPersistence: {
+			listSnapshots: async () => [{ header: { id: "cache-session" }, revision: "cr1" }],
+			readFrom: async (id) => {
+				rebuildReads.push(id);
+				return {
+					meta: { id },
+					events: [{ seq: 0, time: Date.parse("2026-08-24T01:00:00.000Z"), type: "assistant/message", data: { usage: { inputTokens: 4 } } }]
+				};
+			}
+		}
+	});
+	try {
+		await apply(harness.ctx, {}, { dshHome: home, disableBackgroundRefresh: true });
+		const first = await harness.rpc.handler("data/rebuild-estimated", { body: { dryRun: true } });
+		assert.equal(first.ok, true);
+		const second = await harness.rpc.handler("data/rebuild-estimated", { body: { dryRun: true } });
+		assert.equal(second.ok, true);
+		assert.equal(second.value.preview.eventCount, first.value.preview.eventCount, "the cached rebuild must report the same folded event count");
+		assert.deepEqual(rebuildReads, ["cache-session"], "the second rebuild RPC must reuse the per-session fold cache instead of re-reading");
+	} finally {
+		await harness.dispose();
+		await rm(home, { recursive: true, force: true });
+	}
+}
+
 assert.deepEqual(StateSchema.parse(createEmptyUsageState()), createEmptyUsageState());
 
 console.log("server official-seam integration tests passed");
