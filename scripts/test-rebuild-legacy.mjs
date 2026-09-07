@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { dayKey } from "../lib/usage.js";
 import { filterEventsBeforeCoverage, rebuildEstimatedFromPersistence } from "../lib/rebuild.js";
+import { createLedgerState, renderLedgerState } from "../lib/ledger.js";
 import { SessionFormatUnsupportedError } from "@deepseek-ai/dsh-session-persistence";
 import { callRebuildRpc, parseArguments } from "./rebuild-today-legacy.mjs";
 
@@ -352,3 +353,62 @@ await rebuildEstimatedFromPersistence(cachedLegacy, { coverageCutoffsByDay: {} }
 assert.equal(prunedCache.size, 2, "a rebuild must prune entries for sessions the registry no longer lists while keeping listed ones");
 
 console.log("per-session rebuild fold cache ok");
+
+// Fork logs repeat their parent's prefix; only the child's owned suffix is new usage.
+{
+	const parent = [{ seq: 0, time: before, type: "assistant/message", data: { usage: { inputTokens: 10 } } }];
+	const child = [...parent, { seq: 1, time: before, type: "assistant/message", data: { usage: { inputTokens: 7 } } }];
+	const offsets = [];
+	let closes = 0;
+	const persistence = {
+		list: async () => ["parent", "child"].map(id => ({ header: { id }, revision: id })),
+		open: async id => ({
+			inheritedEventCount: id === "child" ? 1 : 0,
+			read: async offset => { offsets.push([id, offset]); return (id === "child" ? child : parent).slice(offset); },
+			close: async () => { closes++; }
+		})
+	};
+	const result = await rebuildEstimatedFromPersistence(persistence, {}, { cache: new Map() });
+	assert.equal(result.days[dayKey(before)].totals.inputTokens, 17, "fork-inherited usage must count only in its originating session");
+	assert.equal(result.eventCount, 2);
+	assert.deepEqual(offsets, [["parent", 0], ["child", 1]], "fork rebuild must use the host's exact inherited offset");
+	assert.equal(closes, 2);
+}
+console.log("fork rebuild excludes inherited usage");
+
+// Rebuilt history has the same call counts as the source fold, including
+// repeated usage reports and independent attempts within one step.
+{
+	const time = Date.parse("2026-09-05T01:00:00Z");
+	const source = { provider: "deepseek-official", model: "deepseek-v4-flash" };
+	const message = (seq, inputTokens) => ({ seq, time, type: "assistant/message", data: {
+		turn: 1, step: 1, message: { source }, usage: { inputTokens }
+	} });
+	const logs = {
+		first: [
+			{ seq: 0, time, type: "request/header", data: { header: { config: source } } },
+			{ seq: 1, time, type: "assistant/attempt", data: { turn: 1, step: 1, stream: [
+				{ type: "chunk", time, chunk: { type: "usage", usage: { inputTokens: 4 } } }
+			] } },
+			message(2, 8), message(3, 10)
+		],
+		second: [message(0, 6)]
+	};
+	const persistence = {
+		listSnapshots: async () => Object.keys(logs).map(id => ({ header: { id }, revision: id })),
+		readFrom: async id => ({ events: logs[id] })
+	};
+	const cache = new Map();
+	for (let pass = 0; pass < 2; pass += 1) {
+		const rebuilt = await rebuildEstimatedFromPersistence(persistence, {}, { cache });
+		const state = createLedgerState({ archive: { estimated: { sessionRebuild: rebuilt } } });
+		const rendered = renderLedgerState(state, time);
+		assert.equal(rendered.total.inputTokens, 20);
+		assert.equal(rendered.total.requestCount, 3, "fresh and cached rebuilds must retain exact request counts");
+		assert.equal(rendered.days[0].requestCount, 3);
+		assert.equal(rendered.days[0].models[0].requestCount, 3);
+		assert.equal(rendered.days[0].hours[9].requestCount, 3);
+		assert.equal(rendered.days[0].hours[9].models[0].requestCount, 3);
+	}
+}
+console.log("rebuilt request counts preserved");

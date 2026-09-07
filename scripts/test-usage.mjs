@@ -2,6 +2,7 @@
 // Folds a REAL captured session log when one is available and verifies the
 // day/hour/model buckets, replace-last-sample semantics, hourly totals, and
 // model-priced cost math. Fully offline.
+import strictAssert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
 	applyUsageDelta,
@@ -842,6 +843,32 @@ if (realLog !== void 0 && realLog !== "") {
 
 	console.log("call-level ledger attribution ok");
 }
+
+// Current hosts settle failed/retried calls as independent embedded streams.
+{
+	const time = Date.parse("2026-09-05T01:00:00Z");
+	const source = { provider: "deepseek-official", model: "deepseek-v4-flash" };
+	const attempt = (seq, inputTokens) => ({ seq, time, type: "assistant/attempt", data: { turn: 1, step: 1, stream: [
+		{ type: "chunk", time, chunk: { type: "usage", usage: { inputTokens: 1 } } },
+		{ type: "chunk", time, chunk: { type: "usage", usage: { inputTokens } } },
+		{ type: "chunk", time, chunk: { type: "error", message: "retry" } }
+	] } });
+	const rows = [
+		{ seq: 0, time, type: "request/header", data: { header: { config: source } } },
+		attempt(1, 4), attempt(2, 6),
+		{ seq: 3, time, type: "assistant/message", data: { turn: 1, step: 1, message: { source }, usage: { inputTokens: 10 }, stream: [
+			{ type: "chunk", time, chunk: { type: "usage", usage: { inputTokens: 10 } } }
+		] } }
+	];
+	const days = foldUsage(rows);
+	strictAssert.equal(days.get(dayKey(time)).totals.inputTokens, 20, "failed attempts must accumulate while repeated usage within one attempt uses the final sample");
+	strictAssert.equal(days.get(dayKey(time)).models.get("deepseek-official/deepseek-v4-flash").requestCount, 3);
+	const delta = createUsageState();
+	applyUsageDelta(delta, rows.slice(0, 2));
+	applyUsageDelta(delta, rows.slice(2));
+	strictAssert.deepEqual(delta.days, days, "embedded attempts must preserve incremental aggregation");
+}
+console.log("embedded attempt usage aggregation ok");
 
 if (failures > 0) {
 	console.error(`\n${failures} test(s) failed`);

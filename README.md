@@ -75,7 +75,11 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 ## 快速安装 / Quick start
 
-`0.4.x` 已适配 DeepSeek Harness `dsh-v0.1.2-alpha.5` 并声明支持，同时保持 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 兼容；要求 `web` profile 和 Node.js `>=18`。插件直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），重建估算按代探测两种 seam，新宿主经只读句柄读取并在读取后必达关闭，旧宿主仍走 `listSnapshots`/`readFrom`；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
+当前源码已按 DeepSeek Harness `dsh-0.1.3-alpha.1`（`d347e70390`）核对并适配，保留 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 的旧接口兼容路径；本轮改动尚未发布。要求 `web` profile；插件自身支持 Node.js `>=18`，运行最新宿主应遵守其 Node.js `^22.19 || >=24` 要求。插件直接依赖 `storageDomain`、`settings`、`connection.rpc` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），重建估算按代探测两种 seam，新宿主经只读句柄读取并在读取后必达关闭，旧宿主仍走 `listSnapshots`/`readFrom`；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
+
+最新宿主适配还包括：历史重建按只读句柄的 `inheritedEventCount` 跳过 fork 继承前缀，避免父会话用量重复统计；读取 `assistant/attempt` 内嵌流的最后一份 usage，每个已结算尝试分别计入；实时重试以已结算尝试划分账本身份，成功消息只与自己的流式样本去重。旧宿主未提供继承边界时仍按旧读路径处理，不能保证 fork 历史去重。已有重建估算可在「数据管理」重新执行重建以更新，已冻结的实时历史不会被追溯改价或自动修正。
+
+查询面板复用宿主原生 Modal，支持 Escape、点击遮罩关闭和焦点返回侧栏；弹窗标题、关闭标签与键盘焦点样式遵循宿主现有能力。插件不再扫描并替换宿主设置图标，也不再修改宿主侧栏布局。设置中的插件图标由宿主按原生默认样式显示。
 
 升级前请保留 `$DSH_HOME/storages` 备份。首次启动会为旧 `usage-settings.json`、`usage-limits.json`、`usage-stats-cache.json` 创建固定 `.pre-v3.bak` 并迁移到官方存储；降级只能恢复升级前备份，`0.2.0` 期间新增的 v3 数据不会双写回旧格式。
 
@@ -145,7 +149,7 @@ refs:
           - DEEPSEEK_API_KEY_2   # 第二个账号的凭据引用
 ```
 
-当当前 provider 暴露多个 API Key 时，浮层余额卡片会显示「API Key」下拉框，可按 Key 查询余额。Token 统计来自调用级 ledger，日志不记录「用哪个 Key」，但记录 provider route；只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额。
+当当前 provider 暴露多个 API Key 时，弹窗余额卡片会显示「API Key」下拉框，可按 Key 查询余额。Token 统计来自调用级 ledger，日志不记录「用哪个 Key」，但记录 provider route；只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额。
 
 其他 Harness provider 的 `apiKeyEnv` 由对应 provider profile 提供，例如 `MOONSHOTAI_CN_API_KEY`、`OPENROUTER_API_KEY`、`OPENCODE_GO_API_KEY`、`KIMI_API_KEY`、`MINIMAX_API_KEY`、`ZAI_API_KEY`。插件以 profile 中的实际引用名为准，因此通过「模型」页面保存的 Key 可以直接复用。
 
@@ -194,17 +198,17 @@ OpenRouter 是唯一需要双凭据的内置适配器：普通 `OPENROUTER_API_K
 
 ### 供应商用量与计费（设置 → 用量与计费 → 供应商用量与计费）
 
-该标签自动跟随「供应商与账户」中的默认展示供应商，不提供第二个供应商选择器。DeepSeek 可**按 Key（或全局）**配置；**仅配置一个 API Key 时，「目标 API Key」选择器自动隐藏**：
+该标签可独立选择正在编辑的供应商，不会改变「供应商与账户」中的侧栏默认供应商或模型调用路由。DeepSeek 可**按 Key（或全局）**配置；**仅配置一个 API Key 时，「目标 API Key」选择器自动隐藏**：
 
 - **启用限额**：开关。
-- **每日消费限额**（CNY）：今日估算消费达到限额 × `alertPercent`（默认 80%）→ 黄色预警；达到限额 × `criticalPercent`（默认 90%）→ 红色已超限（仅提醒与告警，不拦截）；两个比例都可在设置页调整。
+- **消费限额**（CNY）：可按每日或每月周期设置。估算消费达到限额 × `alertPercent`（默认 80%）→ 黄色预警；达到限额 × `criticalPercent`（默认 90%）→ 红色已超限（仅提醒与告警，不拦截）；两个比例都可在设置页调整。
 - **余额提醒线**：新鲜余额低于该值 → 余额预警；只影响余额状态和通知，不改变今日消费进度或侧栏今日消费圆点。余额过期或查询失败时显示灰色状态且 fail-open。
 - **预警百分比**：可调整数范围；`alertPercent` 为 1–99%，`criticalPercent` 为 2–100%，且临界值必须高于预警值。
-- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，官方今日消费达到每日限额（100%）时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`）。临界预警只显示状态并触发告警，不拦截；余额查询失败或快照过期时 fail-open。当前 UI 开启硬停止前会要求确认，其他限额变更会立即保存。
+- **超限停止调用**：默认关闭，仅提醒；用户显式开启后，当前每日或每月周期的官方消费达到限额（100%）时，在 `llm/stream` 拦截新的官方模型调用（抛出 `UsageLimitExceededError`）。临界预警只显示状态并触发告警，不拦截；余额查询失败或快照过期时 fail-open。当前 UI 开启硬停止前会要求确认，其他限额变更会立即保存。
 
 限额保存在同一个官方 settings namespace，当前 schema 为 v2。旧 v1 文件会安全迁移：保留提醒规则，但不会自动继承旧 `stopOnExceed` / `minBalance` 为硬停止；用户需在设置页重新确认开启。**规则解析采用全局兜底**：某个 Key 未设置数值时沿用全局限额。拦截采用 **fail-open** 策略：限额检查本身出错时放行调用。
 
-状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`。`unpriced` 表示当日含未定价的 DeepSeek 模型，消费金额不可靠，日限额不参与拦截且 fail-open。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件。
+状态统一为 `normal / warning / exceeded / blocked / stale / unavailable / unpriced`。`unpriced` 表示当前消费周期含未定价的 DeepSeek 模型，消费金额不可靠，对应限额不参与拦截且 fail-open。侧栏状态点与设置页读取同一个 `/limits` 状态源；告警只在状态跨越或冷却到期时触发，恢复正常时生成一次恢复事件。
 
 默认单价（CNY / 1M tokens，严格对应 DeepSeek 官方中文价格页，2026-08）：
 
@@ -221,12 +225,12 @@ OpenRouter 是唯一需要双凭据的内置适配器：普通 `OPENROUTER_API_K
 
 ## 使用 / Usage
 
-1. 侧栏底部 **用量/余额** 会直接显示默认账户余额与今日消费：查询面板打开时每分钟刷新，关闭时每 5 分钟刷新；点击整行打开查询中心，窄侧栏模式只显示数据图标。
+1. 侧栏底部 **用量/余额** 会直接显示默认账户余额与今日消费：本地账本每次成功写入后，今日消费会在约 1 秒内更新；远端余额遵循账户刷新周期，查询面板打开时每分钟同步摘要，关闭时每 5 分钟同步。点击整行打开查询中心，窄侧栏模式只显示数据图标。
 2. 查询中心分「全部 / 概览 / 明细」三个标签：全部 = 跨供应商 Token 汇总、供应商/模型拆分、按小时统计与年度热图；概览 = 默认供应商的账户卡、摘要、小时统计、模型拆分与年度热图；明细 = 默认供应商的模型筛选与最近日期按日明细（点击日期可联动概览小时图）。
 3. 顶部余额卡片：DeepSeek 官方余额 + 充值/赠送明细；多个 Key 时可切换；右上角刷新时图标会持续旋转到请求结束，旁边有「前往设置」链接。余额查询失败会缓存错误快照并在 `refreshMs`（默认 5 分钟）内复用，网络错误时余额显示「暂不可用」。
 4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停方块查看整日日期、Token、输入/输出、缓存、费用和模型摘要，点击方块联动当天明细。
 5. 「按小时统计」：展示所选日期的 24 小时输入/输出柱状图；零用量小时不渲染数据柱，工作日高峰时段以跨全图的浅色背景区段提示，周末不显示高峰区段并标注全天低谷价；鼠标悬停、键盘聚焦或触屏点击某小时可查看总 Token、输入、输出、缓存、费用和模型拆分。费用与 Token 按**请求完成时间（usage 上报时间）**（北京时）归入对应日期与小时：跨整点或跨日边界的流式请求同样按完成时间归属（如 17:59 发起、18:01 完成的请求计入 18 点小时并按低谷价计费，而不是计入 17 点高峰价），与官方账单口径一致。
-6. 限额、价格、通知和展示配置请在「设置 → 用量与计费」中操作；「供应商用量与计费」自动跟随默认展示供应商。DeepSeek 可按 Key（或全局）配置每日消费限额、余额提醒线、预警百分比与是否停止新调用；套餐供应商只显示其支持的窗口阈值；开启硬停止时会弹出确认。
+6. 限额、价格、通知和展示配置请在「设置 → 用量与计费」中操作；「供应商用量与计费」可独立选择正在编辑的供应商。DeepSeek 可按 Key（或全局）配置每日或每月消费限额、余额提醒线、预警百分比与是否停止新调用；套餐供应商只显示其支持的窗口阈值；开启硬停止时会弹出确认。
 
 ## 官方 tokenizer 离线计算
 
@@ -250,6 +254,7 @@ npm run tokens -- \
 - Host 只注册官方 Connection RPC `/usage-stats`，不注册自有 REST route、Host fence 或 JSON body parser。`dsh-v0.1.1-rc.x` 上通道由 `authority: "loopback"` 围栏保护；`dsh-v0.1.2-alpha.1` 起宿主忽略该参数，改为在传输层统一认证（签名浏览器 cookie + launch token + 回环围栏），插件注册保持双版本兼容。
 - `usage_stats` storage domain 自存储格式 v4 起采用宿主 per-record 布局：近期 ledger 按北京日历拆为每日一行、精确冻结归档按日一行，去重窗口、coverage cutoff、估算来源和迁移标记存放在全局槽。一次采样只重写当天的日记录和小的全局文档，单个损坏文件读为空行而不影响整个状态；旧版本 v3 单文件在首次打开时自动拆分迁移。
 - 插件不保存提示词、回复、文件路径或 API Key。`llm/stream` 最终 usage 是调用级权威数据，`assistant/message` 仅在没有匹配 stream usage 时补记；缺少 `turn/step` 时按同一 `sessionId/provider/model` 的短期关联键去重。
+- 「重建估算」只恢复每天首次记账之前的历史。当天开始记账后因停用插件或写入失败遗漏的用量，目前不能自动补回：冻结归档不保留全部调用身份，放宽恢复范围会有重复计费风险。
 - 余额与套餐查询在宿主进程内直接外呼各供应商 API；自 `dsh-v0.1.2` 起宿主为每个 profile 安装进程级代理策略（代理配置可来自 Harness-home `.env` 层），这些查询会透明跟随宿主代理。若配置了拦截型代理策略，查询失败时请先检查宿主代理配置。
 
 ## Connection RPC
@@ -278,9 +283,22 @@ npm pack --dry-run
 - `scripts/test-official-state.mjs`：v1/v2 迁移、备份冲突、schema、settings mutate 与 storage repository；
 - `scripts/test-storage-json-integration.mjs`：目标 Harness JSON backend 的 v2 迁移首次写入、120 并发写、压缩、关闭重启和改价冻结；
 - `scripts/test-providers.mjs`：DeepSeek/Moonshot/OpenRouter/OpenCode Go/Kimi/MiniMax/Z.ai 适配器的离线 mock、鉴权错误、超时和 MiniMax 回退顺序；
-- `scripts/smoke-client.mjs`：客户端 bundle、侧栏入口、自然年贡献热图、小时悬停浮层、刷新动画、统一状态映射与硬停止设置契约。
+- `scripts/smoke-client.mjs`：客户端 bundle、侧栏入口、自然年贡献热图、小时悬停浮层、刷新动画、统一状态映射与硬停止设置契约；
+- `scripts/test-pricing-review.mjs`：价格覆盖优先级、峰值倍率与自定义模型继承（legacy 输出 × peakMultiplier、显式 peak 优先、零值显式、未填字段继承）；
+- `scripts/test-review-services.mjs`：限额/余额/provider 服务契约（禁用规则不贡献限额与硬停止、刷新节奏、月度阈值与全局/按 Key 兜底、host key/baseURL 联动）；
+- `scripts/test-settings-interaction.mjs`：jsdom 渲染客户端，验证设置交互（页签键盘导航、供应商本地选择、价格草稿跨页签保留）。
 
-真实数据验证需运行 `dsh web`，然后打开「用量/余额」浮层；不再提供旧 REST curl 接口。
+真实数据验证需运行 `dsh web`，然后打开「用量/余额」弹窗；不再提供旧 REST curl 接口。
+
+针对相邻宿主最新源码的独立验证（需先安装宿主开发依赖；测试只在系统临时目录创建合成会话，不构建或修改宿主）：
+
+```bash
+npm run test:host-current
+# 宿主不在默认相邻目录时：
+DSH_HARNESS_ROOT=/path/to/deepseek-harness npm run test:host-current
+```
+
+该检查使用宿主自己的 `tsx` 源码解析器、`AssistantStreamAccumulator` 和真实 JSONL 后端，验证内嵌尝试用量、fork 前缀排除与 revision 缓存；`npm test` 继续覆盖旧接口兼容和已构建的 JSON 存储域集成。
 
 ## 致谢 / Acknowledgements
 

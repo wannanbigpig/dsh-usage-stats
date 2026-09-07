@@ -19,7 +19,21 @@ const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "
 // Fake primitives: every named export is a no-op component.
 const Stub = () => null;
 const primitives = new Proxy({
-	Modal: ({ open, children }) => open ? jsxRuntime.jsx("div", { "data-test-modal": true, children }) : null
+	Modal: function Modal({ open, children, title, closeLabel, headless, onClose, className }) {
+		react.useEffect(() => {
+			if (!open) return;
+			const onKeyDown = event => { if (event.key === "Escape") onClose(); };
+			document.addEventListener("keydown", onKeyDown);
+			return () => document.removeEventListener("keydown", onKeyDown);
+		}, [open, onClose]);
+		if (!open) return null;
+		if (typeof title !== "string" || title.length === 0) throw new Error("native Modal requires a localized title");
+		if (!headless && (typeof closeLabel !== "string" || closeLabel.length === 0)) throw new Error("native Modal requires a localized closeLabel");
+		return jsxRuntime.jsxs("div", { "data-test-modal": true, children: [
+			jsxRuntime.jsx("div", { "data-test-modal-mask": true, onClick: onClose }),
+			jsxRuntime.jsx("div", { role: "dialog", "aria-modal": "true", "aria-label": title, className, children })
+		] });
+	}
 }, { get: (target, key) => target[key] ?? Stub });
 
 let captured = null;
@@ -40,12 +54,12 @@ if (!source.includes('fetchJson("/api/usage-stats/limits")')) throw new Error("c
 if (!source.includes('connectionRpc.call("/usage-stats", request.endpoint, request.payload, signal)')) throw new Error("client must transport usage requests through Connection RPC");
 if (source.includes("await fetch(path, init)")) throw new Error("client must not keep the native fetch transport fallback");
 if (!source.includes('name: "settings.section"')) throw new Error("client must register the settings.section slot");
-if (!source.includes('width:920px') || !source.includes('Math.min(920, window.innerWidth - panelGutter * 2)')) throw new Error("query panel shell and viewport positioning must use the compact 920px width");
+if (!source.includes('width:920px') || !source.includes('max-width:calc(100vw - 48px)')) throw new Error("query modal must preserve the compact width and viewport gutter");
 if ((source.match(/max-height:94vh/g) ?? []).length < 2) throw new Error("panel shell and scroll body must use the taller 94vh viewport budget");
 if (!source.includes('max-width:calc(100vw - 48px);max-height:94vh') || !source.includes('.usg_panelBody{box-sizing:border-box;max-height:94vh') || source.includes('height:94vh;max-height:94vh') || source.includes('.usg_panelBody{box-sizing:border-box;height:100%')) throw new Error("panel height must remain content-driven under the 94vh ceiling");
 if (!source.includes('const sectionRef = react.useRef(null)') || !source.includes('const [detailsMinHeight, setDetailsMinHeight] = react.useState(null)') || !source.includes('setDetailsMinHeight(Math.ceil(sectionRef.current.getBoundingClientRect().height))')) throw new Error("details tab must snapshot the overview section height before switching");
 if (!source.includes('ref: sectionRef') || !source.includes('onClick: showDetails') || !source.includes('style: activeTab === "details" && detailsMinHeight !== null ? { minHeight: `${detailsMinHeight}px` } : void 0')) throw new Error("only the details tab may inherit the overview height snapshot");
-if (!source.includes('border-radius:24px') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-shadow-lv3)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
+if (!source.includes('border-radius:24px') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-elevation-prominent)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
 if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must split into summary/overview/details tabs");
 if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the current-provider tab");
 if (!source.includes('const usageProviderId = activeTab === "summary" ? null : selectedProviderId')) throw new Error("summary must request all providers while overview/details request the selected provider");
@@ -59,7 +73,9 @@ if (!source.includes('"data-usage-provider-summary": true')) throw new Error("su
 if (!source.includes('request request request') || !source.includes('.usg_providerUsageRequest{grid-area:request;white-space:nowrap}') || !source.includes('`${S.providerUsageMeta} ${S.providerUsageRequest}`')) throw new Error("summary request counts must use a dedicated non-wrapping row");
 if (source.includes('onDayHover: setRangeHoveredDay')) throw new Error("multi-day hover must not resize the parent model list");
 if (!source.includes('reservedModelCount') || !source.includes('data-usage-provider-placeholder')) throw new Error("summary model list must reserve a stable row capacity for the active range");
-if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:start;min-height:0}') || !source.includes('.usg_providerUsageList{display:flex;flex-direction:column;gap:7px}')) throw new Error("summary model usage rail must remain naturally sized without an internal scrollbar");
+if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:stretch;min-height:0;overflow:hidden;contain:size}')) throw new Error("summary model usage rail must take the activity row height without expanding the grid track");
+if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageCard{flex:1;min-height:0;overflow:hidden}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{flex:1;min-height:0;overflow-y:auto;scrollbar-gutter:stable;overscroll-behavior:contain}')) throw new Error("summary model usage rows must scroll inside the height-bounded rail");
+if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:start;overflow:visible;contain:none}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{overflow-y:visible;scrollbar-gutter:auto}')) throw new Error("stacked summary layouts must return the model usage rail to natural height");
 if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(ProviderUsageList')) throw new Error("summary rail must fill the account-card space with cross-provider model usage");
 if (!source.includes('isSummaryTab ? null : react_jsx_runtime.jsx(BalanceCard')) throw new Error("summary must not render a selected-provider balance or plan card");
 if (!source.includes('"data-usage-overview-workbench": true')) throw new Error("overview must expose the redesigned workbench layout");
@@ -125,6 +141,7 @@ if (!source.includes('.usg_planName{') || !source.includes('background:var(--dsw
 if (!source.includes('data-usage-plan-name') || !source.includes('providerKind === "plan_quota" ? S.planName : S.balanceAmount')) throw new Error("only plan providers may use the tier-name treatment");
 if (!source.includes('.usg_balanceStatus{') || !source.includes('align-self:stretch') || !source.includes('data-usage-account-status')) throw new Error("long plan-account failures must use a full-width status row");
 if (!source.includes('summary.accountStatus === "not-subscribed" ? t("balance.status.subscriptionRequired")')) throw new Error("unsubscribed plan providers must use the subscription-required label in the sidebar");
+if (!source.includes('summary.accountStatus === "refresh-disabled" ? t("balance.status.refreshDisabled")')) throw new Error("disabled automatic refresh must be explicit in the sidebar");
 if (!source.includes('function animateNumberValue(from, to, progress)') || !source.includes('function useAnimatedNumber(value, duration = 500, animationKey = 0)') || !source.includes('function AnimatedNumber({ value, format, className')) throw new Error("changing numeric values must use the shared counting animation primitive");
 if (!source.includes('function animationStartValue(current, target, replay)') || !source.includes('animationKey')) throw new Error("manual refresh must be able to replay numeric animation even when values are unchanged");
 if (!source.includes('window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches')) throw new Error("numeric animation must respect reduced-motion preferences");
@@ -149,8 +166,8 @@ if (!source.includes('translate(weekendOffPeak ? "chart.weekendOffPeakNote" : "c
 if (!source.includes('selectedProviderKind === "balance" && selectedProviderId === "deepseek-official"')) throw new Error("limit UI must be scoped to the official provider");
 if (!source.includes('"data-usage-limit-provider": selectedLimitProvider?.id ?? providerId')) throw new Error("limit settings must expose their provider scope");
 if (source.includes('"data-usage-limit-provider-selector": true')) throw new Error("limit settings must not duplicate the accounts provider selector");
-if (source.includes('const [billingProviderId, setBillingProviderId]')) throw new Error("billing settings must follow the accounts default provider state");
-if (!source.includes('providers.some((provider) => provider.id === defaultProviderId)')) throw new Error("billing settings must derive the provider from the accounts default provider");
+if (!source.includes('const [billingProviderId, setBillingProviderId]')) throw new Error("billing settings must keep a local editing provider");
+if (!source.includes('providers.some((provider) => provider.id === requestedBillingProviderId)')) throw new Error("billing settings must validate the local editing provider");
 if (!source.includes('summary.kind === "plan_quota"')) throw new Error("sidebar must switch its compact value for plan providers");
 if (!source.includes('summary.planWindows ?? []')) throw new Error("sidebar must summarize all plan windows");
 if (!source.includes('function planQuotaToneOf')) throw new Error("plan quota dots must derive color from configured remaining thresholds");
@@ -170,7 +187,7 @@ if (!source.includes('.usg_planWindowSeparator{display:inline-block;margin-inlin
 if (!source.includes('"data-usage-plan-quota-settings": true')) throw new Error("billing settings must expose plan quota thresholds");
 if (source.includes('? `${summary.providerLabel} ${planWindowText')) throw new Error("plan sidebar summary must not repeat the provider label");
 if (!source.includes("const providerQuery = providerId ? `?provider=${encodeURIComponent(providerId)}` : \"\";")) throw new Error("sidebar must derive provider queries from the settings default");
-if (!source.includes("fetchJson(`/api/usage-stats/balance${providerQuery}`)")) throw new Error("sidebar must query the selected provider balance");
+if (!source.includes('fetchJson(`/api/usage-stats/balance${providerQuery}${providerQuery ? "&" : "?"}auto=1`)')) throw new Error("sidebar must automatically query the selected provider balance under the refresh policy");
 if (!source.includes("const usagePayload = usageResult.status === \"fulfilled\" ? filterUsageByProvider(usageResult.value, providerId) : null;")) throw new Error("sidebar must filter usage to the settings-selected provider");
 if (/api[_-]?key\s*[:=]\s*["']sk-/i.test(source)) throw new Error("client must not embed credentials");
 new Function(source)(); // executes the window.__ModuleLoader__.load call
@@ -196,6 +213,99 @@ exports_.apply({
 	locale: { register: () => () => {}, bind: () => (key) => key },
 	slots: { inject: () => () => {}, register: () => () => {} }
 });
+
+// Query tab changes update usage without reloading the provider catalog or keys.
+{
+	const { JSDOM } = require("jsdom");
+	const dom = new JSDOM('<!doctype html><div id="root"></div>');
+	const previous = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, act: globalThis.IS_REACT_ACT_ENVIRONMENT };
+	const previousResponder = rpcResponder;
+	globalThis.window = dom.window;
+	globalThis.document = dom.window.document;
+	globalThis.HTMLElement = dom.window.HTMLElement;
+	globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+	dom.window.matchMedia = () => ({ matches: true });
+	const requests = [];
+	const provider = { id: "test-local", label: "Local", kind: "local_usage", capabilities: ["local_usage"], keys: [] };
+	let usageRevision = 0;
+	let liveInputTokens = 0;
+	let liveOutputTokens = 0;
+	rpcResponder = async (_channel, endpoint, payload) => {
+		requests.push({ endpoint, payload });
+		const value = endpoint === "providers/list" ? { ok: true, providers: [provider], defaultProviderId: provider.id }
+			: endpoint === "keys/list" ? { ok: true, keys: [] }
+				: endpoint === "usage/get" ? { ok: true, revision: usageRevision, days: [{ date: "2026-09-05", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null, models: [{ model: "test-local/model", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null }], hours: [] }], today: "2026-09-05" }
+					: endpoint === "usage/revision" ? { ok: true, revision: usageRevision }
+						: endpoint === "accounts/get" ? { ok: true, providers: [provider], defaultProviderId: provider.id, settings: { defaultProviderId: provider.id, display: { balance: true, todayCost: true } }, accounts: { [provider.id]: { status: "local" } } }
+							: endpoint === "alerts/get" ? { ok: true, notifications: { channels: { sidebar: true, toast: false }, events: {} }, alerts: [] }
+								: { ok: true, status: {}, account: { status: "local" } };
+		return { ok: true, value };
+	};
+	const { createRoot } = require("react-dom/client");
+	const root = createRoot(document.getElementById("root"));
+	const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+	try {
+		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })); await flush(); });
+		const catalogBefore = requests.filter(request => request.endpoint === "providers/list").length;
+		const keysBefore = requests.filter(request => request.endpoint === "keys/list").length;
+		const summaryTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabSummary");
+		await react.act(async () => { summaryTab.click(); await flush(); });
+		if (requests.filter(request => request.endpoint === "providers/list").length !== catalogBefore) throw new Error("switching usage tabs must not reload the provider catalog");
+		if (requests.filter(request => request.endpoint === "keys/list").length !== keysBefore) throw new Error("switching usage tabs must not reload account keys");
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("All tab must request unfiltered provider usage");
+		console.log("query tab request isolation ok");
+		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsPanel, { wide: true, t: key => key })); await flush(); });
+		const trigger = document.querySelector("[data-usage-stats-trigger]");
+		const unchangedUsageReads = requests.filter(request => request.endpoint === "usage/get").length;
+		await react.act(async () => { document.dispatchEvent(new dom.window.Event("visibilitychange")); await flush(); });
+		if (requests.filter(request => request.endpoint === "usage/get").length !== unchangedUsageReads) throw new Error("an unchanged ledger revision must not reload usage");
+		const balanceReadsBeforeRevision = requests.filter(request => request.endpoint === "balance/get").length;
+		usageRevision = 1;
+		liveInputTokens = 120;
+		liveOutputTokens = 30;
+		await react.act(async () => { document.dispatchEvent(new dom.window.Event("visibilitychange")); await flush(); await flush(); });
+		if (!trigger.textContent.includes("usage.input 120 · usage.output 30")) throw new Error(`sidebar realtime usage did not update: ${trigger.textContent}`);
+		const realtimeBalanceRead = requests.filter(request => request.endpoint === "balance/get").slice(balanceReadsBeforeRevision).at(-1);
+		if (realtimeBalanceRead?.payload.query.auto !== "1") throw new Error("realtime summary must refresh the balance through its configured cache policy");
+		console.log("sidebar realtime usage invalidation ok");
+		await react.act(async () => { trigger.click(); await flush(); });
+		const dialog = document.querySelector('[role="dialog"]');
+		if (!dialog || dialog.getAttribute("aria-label") !== "panel.title" || dialog.getAttribute("aria-modal") !== "true") throw new Error("query panel must expose the native named modal");
+		if (document.activeElement !== document.querySelector("[data-usage-stats-close]")) throw new Error("opening the query panel must focus its close control");
+		await react.act(async () => { document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await flush(); });
+		if (document.querySelector('[role="dialog"]')) throw new Error("Escape must dismiss the usage modal");
+		if (document.activeElement !== trigger) throw new Error("modal dismissal must restore the sidebar trigger focus");
+		await react.act(async () => { trigger.click(); await flush(); });
+		await react.act(async () => { document.querySelector("[data-test-modal-mask]").click(); await flush(); });
+		if (document.querySelector('[role="dialog"]')) throw new Error("native modal mask click must dismiss usage");
+		console.log("native query modal dismissal and focus ok");
+		const footer = document.createElement("div");
+		const actions = document.createElement("div");
+		const layer = document.createElement("div");
+		const ownTrigger = document.createElement("button");
+		ownTrigger.dataset.usageStatsTrigger = "true";
+		ownTrigger.setAttribute("aria-haspopup", "dialog");
+		let ownClicks = 0;
+		ownTrigger.onclick = () => ownClicks++;
+		layer.append(ownTrigger);
+		actions.append(layer);
+		const settings = document.createElement("button");
+		settings.setAttribute("aria-haspopup", "dialog");
+		let settingsClicks = 0;
+		settings.onclick = () => settingsClicks++;
+		footer.append(actions, settings);
+		document.body.append(footer);
+		if (!exports_.openHarnessSettings(layer) || settingsClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must click the host trigger without reopening usage");
+	} finally {
+		await react.act(async () => { root.unmount(); await flush(); });
+		dom.window.close();
+		globalThis.window = previous.window;
+		globalThis.document = previous.document;
+		globalThis.HTMLElement = previous.HTMLElement;
+		globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
+		rpcResponder = previousResponder;
+	}
+}
 
 // A plugin hot reload can leave the previous style element in the document.
 // The next factory run must refresh its text instead of leaving new classes unstyled.
@@ -256,7 +366,8 @@ if (typeof exports_.ContributionHeatmap !== "function") throw new Error("missing
 if (typeof exports_.buildYearContributionHeatmap !== "function") throw new Error("missing buildYearContributionHeatmap export");
 if (typeof exports_.chartTooltipAnchorStyle !== "function") throw new Error("missing chart tooltip anchor helper export");
 if (typeof exports_.DayBarsChart !== "function") throw new Error("missing multi-day chart export");
-if (source.includes(".usg_providerUsageList{max-height:220px;overflow-y:auto")) throw new Error("summary model list must not keep an internal vertical scrollbar");
+if (!source.includes('.usg_section[data-usage-billing-settings] .usg_tab{position:relative;border:0;border-bottom:0;border-radius:0;margin-bottom:0;padding:7px 1px 9px;background:transparent;box-shadow:none;font-size:13px;line-height:20px;font-weight:400}')) throw new Error("settings tabs must clear the query-tab background and shadow while matching the host typography");
+if (!source.includes('.usg_section[data-usage-billing-settings] .usg_tab[data-active=true]::after{position:absolute;right:0;bottom:-1px;left:0;height:2px')) throw new Error("active settings tabs must use only the host-style bottom indicator");
 const dayBarSource = source.slice(source.indexOf("function DayBarsChart"), source.indexOf("function DayList"));
 if (dayBarSource.includes("onMouseLeave: () => setHoveredDay")) throw new Error("multi-day tooltip must not close when the pointer leaves its trigger bar");
 if (!dayBarSource.includes("onDayHover") || !dayBarSource.includes("onDaySelect")) throw new Error("multi-day chart must expose date hover and selection callbacks");
@@ -280,7 +391,7 @@ if (!Array.isArray(exports_.SETTINGS_TABS) || exports_.SETTINGS_TABS.length !== 
 if (exports_.SETTINGS_TABS.some((tab) => tab.id === "pricing")) throw new Error("provider pricing must live under billing and limits, not a separate tab");
 if (!source.includes('"data-usage-provider-billing-settings": true')) throw new Error("budget and limits must group provider-scoped limits and pricing");
 if (!source.includes('"settings.tabLimits": "供应商用量与计费"') || !source.includes('"settings.tabLimits": "Provider Usage & Billing"')) throw new Error("billing tab must communicate provider scope");
-if (!source.includes('"notifications.desc": "这里只配置所有供应商共用的告警输出通道')) throw new Error("notifications tab must explain its shared scope");
+if (!source.includes('"notifications.desc": "配置共用的告警通道')) throw new Error("notifications tab must explain its shared scope");
 if (source.includes('translate("notifications.planQuota')) throw new Error("provider plan quota labels must live in the billing namespace");
 if (typeof exports_.windowResetCountdownOf !== "function") throw new Error("missing reset countdown formatter export");
 if (typeof exports_.windowResetDisplayOf !== "function") throw new Error("missing reset display formatter export");
@@ -310,8 +421,8 @@ if (!source.includes(".usg_modelNameCopyTip{position:fixed") || !source.includes
 if (!source.includes('"data-usage-model-name-tip": true') || !source.includes("onMouseEnter: cancelClose") || !source.includes("onMouseLeave: scheduleClose")) throw new Error("model-name tips must stay open while the pointer moves into them");
 if (!source.includes("transform:translate(-50%,-100%)")) throw new Error("model-name tips must appear above the hovered label");
 if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
-if (!source.includes(".usg_hourRangeSelect:focus,.usg_hourRangeSelect:focus-visible{outline:none")) throw new Error("hour range selector must not show a blue focus border");
-if (!source.includes(".usg_select:focus,.usg_select:focus-visible") || !source.includes(".usg_input:focus,.usg_input:focus-visible")) throw new Error("all plugin fields must suppress blue focus borders");
+if (!source.includes(".usg_section :is(button,input,select,summary):focus-visible,.usg_sidebarButton:focus-visible{outline:2px solid var(--dsw-alias-label-secondary);outline-offset:2px}")) throw new Error("keyboard focus must remain visible on plugin controls");
+if (source.includes("var(--dsw-alias-fill-l2)") || source.includes("var(--dsw-alias-interactive-bg)")) throw new Error("plugin backgrounds must use existing host theme tokens");
 if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
 if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");
 if (!source.includes("className: S.hourControls")) throw new Error("hourly range selector must share the header controls with date navigation");
@@ -343,24 +454,29 @@ if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entr
 if (!source.includes("className: S.sidebarSummary")) throw new Error("wide sidebar entry must render its summary");
 if (!source.includes("SIDEBAR_POLL_MS_OPEN = 60000") || !source.includes("SIDEBAR_POLL_MS_CLOSED = 300000")) throw new Error("sidebar summary must poll at 60s open / 300s closed");
 if (!source.includes("window.setInterval(loadSummary, pollMs)")) throw new Error("sidebar summary must refresh in the background on an open/closed-aware interval");
+if (!source.includes("SIDEBAR_USAGE_REVISION_POLL_MS = 1000")) throw new Error("sidebar today usage must detect committed ledger changes within one second");
+if (!source.includes('fetchJson("/api/usage-stats/usage-revision")')) throw new Error("sidebar realtime polling must use the lightweight ledger revision endpoint");
+if (!source.includes("window.setInterval(checkUsageRevision, SIDEBAR_USAGE_REVISION_POLL_MS)")) throw new Error("sidebar realtime usage revision polling must remain active while mounted");
+if (!source.includes('document.addEventListener("visibilitychange", onVisibilityChange)')) throw new Error("sidebar realtime polling must refresh on foreground and pause while hidden");
+if (!source.includes("summaryContextRef.current !== context")) throw new Error("a realtime usage response must not overwrite a newer provider or balance summary");
 if (!source.includes('usage-stats:limits-updated')) throw new Error("sidebar summary must refresh after limits changes");
 if (!source.includes('usage-stats:accounts-updated')) throw new Error("sidebar summary must refresh after account display toggles change");
 if (!source.includes('display.balance !== false')) throw new Error("sidebar summary must respect the balance display toggle");
 if (!source.includes('display.todayCost !== false')) throw new Error("sidebar summary must respect the today-spend display toggle");
-if (!source.includes('display.statusDot !== false')) throw new Error("sidebar summary must respect the status-dot display toggle");
+if (!source.includes('const showStatusDot = notifications.channels?.sidebar !== false')) throw new Error("sidebar summary must use the unified effective status-dot setting");
 if (!source.includes('t("panel.badge")') || !source.includes('t("panel.today")')) throw new Error("sidebar summary labels must use the active locale");
 if (source.includes('`余额 ${summary.balance}`') || source.includes('`今日 ${summary.today}`')) throw new Error("sidebar summary must not hard-code Chinese labels");
 if (!source.includes("const stopOnExceed = rule?.stopOnExceed === true")) throw new Error("hard stop must reflect the saved limit rule");
 if (!source.includes("window.confirm(translate(\"limits.stopConfirm\"))")) throw new Error("enabling hard stop must require confirmation");
-if (!source.includes('key: `${targetKey}:daily:${limits === null ? "loading" : "ready"}`')) throw new Error("daily limit input must remount when the selected key changes");
-if (!source.includes('key: `${targetKey}:balance:${limits === null ? "loading" : "ready"}`')) throw new Error("balance limit input must remount when the selected key changes");
+if (!source.includes('key: `${targetKey}:${period}:${inputEpoch}:${limits === null ? "loading" : "ready"}`')) throw new Error("spend limit input must remount when key, period or rollback changes");
+if (!source.includes('key: `${targetKey}:balance:${inputEpoch}:${limits === null ? "loading" : "ready"}`')) throw new Error("balance limit input must remount when key or rollback changes");
 if (!source.includes('status === "blocked" || status === "exceeded"')) throw new Error("client must map blocked and exceeded through one shared tone helper");
 if (!source.includes('"stale", "unavailable"')) throw new Error("client must render stale and unavailable limit states");
 // Settings controls must remain usable inside the host application's global
 // form styles. Amount fields save immediately from the current input value. The
 // switch owns its full hit area and paints a visible track without
 // relying on a potentially transparent host theme token.
-if (!source.includes("handleSave({ lowBalanceWarning:")) throw new Error("low-balance input must autosave its current value");
+if (!source.includes('saveAmount(event, "lowBalanceWarning")')) throw new Error("low-balance input must validate and autosave its current value");
 if (!source.includes(".usg_switch input{position:absolute;inset:0;width:100%;height:100%")) throw new Error("switch input must own the full control hit area");
 if (!source.includes("background-color:rgba(128,128,128,.28)")) throw new Error("switch track must have a visible theme-independent off state");
 if (!source.includes(".usg_section{--usg-blue:var(--dsw-alias-state-business-primary,var(--dsw-static-deepseek-500,#4176e6));--usg-action:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#0f1115));")) throw new Error("panel must separate the Harness business accent from its monochrome action color");
@@ -368,6 +484,7 @@ if (source.includes("saveMsg") || source.includes("usg_saveSuccess") || source.i
 if (!source.includes("className: S.toggleGrid")) throw new Error("limit toggles must use the compact responsive grid");
 if (!source.includes("className: S.alertRange")) throw new Error("alert percentage must use the segmented range control");
 if (!source.includes('"--alert-percent": `${alertPercent}%`') || !source.includes('"--critical-percent": `${criticalPercent}%`')) throw new Error("dual range must track both configured percentages");
+if (!source.includes('"--usg-range-low": "var(--usg-success)"') || !source.includes('var(--usg-range-low,var(--usg-danger))')) throw new Error("spent quota range must reverse the remaining-quota color scale");
 if (!source.includes("className: `${S.alertRange} is-overlay`")) throw new Error("alert control must render a second draggable handle");
 if (!source.includes('alertTrack: "usg_alertTrack"')) throw new Error("dual range track must be bound to its positioned wrapper");
 if (!source.includes("--usg-success:var(--dsw-alias-state-success-primary,#22a06b);--usg-warning:var(--dsw-alias-state-warn-primary,#d99b00);--usg-danger:var(--dsw-alias-state-error-primary,#e5484d);")) throw new Error("semantic range colors must follow the host theme with fallbacks");
@@ -375,7 +492,7 @@ if (!source.includes(".usg_alertCard input.usg_alertRange{appearance:none!import
 if (!source.includes(".usg_alertCard input.usg_alertRange::-webkit-slider-runnable-track")) throw new Error("range control must paint an explicit WebKit track");
 if (!source.includes(".usg_saveBtn{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;")) throw new Error("save button must use the settings-page primary button palette");
 if (!source.includes(".usg_switch input:checked + .usg_switchSlider{background-color:var(--usg-action);border-color:var(--usg-action)}")) throw new Error("enabled switches must use the monochrome action palette");
-if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
+if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
 if (!source.includes(".usg_input::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}")) throw new Error("amount inputs must use the native placeholder palette");
 if (!source.includes("const [limitStatusMap, setLimitStatusMap] = react.useState({})")) throw new Error("query panel must load quota indicator statuses");
 if (!source.includes('providerKind === "balance" && status === "ok" && balanceTone !== "muted" ? balanceTone')) throw new Error("DeepSeek balance badge must follow the configured balance alert tone");
@@ -388,9 +505,9 @@ const usageLimitBannerCss = source.slice(source.indexOf('.usg_usageLimitBanner{'
 if (usageLimitBannerCss.includes('[data-status=')) throw new Error("usage progress must not depend on warning or error status colors");
 if (!source.includes('translate("limits.dailySpendProgress")')) throw new Error("usage progress must use a neutral daily-spend title");
 if (!source.includes('const spendBannerStatus = ["warning", "exceeded", "blocked"].includes(spendStatus) ? spendStatus : "normal"')) throw new Error("limit banner must be scoped to today-spend status");
-if (!source.includes('currentStatus?.reason === "daily_cost" || currentStatus?.reason === "unpriced"')) throw new Error("limit banner must hide balance-only messages");
+if (!source.includes('["daily_cost", "monthly_cost", "unpriced"].includes(currentStatus?.reason)')) throw new Error("limit banner must include both spending periods and hide balance-only messages");
 if (!source.includes('currentStatus !== null && currentLimit > 0 && react_jsx_runtime.jsxs("div"')) throw new Error("today-spend banner must only render when a daily limit is configured");
-if (!source.includes('translate("limits.dailyLimitStatus")')) throw new Error("today-spend banner must use a daily-limit label instead of the generic usage-warning title");
+if (!source.includes('translate(statusMonthly ? "limits.monthlyLimitStatus" : "limits.dailyLimitStatus")')) throw new Error("spend banner must label the effective period");
 if (!source.includes("const loadLimitStatus = react.useCallback")) throw new Error("query panel must have a reusable limit-status refresh");
 if (!source.includes('window.addEventListener("usage-stats:limits-updated", onLimitsUpdated)')) throw new Error("query panel must refresh balance alert linkage after limit changes");
 if (source.includes('"data-balance-indicator": true')) throw new Error("balance card must not render a status dot");
@@ -402,7 +519,7 @@ if (!source.includes('todayInputTokens') || !source.includes('todayOutputTokens'
 if (!source.includes('fmtSidebarTokens')) throw new Error("sidebar local summary must use compact token formatting");
 if (source.includes('!wide && summary.todayStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide today status dot");
 if (source.includes('!wide && summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide balance status dot");
-if (!source.includes('style: { left: `${panelLeft}px` }')) throw new Error("usage panel must anchor to the sidebar edge");
+if (source.includes("host.style.flexDirection") || source.includes("new MutationObserver")) throw new Error("plugin UI must not rewrite host layout or settings icons");
 if (!source.includes('"limits.lowBalance": "余额提醒"')) throw new Error("balance alert field must use the concise label");
 if (!source.includes("const limitsRef = react.useRef(null)")) throw new Error("limits form must retain the latest saved configuration without resyncing edits");
 if (!source.includes("const committedLimitsRef = react.useRef(null)")) throw new Error("limits form must retain the last server-confirmed configuration for rollback");
@@ -476,7 +593,7 @@ if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) t
 if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
 if (!source.includes('.usg_hourInput{background:var(--dsw-static-blue-500,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-static-green-500,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
-if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-fill-l2);border-radius:3px;height:6px;flex:1;min-width:80px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:var(--usg-blue);opacity:.72}')) throw new Error("recent-day details must use a fixed track with a proportional fill");
+if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-module-platform);border-radius:3px;height:6px;flex:1;min-width:80px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:var(--usg-blue);opacity:.72}')) throw new Error("recent-day details must use a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
 if (!source.includes('color-mix(in srgb,var(--dsw-alias-state-business-primary) ${intensity}%,var(--usg-cellEmpty))')) throw new Error("heatmap intensity must follow the Harness business accent in both themes");
 // Data card must be organized into plain-language groups.
@@ -654,7 +771,7 @@ const accountsMarkup = renderToStaticMarkup(react.createElement(exports_.Account
 if (!accountsMarkup.includes("data-usage-accounts-card") || !accountsMarkup.includes("accounts.title")) throw new Error("accounts card render missing title/identity");
 if (accountsMarkup.includes("sk-")) throw new Error("accounts card must not embed credentials");
 if (JSON.stringify(exports_.accountDisplayFields({ balance: false, todayCost: true, statusDot: true }).map(([field]) => field)) !== JSON.stringify(["balance"])) throw new Error("summary-off state must hide today-spend and status-dot settings");
-if (JSON.stringify(exports_.accountDisplayFields({ balance: true, todayCost: false, statusDot: false }).map(([field]) => field)) !== JSON.stringify(["balance", "todayCost", "statusDot"])) throw new Error("summary-on state must show both child settings without changing their saved values");
+if (JSON.stringify(exports_.accountDisplayFields({ balance: true, todayCost: false, statusDot: false }).map(([field]) => field)) !== JSON.stringify(["balance", "todayCost"])) throw new Error("accounts must expose summary display without duplicating notification status dots");
 console.log("accounts card render ok, length:", accountsMarkup.length);
 
 const compactProvidersMarkup = renderToStaticMarkup(react.createElement(exports_.AccountsCard, {
@@ -799,6 +916,13 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 		throw new Error("a rebuild that skipped unreadable sessions must surface the skipped count");
 	}
 	if (rootNode.textContent.includes("data.trimmed")) throw new Error("a rebuild must not be reported as a retention trim");
+	await act(async () => { buttonByText("data.clear").click(); await flush(); });
+	const clearDialog = rootNode.querySelector('[role="dialog"]');
+	if (clearDialog?.getAttribute("aria-label") !== "data.clear") throw new Error("data-clear confirmation must have a localized accessible title");
+	const confirmButton = buttonByText("data.clearConfirmBtn");
+	if (!confirmButton?.disabled) throw new Error("opening a clear dialog must not authorize deletion without the confirmation word");
+	await act(async () => { buttonByText("data.cancel").click(); await flush(); });
+	if (rootNode.querySelector('[role="dialog"]')) throw new Error("cancelling data clear must dismiss the native confirmation");
 	await act(async () => { root.unmount(); await flush(); });
 
 	rebuildPreview = { unreadableSessions: 0, sessionCount: 5, eventCount: 12, days: {} };
@@ -1081,11 +1205,7 @@ if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.fo
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.
-const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue, settingsNavMutationRelevant } = exports_;
-const unrelatedMutation = [{ type: "characterData", target: { closest: () => null } }];
-if (settingsNavMutationRelevant(unrelatedMutation)) throw new Error("unrelated body mutations must not trigger plugin scans");
-const navNode = { nodeType: 1, matches: (selector) => selector === "button,a,[role=button], [data-usage-stats-trigger]", querySelector: () => null };
-if (!settingsNavMutationRelevant([{ type: "childList", addedNodes: [navNode], removedNodes: [] }])) throw new Error("navigation mutations must trigger icon synchronization");
+const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue } = exports_;
 const nullBalanceMarkup = renderToStaticMarkup(exports_.BalanceCard({
 	keys: [],
 	providers: [{ id: "deepseek-official", capabilities: ["balance"], label: "DeepSeek" }],
@@ -1270,6 +1390,11 @@ if (!isPeak(10, [[9, 12]], "2026-08-24", "2026-08-23")) throw new Error("Monday 
 if (fmtMoney(0) !== "0.00") throw new Error(`fmtMoney 0 ${fmtMoney(0)}`);
 if (fmtMoney(null) !== "—") throw new Error(`fmtMoney null ${fmtMoney(null)}`);
 if (fmtMoney(3.14159) !== "3.14") throw new Error(`fmtMoney 3.14 ${fmtMoney(3.14159)}`);
+// 金额展示与官方按笔向下扣费对齐：截断到分，而不是四舍五入。
+if (fmtMoney(0.555994) !== "0.55") throw new Error(`fmtMoney truncation ${fmtMoney(0.555994)}`);
+if (fmtMoney(1.005) !== "1.00") throw new Error(`fmtMoney half-cent ${fmtMoney(1.005)}`);
+if (fmtMoney(4.1) !== "4.10") throw new Error(`fmtMoney float edge ${fmtMoney(4.1)}`);
+if (fmtMoney(0.56) !== "0.56") throw new Error(`fmtMoney exact cent ${fmtMoney(0.56)}`);
 if (fmtMoney(0.001) !== "<0.01") throw new Error(`fmtMoney tiny ${fmtMoney(0.001)}`);
 if (fmt(1234567) !== "1,234,567") throw new Error(`fmt ${fmt(1234567)}`);
 
@@ -1370,5 +1495,165 @@ console.log("data helpers ok");
 	console.log("provider-grouped model breakdown ok");
 }
 //#endregion
+
+
+// Regression coverage for edits made while RPC writes are still pending.
+const regressionFailures = [];
+async function clientRegression(name, run) {
+	const { JSDOM } = require("jsdom");
+	const dom = new JSDOM('<!doctype html><div id="root"></div>');
+	const previous = { window: globalThis.window, document: globalThis.document, HTMLElement: globalThis.HTMLElement, Event: globalThis.Event, act: globalThis.IS_REACT_ACT_ENVIRONMENT, responder: rpcResponder };
+	Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Event: dom.window.Event, IS_REACT_ACT_ENVIRONMENT: true });
+	window.matchMedia = () => ({ matches: true });
+	const root = require("react-dom/client").createRoot(document.getElementById("root"));
+	const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+	const step = async action => react.act(async () => { action(); await flush(); });
+	const button = text => [...document.querySelectorAll("button")].find(node => node.textContent === text);
+	const change = (input, value) => require("react-dom/test-utils").Simulate.change(input, { target: { value } });
+	try {
+		await run({ root, step, button, change, setResponder: value => { rpcResponder = value; } });
+		console.log(`${name} ok`);
+	} catch (error) {
+		regressionFailures.push(`${name}: ${error.message}`);
+	} finally {
+		await step(() => root.unmount());
+		dom.window.close();
+		Object.assign(globalThis, { window: previous.window, document: previous.document, HTMLElement: previous.HTMLElement, Event: previous.Event, IS_REACT_ACT_ENVIRONMENT: previous.act });
+		rpcResponder = previous.responder;
+	}
+}
+
+await clientRegression("queued notification edits preserve independent switches", async ({ root, step, setResponder }) => {
+	let notifications = { channels: { sidebar: true, toast: false }, events: { warning: true, exceeded: true, lowBalance: true, recovery: true }, cooldownMs: 1800000 };
+	const writes = [];
+	setResponder(async (_channel, endpoint, payload) => endpoint === "alerts/get"
+		? { ok: true, value: { ok: true, notifications, alerts: [] } }
+		: new Promise(resolve => writes.push({ patch: payload.body.notifications, resolve })));
+	await step(() => root.render(react.createElement(exports_.NotificationsCard, { translate: key => key })));
+	await step(() => document.querySelectorAll('input[type="checkbox"]')[0].click());
+	await step(() => document.querySelectorAll('input[type="checkbox"]')[1].click());
+	for (let i = 0; i < 2; i++) {
+		const write = writes[i];
+		if (!write) throw new Error("both switch edits must be submitted");
+		notifications = { ...notifications, ...write.patch, channels: { ...notifications.channels, ...write.patch.channels } };
+		await step(() => write.resolve({ ok: true, value: { ok: true, notifications } }));
+	}
+	if (notifications.channels.sidebar !== false || notifications.channels.toast !== true) throw new Error(`lost notification edit: ${JSON.stringify(notifications.channels)}`);
+});
+
+await clientRegression("queued display edits preserve independent switches", async ({ root, step, setResponder }) => {
+	let settings = { display: { balance: true, todayCost: true, statusDot: true }, visibleProviderIds: [], defaultProviderId: "deepseek-official" };
+	const writes = [];
+	setResponder(async (_channel, endpoint, payload) => endpoint === "accounts/get"
+		? { ok: true, value: { ok: true, settings, providers: [], accounts: {} } }
+		: new Promise(resolve => writes.push({ patch: payload.body, resolve })));
+	await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
+	await step(() => document.querySelectorAll('input[type="checkbox"]')[1].click());
+	await step(() => document.querySelectorAll('input[type="checkbox"]')[0].click());
+	for (let i = 0; i < 2; i++) {
+		const write = writes[i];
+		if (!write) throw new Error("both display edits must be submitted");
+		settings = { ...settings, ...write.patch, display: { ...settings.display, ...write.patch.display } };
+		await step(() => write.resolve({ ok: true, value: { ok: true, settings } }));
+	}
+	if (settings.display.todayCost !== false || settings.display.balance !== false) throw new Error(`lost display edit: ${JSON.stringify(settings.display)}`);
+});
+
+await clientRegression("model filtering stays consistent across overview charts", async ({ root, step, button, change, setResponder }) => {
+	const model = (name, tokens) => ({ model: `deepseek-official/${name}`, tokens, inputTokens: tokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requestCount: 1, cost: tokens / 100 });
+	const models = [model("model-a", 100), model("model-b", 900)];
+	const day = { date: "2026-09-05", tokens: 1000, cost: 10, inputTokens: 1000, outputTokens: 0, requestCount: 2, models, hours: [{ hour: 0, tokens: 1000, cost: 10, models }] };
+	setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "usage/get" ? { ok: true, today: day.date, days: [day] }
+		: endpoint === "providers/list" ? { ok: true, defaultProviderId: "deepseek-official", providers: [{ id: "deepseek-official", capabilities: ["balance"] }] }
+			: endpoint === "keys/list" ? { ok: true, keys: [] } : { ok: true, status: {}, account: { status: "ok" } } }));
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+	await step(() => button("panel.tabDetails").click());
+	await step(() => change(document.querySelector('select[aria-label="usage.model"]'), "model-a"));
+	await step(() => button("panel.tabOverview").click());
+	await step(() => change(document.querySelector('select[aria-label="usage.timeRange"]'), "7d"));
+	await step(() => document.querySelector('[data-day="2026-09-05"]').dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
+	const tooltip = document.querySelector('[data-usage-day-tooltip]').textContent;
+	const heatLabel = document.querySelector('[aria-label^="2026-09-05 ·"]').getAttribute("aria-label");
+	if (document.querySelector(".usg_activityValue").textContent !== "100" || tooltip.includes("model-b") || !heatLabel.includes("· 100 tokens")) throw new Error(`inconsistent filtered data: ${tooltip}; ${heatLabel}`);
+});
+
+await clientRegression("pricing inputs prevent unsaved edits during a pending save", async ({ root, step, button, setResponder }) => {
+	const current = { currency: "CNY", models: { "deepseek-v4-flash": { offPeak: { inputMiss: 1, inputHit: 1, output: 1 }, peak: { inputMiss: 2, inputHit: 2, output: 2 } } } };
+	let pending;
+	setResponder(async (_channel, endpoint) => endpoint === "pricing/get" ? { ok: true, value: { ok: true, current, official: current } } : new Promise(resolve => { pending = resolve; }));
+	await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+	await step(() => button("pricing.fork").click());
+	await step(() => button("pricing.saveCustom").click());
+	const enabledWhileSaving = [...document.querySelectorAll(".usg_priceInput")].some(input => !input.disabled);
+	await step(() => pending({ ok: true, value: { ok: true, current } }));
+	if (enabledWhileSaving) throw new Error("inputs allow new edits that the save response discards");
+});
+
+await clientRegression("credential inputs prevent unsaved edits during a pending save", async ({ root, step, button, change, setResponder }) => {
+	const provider = { id: "openrouter", label: "OpenRouter", capabilities: ["balance"], extraCredentials: [{ id: "managementApiKey", label: "Management Key" }] };
+	let pending;
+	setResponder(async (_channel, endpoint) => endpoint === "accounts/get" ? { ok: true, value: { ok: true, defaultProviderId: provider.id, settings: {}, providers: [provider], accounts: {} } } : new Promise(resolve => { pending = resolve; }));
+	await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
+	await step(() => change(document.querySelector('input[type="password"]'), "test-credential"));
+	await step(() => button("accounts.credentialSave").click());
+	const enabledWhileSaving = !document.querySelector('input[type="password"]').disabled;
+	await step(() => pending({ ok: true, value: { ok: true } }));
+	if (enabledWhileSaving) throw new Error("credential input allows new edits that the save response discards");
+});
+
+await clientRegression("manual account refresh bypasses cache while initial loads reuse it", async ({ root, step, setResponder }) => {
+	const balanceQueries = [];
+	setResponder(async (_channel, endpoint, payload) => {
+		if (endpoint === "balance/get") balanceQueries.push(payload.query);
+		return { ok: true, value: endpoint === "providers/list" ? { ok: true, defaultProviderId: "deepseek-official", providers: [{ id: "deepseek-official", capabilities: ["balance"] }] }
+			: endpoint === "keys/list" ? { ok: true, keys: [] } : endpoint === "usage/get" ? { ok: true, days: [], today: "2026-09-05" } : { ok: true, status: {}, account: { status: "ok" } } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+	if (balanceQueries.some(query => query.refresh === "1")) throw new Error("mount should reuse the account cache");
+	await step(() => document.querySelector('button[aria-label="action.refresh"]').click());
+	if (balanceQueries.at(-1)?.refresh !== "1") throw new Error("manual refresh still uses the cached account response");
+});
+await clientRegression("failed notification writes recover without losing later edits", async ({ root, step, setResponder }) => {
+	let notifications = { channels: { sidebar: true, toast: false }, events: {}, cooldownMs: 1800000 };
+	const writes = [];
+	setResponder(async (_channel, endpoint, payload) => endpoint === "alerts/get"
+		? { ok: true, value: { ok: true, notifications, alerts: [] } }
+		: new Promise(resolve => writes.push({ patch: payload.body.notifications, resolve })));
+	await step(() => root.render(react.createElement(exports_.NotificationsCard, { translate: key => key })));
+	const inputs = () => document.querySelectorAll('input[type="checkbox"]');
+	await step(() => inputs()[0].click());
+	await step(() => inputs()[1].click());
+	await step(() => writes[0].resolve({ ok: true, value: { ok: false, message: "simulated failure" } }));
+	notifications = { ...notifications, channels: { ...notifications.channels, ...writes[1].patch.channels } };
+	await step(() => writes[1].resolve({ ok: true, value: { ok: true, notifications } }));
+	if (!inputs()[0].checked || !inputs()[1].checked || document.querySelector('.usg_error')) throw new Error("successful queued edit must restore server state and clear the earlier error");
+	await step(() => inputs()[1].click());
+	await step(() => writes[2].resolve({ ok: true, value: { ok: false, message: "simulated failure" } }));
+	if (!inputs()[1].checked) throw new Error("failed optimistic edit must reload the saved value");
+});
+
+await clientRegression("pending plan quota saves preserve later drags and notification settings", async ({ root, step, change, setResponder }) => {
+	let notifications = { channels: { toast: false }, planQuota: { windows: { five_hour: { warningRemainingPercent: 30, criticalRemainingPercent: 10 }, weekly: { warningRemainingPercent: 30, criticalRemainingPercent: 10 } } } };
+	const writes = [];
+	setResponder(async (_channel, endpoint, payload) => endpoint === "alerts/get"
+		? { ok: true, value: { ok: true, notifications, alerts: [] } }
+		: new Promise(resolve => writes.push({ patch: payload.body.notifications, resolve })));
+	await step(() => root.render(react.createElement(LimitsCard, { keys: [], providers: [], providerId: "zai-coding-cn", providerKind: "plan", translate: key => key })));
+	const slider = kind => document.querySelectorAll(`[data-usage-plan-quota-window="${kind}"] input`)[1];
+	await step(() => change(slider("five_hour"), "40"));
+	await step(() => require("react-dom/test-utils").Simulate.pointerUp(slider("five_hour")));
+	await step(() => change(slider("weekly"), "60"));
+	for (let i = 0; i < 2; i++) {
+		if (i === 1) await step(() => require("react-dom/test-utils").Simulate.pointerUp(slider("weekly")));
+		const write = writes[i];
+		if (!write || write.patch.channels !== undefined) throw new Error("plan saves must patch only the edited quota window");
+		notifications = { ...notifications, channels: { toast: true }, planQuota: { ...notifications.planQuota, windows: { ...notifications.planQuota.windows, ...write.patch.planQuota.windows } } };
+		await step(() => write.resolve({ ok: true, value: { ok: true, notifications } }));
+		if (slider("weekly").value !== "60") throw new Error("an older save response overwrote an in-progress drag");
+	}
+	if (notifications.planQuota.windows.five_hour.warningRemainingPercent !== 40 || notifications.planQuota.windows.weekly.warningRemainingPercent !== 60 || !notifications.channels.toast) throw new Error("quota saves lost an independent edit");
+});
+
+if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 
 console.log("\nclient smoke: all passed");

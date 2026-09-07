@@ -322,6 +322,9 @@ function createHarness(options = {}) {
 		assert.equal(usageBefore.ok, true);
 		assert.equal(usageBefore.value.ok, true);
 		assert.equal(usageBefore.value.total.tokens, 0);
+		assert.ok(Number.isInteger(usageBefore.value.revision));
+		const revisionBefore = await harness.rpc.handler("usage/revision", { query: {} });
+		assert.equal(revisionBefore.value.revision, usageBefore.value.revision);
 		const cachedUsage = await collectUsage(harness.ctx);
 		cachedUsage.total.tokens = 999;
 		assert.equal((await collectUsage(harness.ctx)).total.tokens, 0,
@@ -366,18 +369,26 @@ function createHarness(options = {}) {
 		assert.equal(ledgerEntriesOf(harness), 1);
 		assert.equal((await collectUsage(harness.ctx)).total.tokens, 2,
 			"a successful ledger write must invalidate the cached rendered usage");
+		const revisionAfter = await harness.rpc.handler("usage/revision", { query: {} });
+		assert.ok(revisionAfter.value.revision > revisionBefore.value.revision,
+			"sidebar revision must advance immediately after a committed usage record");
 		const retriedStream = harness.listeners.get("llm/stream")({ sessionId: "s1", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "usage", usage: { inputTokens: 8, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
 		for await (const _chunk of retriedStream) { /* drain */ }
 		assert.equal(ledgerEntriesOf(harness), 1, "a stream retry must replace the provisional sample");
 		assert.equal([...harness.domain.ledger.records.values()][0].entries[0].usage.inputTokens, 8, "a stream retry must retain its latest usage");
+		const capturedEntry = clone([...harness.domain.ledger.records.values()][0].entries[0]);
+		await harness.ctx.settings.mutate("usage-stats", [{ op: "set", path: ["pricing"], value: validateConfig({ pricing: { peakMultiplier: 5 } }).pricing }]);
 		await harness.listeners.get("session/event")({ id: "s1" }, {
 			type: "assistant/message",
-			time: Date.now(),
+			time: Date.now() + 86400000,
 			data: { turn: 1, step: 2, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } }
 		});
 		assert.equal(ledgerEntriesOf(harness), 1, "late assistant/message must not duplicate authoritative stream usage");
+		assert.equal([...harness.domain.ledger.records.values()][0].entries[0].usage.inputTokens, 8, "late fallback must not replace captured stream usage with an older message");
+		assert.deepEqual([...harness.domain.ledger.records.values()][0].entries[0], capturedEntry, "a later-day final message and edited prices must preserve the captured timestamp and frozen charge");
+		await harness.rpc.handler("pricing/update", { body: { action: "restore" } });
 		const compaction = harness.listeners.get("llm/stream")({ sessionId: "s1", purpose: "compaction", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "usage", usage: { inputTokens: 3, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
@@ -416,6 +427,34 @@ function createHarness(options = {}) {
 		await rm(home, { recursive: true, force: true });
 	}
 	assert.equal(harness.closed, true);
+}
+
+// A failed stream write must leave the later assistant fallback available.
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-stats-write-fallback-"));
+	const harness = createHarness();
+	const recorded = [];
+	let writes = 0;
+	try {
+		await apply(harness.ctx, {}, {
+			dshHome: home,
+			disableBackgroundRefresh: true,
+			recordLedger: async entry => {
+				if (++writes === 1) throw new Error("simulated write failure");
+				recorded.push(entry);
+			}
+		});
+		await harness.listeners.get("session/event")({ id: "failure" }, { type: "step/start", data: { turn: 1, step: 1 } });
+		const usage = { inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0 };
+		for await (const chunk of harness.listeners.get("llm/stream")({ sessionId: "failure", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () { yield { type: "usage", usage }; })) { /* drain */ }
+		await harness.listeners.get("session/event")({ id: "failure" }, { type: "assistant/message", time: Date.now(), data: { turn: 1, step: 1, usage, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } } });
+		assert.equal(writes, 2);
+		assert.equal(recorded.length, 1);
+		assert.equal(recorded[0].usage.inputTokens, 3);
+	} finally {
+		await harness.dispose();
+		await rm(home, { recursive: true, force: true });
+	}
 }
 
 // A rebuild may commit only if the single state/main record is unchanged
@@ -505,5 +544,31 @@ for (const concurrentAction of ["record", "clear", "abort"]) {
 }
 
 assert.deepEqual(StateSchema.parse(createEmptyUsageState()), createEmptyUsageState());
+
+
+// A settled failed attempt and its retry are two billable calls in one step.
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-stats-retry-"));
+	const harness = createHarness();
+	try {
+		await apply(harness.ctx, {}, { dshHome: home, disableBackgroundRefresh: true, limitsService: { check: async () => ({ status: "ok" }) } });
+		const session = { id: "retry-session" };
+		const notify = event => harness.listeners.get("session/event")(session, { time: Date.now(), ...event });
+		await notify({ type: "step/start", data: { turn: 1, step: 1 } });
+		const run = async inputTokens => {
+			const stream = harness.listeners.get("llm/stream")({ sessionId: session.id, provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
+				yield { type: "usage", usage: { inputTokens, outputTokens: 0 } };
+			});
+			for await (const chunk of stream) { /* drain */ }
+		};
+		await run(4);
+		await notify({ type: "assistant/attempt", seq: 2, data: { turn: 1, step: 1, stream: [] } });
+		await run(10);
+		await notify({ type: "assistant/message", seq: 3, data: { turn: 1, step: 1, usage: { inputTokens: 10, outputTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } } });
+		assert.equal((await collectUsage(harness.ctx)).total.tokens, 14, "a retry must retain the settled failed call and deduplicate only its own final message");
+		assert.equal(ledgerEntriesOf(harness), 2);
+	} finally { await harness.dispose(); await rm(home, { recursive: true, force: true }); }
+}
+console.log("settled retry usage accounting ok");
 
 console.log("server official-seam integration tests passed");
