@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { normalizePricing } from "../lib/pricing.js";
+import { readFile } from "node:fs/promises";
+import { defaultPricingPolicy, fetchOfficialPricing, normalizePricing, parseOfficialPricingHtml, validatePricingInput, validatePricingPolicy } from "../lib/pricing.js";
 import { validateConfig } from "../lib/index.js";
 
 const model = "deepseek-v4-flash";
@@ -33,4 +34,42 @@ const explicitConfig = validateConfig({ pricing: { pricing: { 'deepseek-v4-flash
 assert.equal(explicitConfig.pricing.models['deepseek-v4-flash'].peak.output, 250);
 assert.deepEqual(validateConfig(explicitConfig).pricing, explicitConfig.pricing);
 assert.equal(validateConfig({ pricing: { peakMultiplier: 3 } }).pricing.models['deepseek-v4-flash'].peak.output, 13.5);
+
+const currentOfficialHtml = `
+<table>
+  <tr><th>模型</th><th>deepseek-flash<sup>(1)</sup></th><th>deepseek-v4-pro<sup>(2)</sup></th></tr>
+  <tr><th>模型版本</th><td>DeepSeek-V4.1-Flash</td><td>DeepSeek-V4-Pro-0813</td></tr>
+  <tr><th rowspan="2">百万 tokens 输入（缓存命中）</th><td>空闲时段</td><td>0.02元</td><td>0.15元</td></tr>
+  <tr><td>高峰时段</td><td>0.04元</td><td>0.30元</td></tr>
+  <tr><th rowspan="2">百万 tokens 输入（缓存未命中）</th><td>空闲时段</td><td>1元</td><td>4.5元</td></tr>
+  <tr><td>高峰时段</td><td>2元</td><td>9元</td></tr>
+  <tr><th rowspan="2">百万 tokens 输出</th><td>空闲时段</td><td>4元</td><td>13.5元</td></tr>
+  <tr><td>高峰时段</td><td>8元</td><td>27元</td></tr>
+</table>`;
+const parsedCurrent = parseOfficialPricingHtml(currentOfficialHtml, { checkedAt: "2026-09-10T00:00:00.000Z" });
+assert.deepEqual(Object.keys(parsedCurrent.models), ["deepseek-flash", "deepseek-v4-pro"], "official parser must use API model ids instead of version labels");
+assert.equal(parsedCurrent.models["deepseek-flash"].offPeak.inputMiss, 1);
+
+const routed = normalizePricing({
+	routes: [
+		{ model: "deepseek-v4-flash", priceModel: "deepseek-flash", effectiveFrom: "2026-09-10T00:00:00+08:00" },
+		{ model: "deepseek-v4-pro", priceModel: "deepseek-flash", effectiveFrom: "2026-09-14T12:00:00+08:00" }
+	]
+});
+assert.equal(routed.routes.length, 2, "normalized pricing must retain declarative model routes");
+assert.throws(() => validatePricingInput({ routes: [{ model: "deepseek-v4-pro", priceModel: "deepseek-flash", effectiveFrom: "not-a-time" }] }), /effectiveFrom/);
+const bundledPolicy = validatePricingPolicy(JSON.parse(await readFile(new URL("../lib/pricing-policy.json", import.meta.url), "utf8")));
+assert.deepEqual(bundledPolicy, validatePricingPolicy(defaultPricingPolicy()), "bundled remote-policy seed and code fallback must not drift");
+assert.throws(() => validatePricingPolicy({ ...bundledPolicy, sourceUrl: "https://example.com/policy" }), /sourceUrl/);
+const remotePolicy = { ...bundledPolicy, id: "remote-test", routes: [{ model: "deepseek-v4-pro", priceModel: "deepseek-flash", effectiveFrom: "2026-09-15T00:00:00+08:00" }] };
+const remotelyComposed = await fetchOfficialPricing({
+	fetchImpl: async () => ({ ok: true, text: async () => currentOfficialHtml }),
+	policyFetchImpl: async () => ({ ok: true, text: async () => JSON.stringify(remotePolicy) }),
+	now: () => Date.parse("2026-09-11T00:00:00Z")
+});
+assert.equal(remotelyComposed.policyVersion, "remote-test");
+assert.deepEqual(remotelyComposed.routes, remotePolicy.routes, "validated remote routes must replace the built-in fallback without executing code");
+assert.equal(remotelyComposed.models["deepseek-flash"].peak.output, 8, "official HTML prices must win over policy fallback prices");
+assert.throws(() => validatePricingPolicy({ ...bundledPolicy, routes: [{ model: "deepseek-v4-pro", priceModel: "deepseek-missing", effectiveFrom: "2026-09-15T00:00:00+08:00" }] }), /no price row/);
+await assert.rejects(fetchOfficialPricing({ fetchPolicy: false, fetchImpl: async () => ({ ok: true, text: async () => "<html>no pricing table</html>" }) }), /pricing table was not found/, "a failed official fetch must not be reported as fresh when only the built-in fallback is available");
 console.log("pricing review regressions passed");

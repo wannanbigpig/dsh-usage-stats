@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { countTextTokens, loadDeepSeekTokenizer } from "../lib/tokenizer.js";
+import { countTextTokens, loadDeepSeekTokenizer } from "./tokenizer.mjs";
 
 function runCli(args, input = "") {
 	return new Promise((resolve, reject) => {

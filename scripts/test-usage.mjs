@@ -359,6 +359,8 @@ assert(hourKey(Date.UTC(2026, 0, 1, 1, 0, 0)) === 9, "Beijing peak-hour boundary
 	assert(pricingVersionOf(base) !== pricingVersionOf(changedPeak), "pricing version includes explicit peak prices");
 	const changedWeekendRule = { ...base, weekendOffPeakFrom: "2026-09-01" };
 	assert(pricingVersionOf(base) !== pricingVersionOf(changedWeekendRule), "pricing version includes the weekend effective date");
+	const changedRoutes = { ...base, routes: base.routes.map((route, index) => index === 0 ? { ...route, effectiveFrom: "2026-09-11T00:00:00+08:00" } : route) };
+	assert(pricingVersionOf(base) !== pricingVersionOf(changedRoutes), "pricing version includes model routing boundaries");
 }
 
 function sampleEvent(seq, time, type, data) {
@@ -464,6 +466,7 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(priceOf("deepseek-official/deepseek-v4-flash", pricing).inputMiss === 1.5, "flash price");
 	assert(priceOf("deepseek-official/deepseek-v4-pro", pricing).inputMiss === 4.5, "pro price");
 	assert(priceOf("deepseek-official/deepseek-v4-flash-vision-exp", pricing).inputMiss === 1.5, "vision flash price");
+	assert(priceOf("deepseek-official/deepseek-flash", pricing).inputMiss === 1, "V4.1 Flash price");
 	assert(priceOf("deepseek-official/unknown-model", pricing) === null, "unknown model must remain unpriced");
 	assert(priceOf("x/y", {}) === null, "empty config must not guess a model price");
 	assert(costOf("deepseek-official/unknown-model", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing) === null, "unknown model cost must be null");
@@ -488,6 +491,14 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(Math.abs(sundayCost - 1.5) < 1e-9, `周日 10 点应按低谷价计费: ${sundayCost}`);
 	const mondayCost = costOf("deepseek-official/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 10, pricing, "2026-08-24");
 	assert(Math.abs(mondayCost - 3) < 1e-9, `周一 10 点应按高峰价计费: ${mondayCost}`);
+	const legacyFlashAfterRoute = costOf("deepseek-official/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 13, pricing, "2026-09-10");
+	assert(Math.abs(legacyFlashAfterRoute - 1) < 1e-9, `V4 Flash 旧型号应在 9 月 10 日起按 V4.1 Flash 价格计费: ${legacyFlashAfterRoute}`);
+	const legacyVisionAfterRoute = costOf("deepseek-official/deepseek-v4-flash-vision-exp", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 13, pricing, "2026-09-10");
+	assert(Math.abs(legacyVisionAfterRoute - 1) < 1e-9, `Vision Exp 旧型号应按 V4.1 Flash 价格计费: ${legacyVisionAfterRoute}`);
+	const proBeforeRoute = costOf("deepseek-official/deepseek-v4-pro", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 11, pricing, "2026-09-14");
+	assert(Math.abs(proBeforeRoute - 9) < 1e-9, `V4 Pro 在 9 月 14 日 12 点前应保留 Pro 高峰价格: ${proBeforeRoute}`);
+	const proAfterRoute = costOf("deepseek-official/deepseek-v4-pro", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing, "2026-09-14");
+	assert(Math.abs(proAfterRoute - 1) < 1e-9, `V4 Pro 在 9 月 14 日 12 点起应按 V4.1 Flash 价格计费: ${proAfterRoute}`);
 	// Custom pricing override works.
 	const custom = { ...pricing, pricing: { ...pricing.pricing, "my-model": { inputMiss: 1, inputHit: 0.1, output: 2 } } };
 	assert(priceOf("p/my-model", custom).output === 2, "custom model price");

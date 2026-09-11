@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { countTextTokens } from "../lib/tokenizer.js";
+import { countTextTokens } from "./tokenizer.mjs";
 
 function usage() {
 	return [

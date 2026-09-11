@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import { listBuiltInProviders, queryProvider } from "../lib/providers.js";
 import { queryDeepSeekBalance } from "../lib/balance.js";
+import { PROVIDER_STATUS_VALUES, providerErrorStatusOf, providerStatusFromHttp } from "../lib/provider-status.js";
 
 let checks = 0;
 
@@ -438,6 +439,22 @@ check(Boolean(windowOf(result, ["five_hour"])?.resetsAt) && Boolean(windowOf(res
 		error => error.providerStatus === "unavailable",
 		"balance body timeout must be classified as unavailable"
 	);
+}
+
+
+// Shared provider-status mapping is the single source for balance and adapters.
+{
+	check(providerStatusFromHttp(401) === "unauthorized", "401 maps to unauthorized");
+	check(providerStatusFromHttp(403) === "unauthorized", "403 maps to unauthorized");
+	check(providerStatusFromHttp(429) === "rate-limited", "429 maps to rate-limited");
+	check(providerStatusFromHttp(503) === "unavailable", "5xx maps to unavailable");
+	check(providerStatusFromHttp(400) === "invalid-response", "other HTTP errors map to invalid-response");
+	check(providerErrorStatusOf({ providerStatus: "timeout" }) === "timeout", "explicit providerStatus is preserved");
+	check(providerErrorStatusOf({ status: "not-subscribed" }) === "not-subscribed", "explicit status is preserved");
+	check(providerErrorStatusOf({ httpStatus: 401 }) === "unauthorized", "httpStatus is mapped");
+	check(providerErrorStatusOf(new Error("boom")) === "unavailable", "a missing status is unavailable, never invalid-response");
+	check(providerErrorStatusOf({ status: "bogus", httpStatus: 429 }) === "rate-limited", "a bogus status falls through to httpStatus");
+	check(PROVIDER_STATUS_VALUES.includes("not-configured"), "status vocabulary keeps not-configured");
 }
 
 console.log(`provider tests: ${checks} checks passed`);

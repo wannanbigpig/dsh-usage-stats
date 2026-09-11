@@ -12,7 +12,12 @@ window.matchMedia = () => ({ matches: false });
 let captured;
 window.__ModuleLoader__ = { load: entry => { captured = entry; } };
 new Function(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'))();
-const api = captured.factory(spec => spec === '@deepseek-ai/dsh-client-ui-primitives' ? new Proxy({}, { get: () => () => null }) : require(spec));
+const primitiveStubs = {
+ Switch: ({ checked, disabled, label, onChange }) => react.createElement('button', { type: 'button', role: 'switch', 'aria-checked': checked, 'aria-label': label, disabled, onClick: () => onChange(!checked) }),
+ Tag: ({ tone, children }) => react.createElement('span', { 'data-tone': tone }, children),
+ StateDot: ({ state }) => react.createElement('span', { 'data-state': state })
+};
+const api = captured.factory(spec => spec === '@deepseek-ai/dsh-client-ui-primitives' ? new Proxy(primitiveStubs, { get: (target, key) => target[key] ?? (() => null) }) : require(spec));
 let responder;
 api.apply({ connection: { rpc: { call: (...args) => responder(...args) } }, effect() {}, locale: { bind: () => key => key }, slots: { inject() {} } });
 const root = require('react-dom/client').createRoot(document.getElementById('root'));
@@ -80,7 +85,7 @@ await check('notification saves immediately notify the sidebar', async () => {
  window.addEventListener('usage-stats:notifications-updated', onUpdated);
  responder = async () => ok({ notifications, alerts: [] });
  await step(() => root.render(react.createElement(api.NotificationsCard, { translate: key => key })));
- await step(() => document.querySelector('input[type="checkbox"]').click());
+ await step(() => document.querySelector('[role="switch"]').click());
  window.removeEventListener('usage-stats:notifications-updated', onUpdated);
  assert.equal(updated, 1);
  assert.equal(api.accountDisplayFields({ balance: true }).some(([key]) => key === 'statusDot'), false);

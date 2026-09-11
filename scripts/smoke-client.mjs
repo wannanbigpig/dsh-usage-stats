@@ -19,6 +19,18 @@ const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "
 // Fake primitives: every named export is a no-op component.
 const Stub = () => null;
 const primitives = new Proxy({
+	Switch: function Switch({ checked, disabled, label, title, onChange }) {
+		return jsxRuntime.jsx("button", { type: "button", role: "switch", "aria-checked": checked, "aria-label": label, title, disabled, onClick: () => onChange(!checked) });
+	},
+	Tag: function Tag({ tone, children }) {
+		return jsxRuntime.jsx("span", { "data-tone": tone, children });
+	},
+	StateDot: function StateDot({ state, className }) {
+		return jsxRuntime.jsx("span", { "data-state": state, className });
+	},
+	Toast: function Toast({ text, icon, holdMs, onDone }) {
+		return jsxRuntime.jsxs("div", { role: "alert", "data-hold-ms": holdMs, children: [icon, text, typeof onDone === "function" ? null : "missing-onDone"] });
+	},
 	Modal: function Modal({ open, children, title, closeLabel, headless, onClose, className }) {
 		react.useEffect(() => {
 			if (!open) return;
@@ -54,6 +66,18 @@ if (!source.includes('fetchJson("/api/usage-stats/limits")')) throw new Error("c
 if (!source.includes('connectionRpc.call("/usage-stats", request.endpoint, request.payload, signal)')) throw new Error("client must transport usage requests through Connection RPC");
 if (source.includes("await fetch(path, init)")) throw new Error("client must not keep the native fetch transport fallback");
 if (!source.includes('name: "settings.section"')) throw new Error("client must register the settings.section slot");
+if (!source.includes('name: "sidebar.right.pane.tab"') || !source.includes('sidebarRightTabs.register')) throw new Error("client must register a native right-Sidebar tab when the host provides it");
+if (!source.includes('ctx.inject(["layout"]') || !source.includes('name: "main"')) throw new Error("client must register a native global main-panel fallback when the host provides layout");
+if (!source.includes('rightbarBody: "usg_rightbarBody"')) throw new Error("right Sidebar body must bind its dedicated responsive styles");
+if (!source.includes('mainBody: "usg_mainBody"')) throw new Error("global main panel must bind its dedicated host-surface styles");
+if (!source.includes('.usg_rightbarBody .usg_header{top:-12px;grid-template-columns:minmax(0,1fr) auto;padding:0 0 10px;background:var(--dsw-alias-bg-base)}') || !source.includes('.usg_mainBody .usg_header{top:-24px;padding:0 0 12px;background:var(--dsw-alias-bg-base)}')) throw new Error("native host surfaces must keep their sticky header on the base background");
+if (!source.includes('container-type:inline-size;container-name:usage-pane')) throw new Error("right Sidebar responsiveness must follow pane width instead of the viewport");
+if (!source.includes('.usg_rightbarBody .usg_chartInner{min-width:0}')) throw new Error("right Sidebar hourly charts must fit the dock without a modal-only horizontal scrollbar");
+if (!source.includes('.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:minmax(0,1fr) minmax(264px,32%);grid-template-areas:\\"activity rail\\" \\"heat heat\\"}')) throw new Error("wide right Sidebar must use a fluid activity and insight composition");
+if (!source.includes('@container usage-pane (max-width:840px){.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\"activity\\" \\"rail\\" \\"heat\\"}') || !source.includes('.usg_rightbarBody .usg_insightRail{display:flex}')) throw new Error("narrow right Sidebar must stack full-width workbench sections");
+if (!source.includes('primitives.Switch') || source.includes('.usg_switch{')) throw new Error("settings switches must reuse the host Switch primitive");
+if (!source.includes('primitives.Tag') || source.includes('.usg_tag{') || source.includes('.usg_badge{')) throw new Error("status capsules must reuse the host Tag primitive");
+if (!source.includes('primitives.StateDot') || source.includes('.usg_statusDot{')) throw new Error("sidebar status markers must reuse the host StateDot primitive");
 if (!source.includes('width:920px') || !source.includes('max-width:calc(100vw - 48px)')) throw new Error("query modal must preserve the compact width and viewport gutter");
 if ((source.match(/max-height:94vh/g) ?? []).length < 2) throw new Error("panel shell and scroll body must use the taller 94vh viewport budget");
 if (!source.includes('max-width:calc(100vw - 48px);max-height:94vh') || !source.includes('.usg_panelBody{box-sizing:border-box;max-height:94vh') || source.includes('height:94vh;max-height:94vh') || source.includes('.usg_panelBody{box-sizing:border-box;height:100%')) throw new Error("panel height must remain content-driven under the 94vh ceiling");
@@ -61,7 +85,7 @@ if (!source.includes('const sectionRef = react.useRef(null)') || !source.include
 if (!source.includes('ref: sectionRef') || !source.includes('onClick: showDetails') || !source.includes('style: activeTab === "details" && detailsMinHeight !== null ? { minHeight: `${detailsMinHeight}px` } : void 0')) throw new Error("only the details tab may inherit the overview height snapshot");
 if (!source.includes('border-radius:24px') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-elevation-prominent)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
 if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must split into summary/overview/details tabs");
-if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the current-provider tab");
+if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the selected provider overview tab");
 if (!source.includes('const usageProviderId = activeTab === "summary" ? null : selectedProviderId')) throw new Error("summary must request all providers while overview/details request the selected provider");
 if (!source.includes('if (activeTab !== "summary" && !selectedProviderId) { setUsageLoading(false); return Promise.resolve(); }')) throw new Error("current-provider views must wait for the default provider and clear loading state");
 if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('setLoaded(true);\n\t\t\t\t});')) throw new Error("settings usage failures must release the limits loading gate");
@@ -75,7 +99,7 @@ if (source.includes('onDayHover: setRangeHoveredDay')) throw new Error("multi-da
 if (!source.includes('reservedModelCount') || !source.includes('data-usage-provider-placeholder')) throw new Error("summary model list must reserve a stable row capacity for the active range");
 if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:stretch;min-height:0;overflow:hidden;contain:size}')) throw new Error("summary model usage rail must take the activity row height without expanding the grid track");
 if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageCard{flex:1;min-height:0;overflow:hidden}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{flex:1;min-height:0;overflow-y:auto;scrollbar-gutter:stable;overscroll-behavior:contain}')) throw new Error("summary model usage rows must scroll inside the height-bounded rail");
-if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:start;overflow:visible;contain:none}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{overflow-y:visible;scrollbar-gutter:auto}')) throw new Error("stacked summary layouts must return the model usage rail to natural height");
+if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:start;overflow:visible;contain:none}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{flex:none;min-height:auto;overflow-y:visible;scrollbar-gutter:auto}')) throw new Error("stacked summary layouts must return the model usage rail to natural height");
 if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(ProviderUsageList')) throw new Error("summary rail must fill the account-card space with cross-provider model usage");
 if (!source.includes('isSummaryTab ? null : react_jsx_runtime.jsx(BalanceCard')) throw new Error("summary must not render a selected-provider balance or plan card");
 if (!source.includes('"data-usage-overview-workbench": true')) throw new Error("overview must expose the redesigned workbench layout");
@@ -88,7 +112,7 @@ if (!source.includes('.usg_activityStage{grid-area:activity') || !source.include
 if (source.includes('.usg_headerMark{') || source.includes('className: S.headerMark')) throw new Error("panel header must keep the title text-only without an identity glyph");
 if (!source.includes('.usg_header{position:sticky;top:-18px') || !source.includes('padding:0;background:var(--dsw-alias-bg-layer-2)')) throw new Error("panel header must use zero padding without duplicating the panel body's top spacing");
 if (!source.includes('.usg_detailSummary{') || !source.includes('max-height:180px;overflow-y:auto;scrollbar-gutter:stable')) throw new Error("day model breakdown must stay height-bounded and internally scrollable");
-if (!source.includes('.usg_providerGroup{grid-template-columns:repeat(2,minmax(0,1fr))') || !source.includes('@media(max-width:560px)') || !source.includes('.usg_providerGroup{grid-template-columns:1fr}')) throw new Error("model rows must use two columns on wide panels and one column on phones");
+if (!source.includes('.usg_providerGroup{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))') || !source.includes('@media(max-width:560px)') || !source.includes('.usg_providerGroup{grid-template-columns:1fr}')) throw new Error("model rows must fill available columns without reserving an empty track");
 if (!source.includes('"usage.activityToday": "今日 Token"') || !source.includes('"usage.activityToday": "Tokens today"') || !source.includes('"usage.tokenUnit": "tokens"')) throw new Error("primary activity metric must be localized");
 if (!source.includes('"data-usage-stats-settings-link"')) throw new Error("query panel must expose the go-to-settings affordance");
 if (source.includes('"data-usage-provider-select": true')) throw new Error("query panel must follow the settings-selected provider without a second selector");
@@ -180,7 +204,7 @@ if (!source.includes('planQuotaRef')) throw new Error("plan quota slider saves m
 if (!source.includes('usage-stats:plan-quota-updated')) throw new Error("plan quota dragging must broadcast live threshold updates");
 if (!source.includes('addEventListener("usage-stats:plan-quota-updated"')) throw new Error("sidebar must listen for live plan quota threshold updates");
 if (!source.includes('"data-usage-plan-status-dot": true')) throw new Error("each sidebar plan window must expose a status dot");
-if (!source.includes('className: S.statusDot, "data-tone": item.tone, "data-usage-plan-status-dot": true')) throw new Error("plan quota dots must reuse the balance status-dot style");
+if (!source.includes('react_jsx_runtime.jsx(primitives.StateDot, { state: hostDotState(item.tone), size: 10 })')) throw new Error("plan quota dots must reuse the host StateDot primitive");
 if (!source.includes('.usg_planWindowItem{display:inline-flex;align-items:center;white-space:nowrap}')) throw new Error("plan windows must use fixed inline item layout");
 if (!source.includes('.usg_planWindowDotSlot{width:12px;display:inline-flex;align-items:center;justify-content:flex-start;flex:none}')) throw new Error("plan window dots must reserve the same slot when hidden");
 if (!source.includes('.usg_planWindowSeparator{display:inline-block;margin-inline:6px}')) throw new Error("plan window separators must have stable spacing");
@@ -234,7 +258,10 @@ exports_.apply({
 		requests.push({ endpoint, payload });
 		const value = endpoint === "providers/list" ? { ok: true, providers: [provider], defaultProviderId: provider.id }
 			: endpoint === "keys/list" ? { ok: true, keys: [] }
-				: endpoint === "usage/get" ? { ok: true, revision: usageRevision, days: [{ date: "2026-09-05", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null, models: [{ model: "test-local/model", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null }], hours: [] }], today: "2026-09-05" }
+				: endpoint === "usage/get" ? (() => {
+					const otherProviderTokens = payload?.query?.provider === undefined ? 40 : 0;
+					return { ok: true, revision: usageRevision, days: [{ date: "2026-09-05", inputTokens: liveInputTokens + otherProviderTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens + otherProviderTokens, cost: null, models: [{ model: "test-local/model", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null }, ...(otherProviderTokens > 0 ? [{ model: "other-provider/model", inputTokens: otherProviderTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: otherProviderTokens, cost: null }] : [])], hours: [] }], today: "2026-09-05" };
+				})()
 					: endpoint === "usage/revision" ? { ok: true, revision: usageRevision }
 						: endpoint === "accounts/get" ? { ok: true, providers: [provider], defaultProviderId: provider.id, settings: { defaultProviderId: provider.id, display: { balance: true, todayCost: true } }, accounts: { [provider.id]: { status: "local" } } }
 							: endpoint === "alerts/get" ? { ok: true, notifications: { channels: { sidebar: true, toast: false }, events: {} }, alerts: [] }
@@ -245,14 +272,21 @@ exports_.apply({
 	const root = createRoot(document.getElementById("root"));
 	const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 	try {
-		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })); await flush(); });
+		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })); await flush(); await flush(); });
 		const catalogBefore = requests.filter(request => request.endpoint === "providers/list").length;
 		const keysBefore = requests.filter(request => request.endpoint === "keys/list").length;
+		// The query panel opens on the selected provider's overview tab.
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("query panel must initially request the selected provider overview");
 		const summaryTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabSummary");
 		await react.act(async () => { summaryTab.click(); await flush(); });
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("All tab must request unfiltered provider usage");
+		const allDayCell = document.querySelector('button[aria-label^="2026-09-05"]');
+		if (!allDayCell?.getAttribute("aria-label")?.includes("· 40 tokens")) throw new Error("all-provider heatmap must include persisted usage from every provider");
+		const overviewTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabOverview");
+		await react.act(async () => { overviewTab.click(); await flush(); });
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("Overview tab must request the settings-selected provider");
 		if (requests.filter(request => request.endpoint === "providers/list").length !== catalogBefore) throw new Error("switching usage tabs must not reload the provider catalog");
 		if (requests.filter(request => request.endpoint === "keys/list").length !== keysBefore) throw new Error("switching usage tabs must not reload account keys");
-		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("All tab must request unfiltered provider usage");
 		console.log("query tab request isolation ok");
 		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsPanel, { wide: true, t: key => key })); await flush(); });
 		const trigger = document.querySelector("[data-usage-stats-trigger]");
@@ -288,14 +322,35 @@ exports_.apply({
 		let ownClicks = 0;
 		ownTrigger.onclick = () => ownClicks++;
 		layer.append(ownTrigger);
-		actions.append(layer);
+		let nestedAction = layer;
+		for (let depth = 0; depth < 5; depth += 1) {
+			const wrapper = document.createElement("div");
+			wrapper.append(nestedAction);
+			nestedAction = wrapper;
+		}
+		actions.append(nestedAction);
 		const settings = document.createElement("button");
 		settings.setAttribute("aria-haspopup", "dialog");
 		let settingsClicks = 0;
 		settings.onclick = () => settingsClicks++;
 		footer.append(actions, settings);
 		document.body.append(footer);
+		const settingsDialog = document.createElement("div");
+		settingsDialog.setAttribute("role", "dialog");
+		settingsDialog.setAttribute("aria-modal", "true");
+		const scopedSection = document.createElement("button");
+		scopedSection.textContent = "用量与计费";
+		let scopedClicks = 0;
+		scopedSection.onclick = () => scopedClicks++;
+		settingsDialog.append(scopedSection);
+		const decoySection = document.createElement("button");
+		decoySection.textContent = "用量与计费";
+		let decoyClicks = 0;
+		decoySection.onclick = () => decoyClicks++;
+		document.body.append(settingsDialog, decoySection);
 		if (!exports_.openHarnessSettings(layer) || settingsClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must click the host trigger without reopening usage");
+		await new Promise((resolve) => dom.window.setTimeout(resolve, 20));
+		if (scopedClicks !== 1 || decoyClicks !== 0) throw new Error(`settings section selection must stay inside the open dialog: scoped=${scopedClicks} decoy=${decoyClicks}`);
 	} finally {
 		await react.act(async () => { root.unmount(); await flush(); });
 		dom.window.close();
@@ -432,9 +487,10 @@ if (!source.includes('className: S.yearPicker') || !source.includes('.usg_yearPi
 if (!source.includes("width:10px;height:10px")) throw new Error("heatmap must use compact square day cells");
 if (!source.includes(".usg_contribGrid{grid-template-rows:16px repeat(7,10px);gap:5px;min-width:max-content;width:100%;justify-content:center;display:grid}")) throw new Error("heatmap must use the requested 5px gaps while centering the year grid");
 if (!source.includes("onMouseEnter: (event) => setHoveredCell") || !source.includes("day.inputTokens") || !source.includes("day: entry?.day ?? entry ?? null")) throw new Error("heatmap cells must show full-day hover details");
+if (!source.includes("function pointerTooltipStyle") || !source.includes("pointerTooltipStyle(hoveredCell.x, hoveredCell.y)") || !source.includes('"data-usage-heat-tooltip": true') || !source.includes("react_dom.createPortal")) throw new Error("heatmap tooltip must flip and escape pane clipping near viewport edges");
 if (!source.includes('"aria-label": title')) throw new Error("heatmap cells must retain an accessible label");
 if (!source.includes(".usg_hourTooltip{")) throw new Error("hourly chart must define an interactive tooltip");
-if (!source.includes('style: chartTooltipAnchorStyle(hovered.hour, 24)') || !source.includes('.usg_dayTooltip{position:fixed')) throw new Error("hourly tooltip must retain its chart anchor and multi-day tooltip must escape chart clipping");
+if (!source.includes('style: chartTooltipAnchorStyle(hovered.hour, 24)') || !source.includes('.usg_dayTooltip{box-sizing:border-box;position:fixed')) throw new Error("hourly tooltip must retain its chart anchor and multi-day tooltip must escape chart clipping");
 if (source.includes('Math.min(72, 100 *')) throw new Error("chart tooltips must not use a fixed left clamp that can overflow their scroll viewport");
 if (!source.includes("onMouseEnter: () => setHoveredHour(hour.hour)")) throw new Error("hourly bars must react to pointer hover");
 if (!source.includes('"data-hour": hour.hour')) throw new Error("hourly bars must expose their hour for interaction tests");
@@ -463,6 +519,7 @@ if (!source.includes('usage-stats:limits-updated')) throw new Error("sidebar sum
 if (!source.includes('usage-stats:accounts-updated')) throw new Error("sidebar summary must refresh after account display toggles change");
 if (!source.includes('display.balance !== false')) throw new Error("sidebar summary must respect the balance display toggle");
 if (!source.includes('display.todayCost !== false')) throw new Error("sidebar summary must respect the today-spend display toggle");
+if (!source.includes("summary.todayVisible === true")) throw new Error("sidebar must only show today's spend when it is positive");
 if (!source.includes('const showStatusDot = notifications.channels?.sidebar !== false')) throw new Error("sidebar summary must use the unified effective status-dot setting");
 if (!source.includes('t("panel.badge")') || !source.includes('t("panel.today")')) throw new Error("sidebar summary labels must use the active locale");
 if (source.includes('`余额 ${summary.balance}`') || source.includes('`今日 ${summary.today}`')) throw new Error("sidebar summary must not hard-code Chinese labels");
@@ -474,12 +531,11 @@ if (!source.includes('status === "blocked" || status === "exceeded"')) throw new
 if (!source.includes('"stale", "unavailable"')) throw new Error("client must render stale and unavailable limit states");
 // Settings controls must remain usable inside the host application's global
 // form styles. Amount fields save immediately from the current input value. The
-// switch owns its full hit area and paints a visible track without
-// relying on a potentially transparent host theme token.
+// Switches reuse the host primitive so hit targets, keyboard behavior and
+// theme colors follow the current Harness implementation.
 if (!source.includes('saveAmount(event, "lowBalanceWarning")')) throw new Error("low-balance input must validate and autosave its current value");
-if (!source.includes(".usg_switch input{position:absolute;inset:0;width:100%;height:100%")) throw new Error("switch input must own the full control hit area");
-if (!source.includes("background-color:rgba(128,128,128,.28)")) throw new Error("switch track must have a visible theme-independent off state");
-if (!source.includes(".usg_section{--usg-blue:var(--dsw-alias-state-business-primary,var(--dsw-static-deepseek-500,#4176e6));--usg-action:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#0f1115));")) throw new Error("panel must separate the Harness business accent from its monochrome action color");
+if (!source.includes("react_jsx_runtime.jsx(primitives.Switch")) throw new Error("settings switches must render the host Switch primitive");
+if (!source.includes(".usg_section{--usg-blue:var(--dsw-alias-state-business-primary,var(--dsw-static-deepseek-500,#4176e6));") || !source.includes("--usg-action:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary,#0f1115));")) throw new Error("panel must separate the Harness business accent from its monochrome action color");
 if (source.includes("saveMsg") || source.includes("usg_saveSuccess") || source.includes('"limits.saved"')) throw new Error("settings must not render a saved-success message");
 if (!source.includes("className: S.toggleGrid")) throw new Error("limit toggles must use the compact responsive grid");
 if (!source.includes("className: S.alertRange")) throw new Error("alert percentage must use the segmented range control");
@@ -491,7 +547,6 @@ if (!source.includes("--usg-success:var(--dsw-alias-state-success-primary,#22a06
 if (!source.includes(".usg_alertCard input.usg_alertRange{appearance:none!important;")) throw new Error("range control must override host input styles");
 if (!source.includes(".usg_alertCard input.usg_alertRange::-webkit-slider-runnable-track")) throw new Error("range control must paint an explicit WebKit track");
 if (!source.includes(".usg_saveBtn{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;")) throw new Error("save button must use the settings-page primary button palette");
-if (!source.includes(".usg_switch input:checked + .usg_switchSlider{background-color:var(--usg-action);border-color:var(--usg-action)}")) throw new Error("enabled switches must use the monochrome action palette");
 if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
 if (!source.includes(".usg_input::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}")) throw new Error("amount inputs must use the native placeholder palette");
 if (!source.includes("const [limitStatusMap, setLimitStatusMap] = react.useState({})")) throw new Error("query panel must load quota indicator statuses");
@@ -512,13 +567,13 @@ if (!source.includes("const loadLimitStatus = react.useCallback")) throw new Err
 if (!source.includes('window.addEventListener("usage-stats:limits-updated", onLimitsUpdated)')) throw new Error("query panel must refresh balance alert linkage after limit changes");
 if (source.includes('"data-balance-indicator": true')) throw new Error("balance card must not render a status dot");
 if (source.includes('"data-usage-cost-indicator": true')) throw new Error("today spend card must not render a status dot");
-if (!source.includes('summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("sidebar must show balance status dots");
+if (!source.includes('summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx(primitives.StateDot')) throw new Error("sidebar must show balance status dots with the host primitive");
 if (source.includes('`${balanceLabel} ${summary.balance}`')) throw new Error("sidebar balance summary must not include provider names");
 if (source.includes('`${summary.providerLabel} ${t("balance.local")}')) throw new Error("sidebar local summary must not include provider names");
 if (!source.includes('todayInputTokens') || !source.includes('todayOutputTokens')) throw new Error("sidebar local summary must expose today's input/output totals");
 if (!source.includes('fmtSidebarTokens')) throw new Error("sidebar local summary must use compact token formatting");
-if (source.includes('!wide && summary.todayStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide today status dot");
-if (source.includes('!wide && summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx("span", { className: S.statusDot')) throw new Error("collapsed sidebar must hide balance status dot");
+if (source.includes('!wide && summary.todayStatus !== "muted" ? react_jsx_runtime.jsx(primitives.StateDot')) throw new Error("collapsed sidebar must hide today status dot");
+if (source.includes('!wide && summary.balanceStatus !== "muted" ? react_jsx_runtime.jsx(primitives.StateDot')) throw new Error("collapsed sidebar must hide balance status dot");
 if (source.includes("host.style.flexDirection") || source.includes("new MutationObserver")) throw new Error("plugin UI must not rewrite host layout or settings icons");
 if (!source.includes('"limits.lowBalance": "余额提醒"')) throw new Error("balance alert field must use the concise label");
 if (!source.includes("const limitsRef = react.useRef(null)")) throw new Error("limits form must retain the latest saved configuration without resyncing edits");
@@ -573,8 +628,9 @@ if (source.includes('key: "path1"') || source.includes('key: "polyline1"')) thro
 // Notification linkage: the sidebar delivers in-page toasts with a fixed
 // five-second lifecycle, ignores pre-session history on first hydration,
 // honors the sidebar channel on the status dot, and polls alerts.
-if (!source.includes('const USAGE_TOAST_TOTAL_MS = 5000')) throw new Error("usage toast must have a five-second total lifecycle");
-if (!source.includes('function UsageAlertToast')) throw new Error("notifications must render the plugin-owned usage toast");
+if (!source.includes('const USAGE_TOAST_HOLD_MS = 4000')) throw new Error("usage toast must preserve a five-second total lifecycle through the host hold duration");
+if (!source.includes('react_jsx_runtime.jsx(primitives.Toast')) throw new Error("notifications must reuse the host Toast primitive");
+if (source.includes('function UsageAlertToast') || source.includes('.usg_toast{')) throw new Error("notifications must not duplicate the host Toast implementation");
 if (!source.includes('notificationSessionStartedAtRef')) throw new Error("notifications must track the current page session start");
 if (!source.includes('const sessionStartedAt = notificationSessionStartedAtRef.current') || !source.includes('itemAt < sessionStartedAt')) throw new Error("notifications must ignore alert history from before the page session");
 if (!source.includes('deliverAlerts')) throw new Error("sidebar must deliver new alerts from the alerts poll");
@@ -595,7 +651,9 @@ if (!source.includes('.usg_hourInput{background:var(--dsw-static-blue-500,#3b82f
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
 if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-module-platform);border-radius:3px;height:6px;flex:1;min-width:80px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:var(--usg-blue);opacity:.72}')) throw new Error("recent-day details must use a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
-if (!source.includes('color-mix(in srgb,var(--dsw-alias-state-business-primary) ${intensity}%,var(--usg-cellEmpty))')) throw new Error("heatmap intensity must follow the Harness business accent in both themes");
+const heatmapMix = 'color-mix(in srgb,var(--usg-blue) ${intensity}%,var(--usg-cellEmpty))';
+if ((source.split(heatmapMix).length - 1) < 2) throw new Error("heatmap cells and legend must share the scoped accent mix");
+if (!source.includes('--usg-cellEmpty:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-module-platform,rgba(128,128,128,.12)))')) throw new Error("heatmap empty color must be scoped to the section with a theme fallback");
 // Data card must be organized into plain-language groups.
 if (!source.includes('translate("data.overview")') || !source.includes('translate("data.retentionGroup")') || !source.includes('translate("data.dangerGroup")')) throw new Error("data card must use plain-language group headings");
 if (!source.includes('.usg_dataStatMetrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))') || !source.includes('.usg_dataStatRange{grid-template-columns:auto minmax(0,1fr)')) throw new Error("data overview must group three numeric metrics and give the date range its own row");
@@ -636,6 +694,7 @@ console.log("settings section render ok, length:", settingsMarkup.length);
 const panelMarkup = renderToStaticMarkup(react.createElement(UsageStatsPanel, { wide: true, t: (key) => key }));
 if (!panelMarkup.includes("data-usage-stats-trigger")) throw new Error("sidebar trigger missing");
 if (!panelMarkup.includes("panel.badge")) throw new Error("sidebar trigger label missing");
+if (panelMarkup.includes("aria-haspopup") || panelMarkup.includes("aria-expanded")) throw new Error("hybrid Sidebar/Modal trigger must not announce one inaccurate popup state");
 console.log("sidebar panel shell render ok, length:", panelMarkup.length);
 
 const warningBalanceMarkup = renderToStaticMarkup(react.createElement(exports_.BalanceCard, {
@@ -649,7 +708,7 @@ const warningBalanceMarkup = renderToStaticMarkup(react.createElement(exports_.B
 	balanceTone: "warn",
 	translate: (key) => key
 }));
-if (!warningBalanceMarkup.includes('data-tone="warn"')) throw new Error("DeepSeek balance card must render the configured warning tone");
+if (!warningBalanceMarkup.includes('data-tone="warning"')) throw new Error("DeepSeek balance card must map its warning state to the host Tag tone");
 if (!warningBalanceMarkup.includes('class="usg_balanceAmount"') || warningBalanceMarkup.includes('data-usage-plan-name')) throw new Error("DeepSeek balance typography must remain unchanged");
 console.log("DeepSeek balance alert tone linkage render ok");
 
@@ -732,7 +791,7 @@ const localUsageMarkup = renderToStaticMarkup(react.createElement(exports_.Balan
 }));
 if (!localUsageMarkup.includes('class="usg_localProviderName"') || !localUsageMarkup.includes(">xiaomi-token-plan-cn<")) throw new Error("local-only cards must prioritize the provider name");
 if (!localUsageMarkup.includes('class="usg_localUsageNote"') || !localUsageMarkup.includes(">balance.localOnly<")) throw new Error("local-only cards must explain their scope once");
-if (localUsageMarkup.includes('class="usg_balanceMain"') || localUsageMarkup.includes('class="usg_badge"') || localUsageMarkup.includes(">balance.local<")) throw new Error("local-only cards must not repeat local stats as a large value and badge");
+if (localUsageMarkup.includes('class="usg_balanceMain"') || localUsageMarkup.includes('data-tone=') || localUsageMarkup.includes(">balance.local<")) throw new Error("local-only cards must not repeat local stats as a large value and badge");
 
 const limitsMarkup = renderToStaticMarkup(react.createElement(LimitsCard, {
 	keys: [{ id: "DEEPSEEK_API_KEY", label: "DEEPSEEK_API_KEY", configured: true }],
@@ -832,6 +891,7 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 	globalThis.Event = dom.window.Event;
 	globalThis.MouseEvent = dom.window.MouseEvent;
 	globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+	const fetchedRoutes = [{ model: "deepseek-v4-pro", priceModel: "deepseek-v4-flash", effectiveFrom: "2026-09-14T12:00:00+08:00" }];
 	const fetchedModels = {
 		"deepseek-v4-flash": { offPeak: { inputMiss: 1.5, inputHit: 0.05, output: 4.5 }, peak: { inputMiss: 3, inputHit: 0.1, output: 9 } },
 		"deepseek-v4-pro": { offPeak: { inputMiss: 4.5, inputHit: 0.15, output: 13.5 }, peak: { inputMiss: 9, inputHit: 0.3, output: 27 } },
@@ -843,7 +903,7 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 		const body = payload.body ?? null;
 		if (body !== null) requestBodies.push(body);
 		const value = body?.action === "fetch-official"
-			? { ok: true, candidate: { currency: "CNY", checkedAt: "2026-08-24T00:00:00.000Z", sourceUrl: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/", models: fetchedModels } }
+			? { ok: true, candidate: { currency: "CNY", checkedAt: "2026-08-24T00:00:00.000Z", sourceUrl: "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/", models: fetchedModels, routes: fetchedRoutes } }
 			: { ok: true, current: { currency: "CNY", models: {} }, official: { currency: "CNY", models: {} }, usingCustom: false };
 		return { ok: true, value };
 	};
@@ -855,12 +915,14 @@ console.log("pricing card render ok, length:", pricingMarkup.length);
 	await act(async () => { root.render(react.createElement(exports_.PricingCard, { translate: (key) => key })); await flush(); });
 	const buttonByText = (text) => [...rootNode.querySelectorAll("button")].find((button) => button.textContent === text);
 	await act(async () => { buttonByText("pricing.fetchOfficial").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); await flush(); });
-	if (rootNode.querySelector("[data-usage-official-pricing-preview]") === null || !rootNode.textContent.includes("deepseek-v4-flash-vision-exp") || !rootNode.textContent.includes("27")) throw new Error("official pricing fetch must show a complete confirmation preview");
+	if (rootNode.querySelector("[data-usage-official-pricing-preview]") === null || rootNode.querySelector("[data-usage-official-pricing-routes]") === null || !rootNode.textContent.includes("deepseek-v4-flash-vision-exp") || !rootNode.textContent.includes("27") || !rootNode.textContent.includes("deepseek-v4-pro")) throw new Error("official pricing fetch must show complete price and routing confirmation");
 	if (rootNode.querySelectorAll("input.usg_priceInput").length !== 0) throw new Error("official pricing fetch must not fill the editor before confirmation");
 	await act(async () => { buttonByText("pricing.confirmOfficial").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); await flush(); });
 	const priceInputs = [...rootNode.querySelectorAll("input.usg_priceInput")];
 	if (priceInputs.length !== 18 || !priceInputs.some((input) => input.value === "27")) throw new Error("confirming official pricing must fill all fetched model rates into the editor");
 	if (requestBodies.length !== 1 || requestBodies[0].action !== "fetch-official") throw new Error("fetch and confirmation must not persist pricing automatically");
+	await act(async () => { buttonByText("pricing.saveCustom").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); await flush(); });
+	if (JSON.stringify(requestBodies[1]?.pricing?.routes) !== JSON.stringify(fetchedRoutes)) throw new Error("saving an official preview must preserve its declarative model routes");
 	await act(async () => { root.unmount(); await flush(); });
 	dom.window.close();
 	rpcResponder = previousRpcResponder;
@@ -1124,16 +1186,26 @@ if (exports_.windowResetDisplayForItem({ kind: "five_hour", remainingPercent: 10
 if (exports_.windowResetCountdownForItem({ kind: "five_hour", remainingPercent: 100 }, (key) => key === "balance.resetNotStarted" ? "尚未开始" : key, countdownNow) !== "尚未开始") throw new Error("compact empty five-hour quota must show an explicit not-started state");
 console.log("plan quota reset countdown formatting ok");
 
-// Apply against a stub client context: one native sidebar footer action and
-// one settings.section entry.
+// Apply against a stub client context: the persistent root entries plus the
+// current host's optional right-Sidebar type and body.
 const registrations = [];
 const registeredOptions = [];
+const sidebarDefinitions = [];
+const sidebarOpenCalls = [];
+const mainPanelSelections = [];
 rpcResponder = async (channel, endpoint, payload, signal) => {
 	rpcCalls.push({ channel, endpoint, payload, signal });
 	return { ok: true, value: { ok: true, endpoint } };
 };
 const ctx = {
-	effect: () => {},
+	effect: (callback) => callback() ?? (() => {}),
+	get: (name) => name === "sidebarRight" ? currentSidebarScope.sidebarRight : name === "layout" ? currentLayoutScope.layout : void 0,
+	inject: (deps, callback) => {
+		if (deps.join(",") === "sidebarRight,sidebarRightTabs") callback(currentSidebarScope);
+		else if (deps.join(",") === "layout") callback(currentLayoutScope);
+		else throw new Error(`unexpected optional services ${deps.join(",")}`);
+		return {};
+	},
 	connection: {
 		rpc: {
 			call: (...args) => rpcResponder(...args)
@@ -1150,6 +1222,24 @@ const ctx = {
 		inject: (slot, fn) => { registrations.push([slot, fn]); return () => {}; },
 		register: (options, component) => { registeredOptions.push({ options, component }); return () => {}; }
 	}
+};
+const currentSidebarScope = {
+	effect: (callback) => callback() ?? (() => {}),
+	sidebarRight: {
+		active: () => void 0,
+		openTab: (...args) => { sidebarOpenCalls.push(args); }
+	},
+	sidebarRightTabs: {
+		register: (definition) => { sidebarDefinitions.push(definition); return () => {}; }
+	},
+	slots: ctx.slots
+};
+const currentLayoutScope = {
+	effect: (callback) => callback() ?? (() => {}),
+	layout: {
+		selectPanel: (id) => { mainPanelSelections.push(id); }
+	},
+	slots: ctx.slots
 };
 exports_.apply(ctx);
 if (!exports_.inject.includes("connection")) throw new Error("client must require the official connection service");
@@ -1187,12 +1277,32 @@ await pending.then(
 	() => { throw new Error("aborted RPC call must reject"); },
 	(error) => { if (error.name !== "AbortError") throw error; }
 );
-if (registrations.length !== 2) throw new Error(`expected two slot injections, got ${registrations.length}`);
+if (registrations.length !== 4) throw new Error(`expected four slot injections, got ${registrations.length}`);
 const slotNames = registrations.map(([slot]) => slot).sort();
-if (slotNames[0] !== "settings.section" || slotNames[1] !== "sidebar.footer.action") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
+if (slotNames.join(",") !== "main,settings.section,sidebar.footer.action,sidebar.right.pane.tab") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
 const footerEntry = registrations.find(([slot]) => slot === "sidebar.footer.action");
 const footerDisposer = footerEntry[1]();
 if (typeof footerDisposer !== "function") throw new Error("footer slot registration must return a disposer");
+const footerReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.footer.action");
+const footerFace = footerReg?.options?.inject?.();
+if (footerFace?.openInHostSurface?.() !== true) throw new Error("footer action must open an empty but mounted right Sidebar");
+if (sidebarOpenCalls[0]?.[0] !== "usage-stats") throw new Error("footer action must open the usage-stats tab kind");
+currentSidebarScope.sidebarRight.openTab = () => { throw new Error("no session surface"); };
+if (footerFace?.openInHostSurface?.() !== true) throw new Error("footer action must fall back to the native global main panel without a session surface");
+if (mainPanelSelections.at(-1) !== "@wannanbigpig/dsh-usage-stats/main") throw new Error("global panel fallback must select the usage-stats main panel id");
+if (sidebarDefinitions[0]?.id !== "@wannanbigpig/dsh-usage-stats/sidebar" || sidebarDefinitions[0]?.kind !== "usage-stats" || sidebarDefinitions[0]?.guide?.length !== 1) throw new Error("right-Sidebar type must expose one discoverable guide entry");
+const rightbarEntry = registrations.find(([slot]) => slot === "sidebar.right.pane.tab");
+const rightbarDisposer = rightbarEntry[1]();
+if (typeof rightbarDisposer !== "function") throw new Error("right-Sidebar body registration must return a disposer");
+const rightbarReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.right.pane.tab");
+if (rightbarReg?.options?.key !== "@wannanbigpig/dsh-usage-stats/sidebar" || typeof rightbarReg.component !== "function") throw new Error("right-Sidebar body must use the tab definition id");
+const mainEntry = registrations.find(([slot]) => slot === "main");
+const mainDisposer = mainEntry[1]();
+if (typeof mainDisposer !== "function") throw new Error("global main panel registration must return a disposer");
+const mainReg = registeredOptions.find((entry) => entry.options?.name === "main");
+if (mainReg?.options?.key !== "@wannanbigpig/dsh-usage-stats/main" || typeof mainReg.component !== "function") throw new Error("global main panel must use the selected panel id");
+mainReg.options.inject().closePanel();
+if (mainPanelSelections.at(-1) !== null) throw new Error("global main panel close action must return to the Conversation");
 const sectionEntry = registrations.find(([slot]) => slot === "settings.section");
 const sectionDisposer = sectionEntry[1]();
 if (typeof sectionDisposer !== "function") throw new Error("settings.section registration must return a disposer");
@@ -1205,7 +1315,7 @@ if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.fo
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.
-const { activeDayKeyOf, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue } = exports_;
+const { activeDayKeyOf, adjacentDayKey, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue } = exports_;
 const nullBalanceMarkup = renderToStaticMarkup(exports_.BalanceCard({
 	keys: [],
 	providers: [{ id: "deepseek-official", capabilities: ["balance"], label: "DeepSeek" }],
@@ -1234,8 +1344,8 @@ if (hiddenForA.length !== 0 || alertSeen.size !== 0) throw new Error("alerts for
 const visibleForB = exports_.freshAlertsForProvider([providerBAlert], {}, "provider-b", alertSeen, 100, (key) => key);
 if (visibleForB.length !== 1 || alertSeen.size !== 1) throw new Error("an alert must remain deliverable after switching to its provider");
 
-const pricingPayload = exports_.pricingWritePayload({ peakHours: [[1, 2]], weekendOffPeakFrom: "2030-01-01", windows: [{ start: "01:00", end: "02:00", tier: "peak" }], pricing: { model: { inputMiss: 99 } } }, "CNY", { model: { offPeak: { inputMiss: 1 } } });
-if (JSON.stringify(pricingPayload.peakHours) !== "[[1,2]]" || pricingPayload.weekendOffPeakFrom !== "2030-01-01" || pricingPayload.windows.length !== 1) throw new Error("pricing saves must preserve the active schedule metadata");
+const pricingPayload = exports_.pricingWritePayload({ peakHours: [[1, 2]], weekendOffPeakFrom: "2030-01-01", windows: [{ start: "01:00", end: "02:00", tier: "peak" }], routes: [{ model: "deepseek-old", priceModel: "deepseek-new", effectiveFrom: "2030-01-01T00:00:00+08:00" }], pricing: { model: { inputMiss: 99 } } }, "CNY", { model: { offPeak: { inputMiss: 1 } } });
+if (JSON.stringify(pricingPayload.peakHours) !== "[[1,2]]" || pricingPayload.weekendOffPeakFrom !== "2030-01-01" || pricingPayload.windows.length !== 1 || pricingPayload.routes.length !== 1) throw new Error("pricing saves must preserve the active schedule and routing metadata");
 if (Object.hasOwn(pricingPayload, "pricing") || pricingPayload.models.model.offPeak.inputMiss !== 1) throw new Error("pricing saves must not let the legacy read shape overwrite edited versioned rates");
 
 const chartHours = Array.from({ length: 24 }, (_, hour) => ({ hour, tokens: 0, cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, models: [] }));
@@ -1287,8 +1397,18 @@ const YESTERDAY_KEY = keyOf(d1);
 if (activeDayKeyOf("yesterday", null, TODAY_KEY) !== YESTERDAY_KEY) throw new Error("yesterday range must resolve to yesterday's active chart day");
 if (activeDayKeyOf("today", null, TODAY_KEY) !== TODAY_KEY) throw new Error("today range must resolve to today's active chart day");
 if (activeDayKeyOf("custom", "2026-08-19", TODAY_KEY) !== "2026-08-19") throw new Error("custom range must retain its selected day");
-if (!source.includes('disabled: recentList.length === 0 || activeDayKey <= recentList[recentList.length - 1].date')) throw new Error("previous-day navigation must disable at the oldest day");
-if (!source.includes('disabled: recentList.length === 0 || activeDayKey >= recentList[0].date')) throw new Error("next-day navigation must disable at the newest day");
+
+// Date navigation must resolve by date order even when the active day is not in the list.
+const navDays = ["2026-09-10", "2026-09-09", "2026-09-08"].map((date) => ({ date }));
+if (adjacentDayKey(navDays, "2026-09-08", "next") !== "2026-09-09") throw new Error("next-day navigation must move to the adjacent newer recorded day");
+if (adjacentDayKey(navDays, "2026-09-08", "prev") !== null) throw new Error("previous-day navigation must stop at the oldest recorded day");
+if (adjacentDayKey(navDays, "2026-09-10", "prev") !== "2026-09-09") throw new Error("previous-day navigation must move to the adjacent older recorded day");
+if (adjacentDayKey(navDays, "2026-09-10", "next") !== null) throw new Error("next-day navigation must stop at the newest recorded day");
+if (adjacentDayKey(navDays, "2026-01-01", "next") !== "2026-09-08") throw new Error("an out-of-window day must still navigate forward to the nearest recorded day");
+if (adjacentDayKey(navDays, "2026-01-01", "prev") !== null) throw new Error("an out-of-window day with no older record must not move previous");
+if (adjacentDayKey([], "2026-09-08", "prev") !== null || adjacentDayKey(null, "2026-09-08", "next") !== null) throw new Error("date navigation must be inert without a usable list or active day");
+if (!source.includes('disabled: adjacentDayKey(recentList, activeDayKey, "prev") === null')) throw new Error("previous-day navigation must disable through adjacentDayKey");
+if (!source.includes('disabled: adjacentDayKey(recentList, activeDayKey, "next") === null')) throw new Error("next-day navigation must disable through adjacentDayKey");
 
 const wireDay = {
 	date: TODAY_KEY,
@@ -1359,6 +1479,15 @@ const coloredSidebarSummary = sidebarSummaryOf(
 	{ ok: true, defaultKeyRef: "DEEPSEEK_API_KEY", status: { DEEPSEEK_API_KEY: { balanceAlertStatus: "ok", spendStatus: "warning" } } }
 );
 if (coloredSidebarSummary.balanceStatus !== "ok" || coloredSidebarSummary.todayStatus !== "warn") throw new Error(`sidebar indicator tones ${JSON.stringify(coloredSidebarSummary)}`);
+
+// Sidebar must hide today's spend while it is zero or absent.
+const zeroTodaySummary = sidebarSummaryOf(
+	{ ok: true, days: [{ ...wireDay, cost: 0, tokens: 0 }], pricing: { currency: "CNY" } },
+	{ ok: true, account: { balance: { total: 65.12, currency: "CNY" } } }
+);
+if (zeroTodaySummary.todayValue !== 0) throw new Error("zero today summary " + JSON.stringify(zeroTodaySummary));
+if (zeroTodaySummary.todayVisible !== false) throw new Error("zero today spend must not be visible in the sidebar");
+if (sidebarSummary.todayVisible !== true) throw new Error("positive today spend must stay visible in the sidebar");
 
 const filtered = filterDay(wireDay, "deepseek-v4-flash");
 if (filtered.tokens !== 250) throw new Error(`filter tokens ${filtered.tokens}`);
@@ -1431,7 +1560,7 @@ console.log("data helpers ok");
 
 //#region contribution heatmap
 {
-	const { buildYearContributionHeatmap, cellColor, ContributionHeatmap } = exports_;
+	const { buildYearContributionHeatmap, cellColor, pointerTooltipStyle, ContributionHeatmap } = exports_;
 	const dayMap = new Map([
 		["2026-08-13", { tokens: 1234, cacheHitRate: 88.8 }],
 		["2026-08-14", { tokens: 4321, cacheHitRate: 90 }]
@@ -1456,6 +1585,12 @@ console.log("data helpers ok");
 	if (day13?.tokens !== 1234 || day13?.hitRate !== 88.8) throw new Error(`heat day 13 ${JSON.stringify(day13)}`);
 	if (heat.months.length !== 12 || !heat.months.some((month) => month.month === 7)) throw new Error(`year month labels invalid: ${JSON.stringify(heat.months)}`);
 	if (cellColor(4321, heat.max).background === cellColor(0, heat.max).background) throw new Error("used and empty days must have different colors");
+	if (cellColor(1234, heat.max).background === cellColor(4321, heat.max).background) throw new Error("heatmap intensity must distinguish lower usage from the daily maximum");
+	if (!cellColor(4321, heat.max).background.includes("var(--usg-blue)")) throw new Error("used heatmap days must use the section-scoped accent fallback");
+	const lowerTooltip = pointerTooltipStyle(100, 100, 230, 1000, 800);
+	const bottomTooltip = pointerTooltipStyle(980, 760, 230, 1000, 800);
+	if (lowerTooltip.transform !== void 0 || lowerTooltip.top !== "112px") throw new Error(`upper heatmap tooltip must open below its pointer: ${JSON.stringify(lowerTooltip)}`);
+	if (bottomTooltip.transform !== "translateY(-100%)" || bottomTooltip.top !== "748px" || bottomTooltip.left !== "762px" || bottomTooltip.maxHeight !== "740px" || bottomTooltip.overflowY !== "auto") throw new Error(`bottom heatmap tooltip must flip and stay inside the viewport: ${JSON.stringify(bottomTooltip)}`);
 	// The server-provided "today" must drive the today-cell highlight.
 	const todayHeatMarkup = renderToStaticMarkup(react.createElement(ContributionHeatmap, {
 		heat: buildYearContributionHeatmap(new Map([["2026-08-14", { tokens: 1, cacheHitRate: null }]]), 2026),
@@ -1530,8 +1665,8 @@ await clientRegression("queued notification edits preserve independent switches"
 		? { ok: true, value: { ok: true, notifications, alerts: [] } }
 		: new Promise(resolve => writes.push({ patch: payload.body.notifications, resolve })));
 	await step(() => root.render(react.createElement(exports_.NotificationsCard, { translate: key => key })));
-	await step(() => document.querySelectorAll('input[type="checkbox"]')[0].click());
-	await step(() => document.querySelectorAll('input[type="checkbox"]')[1].click());
+	await step(() => document.querySelectorAll('[role="switch"]')[0].click());
+	await step(() => document.querySelectorAll('[role="switch"]')[1].click());
 	for (let i = 0; i < 2; i++) {
 		const write = writes[i];
 		if (!write) throw new Error("both switch edits must be submitted");
@@ -1548,8 +1683,8 @@ await clientRegression("queued display edits preserve independent switches", asy
 		? { ok: true, value: { ok: true, settings, providers: [], accounts: {} } }
 		: new Promise(resolve => writes.push({ patch: payload.body, resolve })));
 	await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
-	await step(() => document.querySelectorAll('input[type="checkbox"]')[1].click());
-	await step(() => document.querySelectorAll('input[type="checkbox"]')[0].click());
+	await step(() => document.querySelectorAll('[role="switch"]')[1].click());
+	await step(() => document.querySelectorAll('[role="switch"]')[0].click());
 	for (let i = 0; i < 2; i++) {
 		const write = writes[i];
 		if (!write) throw new Error("both display edits must be submitted");
@@ -1620,16 +1755,16 @@ await clientRegression("failed notification writes recover without losing later 
 		? { ok: true, value: { ok: true, notifications, alerts: [] } }
 		: new Promise(resolve => writes.push({ patch: payload.body.notifications, resolve })));
 	await step(() => root.render(react.createElement(exports_.NotificationsCard, { translate: key => key })));
-	const inputs = () => document.querySelectorAll('input[type="checkbox"]');
+	const inputs = () => document.querySelectorAll('[role="switch"]');
 	await step(() => inputs()[0].click());
 	await step(() => inputs()[1].click());
 	await step(() => writes[0].resolve({ ok: true, value: { ok: false, message: "simulated failure" } }));
 	notifications = { ...notifications, channels: { ...notifications.channels, ...writes[1].patch.channels } };
 	await step(() => writes[1].resolve({ ok: true, value: { ok: true, notifications } }));
-	if (!inputs()[0].checked || !inputs()[1].checked || document.querySelector('.usg_error')) throw new Error("successful queued edit must restore server state and clear the earlier error");
+	if (inputs()[0].getAttribute("aria-checked") !== "true" || inputs()[1].getAttribute("aria-checked") !== "true" || document.querySelector('.usg_error')) throw new Error("successful queued edit must restore server state and clear the earlier error");
 	await step(() => inputs()[1].click());
 	await step(() => writes[2].resolve({ ok: true, value: { ok: false, message: "simulated failure" } }));
-	if (!inputs()[1].checked) throw new Error("failed optimistic edit must reload the saved value");
+	if (inputs()[1].getAttribute("aria-checked") !== "true") throw new Error("failed optimistic edit must reload the saved value");
 });
 
 await clientRegression("pending plan quota saves preserve later drags and notification settings", async ({ root, step, change, setResponder }) => {

@@ -312,7 +312,7 @@ function createHarness(options = {}) {
 			providerService: { providers: async () => providers, cached: () => balance, get: async () => balance },
 			fetchOfficialPricing: async () => ({ currency: "CNY", sourceUrl: "https://example.invalid/pricing", checkedAt: "2026-08-25T00:00:00.000Z", models: { "deepseek-v4-flash": { offPeak: { inputMiss: 1, inputHit: 1, output: 1 }, peak: { inputMiss: 2, inputHit: 2, output: 2 } } } })
 		});
-		assert.deepEqual(inject, ["credentials", "settings", "storageDomain", "connection", "sessionPersistence"]);
+		assert.deepEqual(inject, ["credentials", "settings", "storageDomain", "connection", "webServer", "sessionPersistence"]);
 		assert.equal(harness.rpc.channel, USAGE_RPC_CHANNEL);
 		assert.deepEqual(harness.rpc.options, { authority: "loopback" });
 		assert.equal(harness.ctx.webServer, void 0);
@@ -570,5 +570,31 @@ assert.deepEqual(StateSchema.parse(createEmptyUsageState()), createEmptyUsageSta
 	} finally { await harness.dispose(); await rm(home, { recursive: true, force: true }); }
 }
 console.log("settled retry usage accounting ok");
+
+// A durable attempt settlement is billed even when llm/stream did not observe it.
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-stats-attempt-"));
+	const harness = createHarness();
+	try {
+		await apply(harness.ctx, {}, { dshHome: home, disableBackgroundRefresh: true, limitsService: { check: async () => ({ status: "ok" }) } });
+		const session = { id: "attempt-fallback" };
+		const notify = event => harness.listeners.get("session/event")(session, { time: Date.now(), ...event });
+		await notify({ type: "step/start", data: { turn: 1, step: 1 } });
+		await notify({ type: "request/header", data: { header: { config: { provider: "deepseek-official", model: "deepseek-v4-flash" } } } });
+		await notify({ type: "assistant/attempt", seq: 2, data: { turn: 1, step: 1, stream: [{ type: "chunk", chunk: { type: "usage", usage: { inputTokens: 5, outputTokens: 2 } } }] } });
+		assert.equal(ledgerEntriesOf(harness), 1, "an unobserved settled attempt must be recorded from its embedded usage");
+		assert.equal((await collectUsage(harness.ctx)).total.tokens, 7, "the attempt fallback must contribute its embedded usage");
+
+		await notify({ type: "step/start", data: { turn: 1, step: 2 } });
+		const stream = harness.listeners.get("llm/stream")({ sessionId: session.id, provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
+			yield { type: "usage", usage: { inputTokens: 9, outputTokens: 1 } };
+		});
+		for await (const chunk of stream) { /* drain */ }
+		await notify({ type: "assistant/attempt", seq: 3, data: { turn: 1, step: 2, stream: [{ type: "chunk", chunk: { type: "usage", usage: { inputTokens: 9, outputTokens: 1 } } }] } });
+		assert.equal(ledgerEntriesOf(harness), 2, "an attempt already captured by llm/stream must not be recorded twice");
+		assert.equal((await collectUsage(harness.ctx)).total.tokens, 17, "captured and settled attempts must each contribute exactly once");
+	} finally { await harness.dispose(); await rm(home, { recursive: true, force: true }); }
+}
+console.log("durable attempt fallback usage accounting ok");
 
 console.log("server official-seam integration tests passed");

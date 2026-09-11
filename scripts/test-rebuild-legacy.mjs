@@ -148,8 +148,9 @@ console.log("official sessionPersistence rebuild contract ok");
 
 // Hosts from dsh-0.1.2-alpha.4 replace listSnapshots()/readFrom() with the
 // handle-based seam: list() plus open(id, 'read') returning a SessionHandle
-// whose read(offset, length) yields the flat event array. The rebuild must
-// serve both generations and close every handle it opens.
+// whose read(offset, length) returned the flat event array at first and now
+// returns `{ eventState, events }`. The rebuild must serve both handle result
+// generations and close every handle it opens.
 const modernCalls = [];
 const modernPersistence = {
 	list: async (options) => {
@@ -164,12 +165,15 @@ const modernPersistence = {
 		return {
 			read: async (offset, length, readOptions) => {
 				modernCalls.push(["read", id, offset, length]);
-				return [{
-					seq: offset,
-					time: before,
-					type: "assistant/message",
-					data: { usage: { inputTokens: id === "session-a" ? 10 : 20 } }
-				}];
+				return {
+					eventState: "owned",
+					events: [{
+						seq: offset,
+						time: before,
+						type: "assistant/message",
+						data: { usage: { inputTokens: id === "session-a" ? 10 : 20 } }
+					}]
+				};
 			},
 			close: async () => { modernCalls.push(["close", id]); }
 		};

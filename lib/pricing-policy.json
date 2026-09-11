@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "deepseek-cn-routing-2026-09-10",
+  "checkedAt": "2026-09-10T00:00:00+08:00",
+  "sourceUrl": "https://api-docs.deepseek.com/zh-cn/updates/",
+  "models": {
+    "deepseek-flash": {
+      "offPeak": { "inputHit": 0.02, "inputMiss": 1, "output": 4 },
+      "peak": { "inputHit": 0.04, "inputMiss": 2, "output": 8 }
+    },
+    "deepseek-v4-pro": {
+      "offPeak": { "inputHit": 0.15, "inputMiss": 4.5, "output": 13.5 },
+      "peak": { "inputHit": 0.30, "inputMiss": 9, "output": 27 }
+    }
+  },
+  "routes": [
+    {
+      "model": "deepseek-v4-flash",
+      "priceModel": "deepseek-flash",
+      "effectiveFrom": "2026-09-10T00:00:00+08:00"
+    },
+    {
+      "model": "deepseek-v4-flash-vision-exp",
+      "priceModel": "deepseek-flash",
+      "effectiveFrom": "2026-09-10T00:00:00+08:00"
+    },
+    {
+      "model": "deepseek-v4-pro",
+      "priceModel": "deepseek-flash",
+      "effectiveFrom": "2026-09-14T12:00:00+08:00"
+    }
+  ]
+}
