@@ -72,6 +72,8 @@ try {
 		completedAt: at + index,
 		provider: "deepseek-official",
 		model: "deepseek-v4-flash",
+		sessionId: "json-session",
+		workspace: "/work/json",
 		usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 1, cacheWriteTokens: 0 }
 	}, { pricing, maxLedgerEntries: 10, recentSampleKeyCapacity: 260 }))));
 	const before = first.get();
@@ -106,6 +108,9 @@ try {
 	}
 	const frozenDays = (await readdir(frozenDir)).sort();
 	assert.ok(frozenDays.length >= 1, "compaction must leave frozen day rows on disk");
+	const frozenDocument = JSON.parse(await readFile(join(frozenDir, frozenDays[0]), "utf8"));
+	assert.equal(frozenDocument.record.byWorkspace["/work/json"].sessions["json-session"].cacheReadTokens, before.archive.frozen.entryCount - 1,
+		"the JSON backend must persist the compacted workspace and session attribution");
 	const global = JSON.parse(await readFile(join(unitDir, "global.json"), "utf8"));
 	assert.equal(global.version, 2);
 	assert.ok(global.record.installedAt > 0, "the global commit marker must be installed");

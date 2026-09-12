@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { dayKey } from "../lib/usage.js";
-import { filterEventsBeforeCoverage, rebuildEstimatedFromPersistence } from "../lib/rebuild.js";
+import { filterEventsBeforeCoverage, readSessionTitlesFromPersistence, rebuildEstimatedFromPersistence } from "../lib/rebuild.js";
 import { createLedgerState, renderLedgerState } from "../lib/ledger.js";
 import { SessionFormatUnsupportedError } from "@deepseek-ai/dsh-session-persistence";
 import { callRebuildRpc, parseArguments } from "./rebuild-today-legacy.mjs";
@@ -145,6 +145,32 @@ const named = await rebuildEstimatedFromPersistence(namedPersistence, { coverage
 assert.equal(named.unreadableSessions, 1, "the skip must also work when the host shapes the error differently");
 
 console.log("official sessionPersistence rebuild contract ok");
+
+// Workspace attribution comes from the session header cwd and keeps sessions
+// distinct, including through the per-session fold cache.
+{
+	const workspacePersistence = {
+		listSnapshots: async () => [
+			{ header: { id: "w-a", cwd: "/work/alpha" }, revision: "ra" },
+			{ header: { id: "w-b", cwd: "/work/alpha" }, revision: "rb" },
+			{ header: { id: "w-c" }, revision: "rc" }
+		],
+		readFrom: async (id) => ({
+			meta: { id },
+			events: [{ seq: 0, time: before, type: "assistant/message", data: { usage: { inputTokens: id === "w-a" ? 10 : id === "w-b" ? 20 : 5 } } }]
+		})
+	};
+	const ws = await rebuildEstimatedFromPersistence(workspacePersistence, { coverageCutoffsByDay: {} }, { now: () => 1 });
+	assert.equal(ws.workspaces["/work/alpha"].sessions["w-a"].days[dayKey(before)].inputTokens, 10);
+	assert.equal(ws.workspaces["/work/alpha"].sessions["w-b"].days[dayKey(before)].inputTokens, 20);
+	assert.equal(ws.workspaces[""].sessions["w-c"].days[dayKey(before)].inputTokens, 5, "a session without cwd groups under the unknown workspace");
+	const cache = new Map();
+	const first = await rebuildEstimatedFromPersistence(workspacePersistence, { coverageCutoffsByDay: {} }, { cache });
+	const second = await rebuildEstimatedFromPersistence(workspacePersistence, { coverageCutoffsByDay: {} }, { cache });
+	assert.deepEqual(second.workspaces, first.workspaces, "a cached rebuild must reproduce the workspace rollup");
+	assert.equal(second.days[dayKey(before)].totals.inputTokens, 35);
+	console.log("workspace attribution rebuild contract ok");
+}
 
 // Hosts from dsh-0.1.2-alpha.4 replace listSnapshots()/readFrom() with the
 // handle-based seam: list() plus open(id, 'read') returning a SessionHandle
@@ -357,6 +383,34 @@ await rebuildEstimatedFromPersistence(cachedLegacy, { coverageCutoffsByDay: {} }
 assert.equal(prunedCache.size, 2, "a rebuild must prune entries for sessions the registry no longer lists while keeping listed ones");
 
 console.log("per-session rebuild fold cache ok");
+
+// Workspace reports resolve the latest durable title and reuse unchanged
+// session revisions instead of exposing or repeatedly reading the raw id.
+{
+	const reads = [];
+	const titleCache = new Map();
+	const persistence = {
+		listSnapshots: async () => [
+			{ header: { id: "titled" }, revision: "title-r1" },
+			{ header: { id: "untitled" }, revision: "title-r2" }
+		],
+		readFrom: async (id) => {
+			reads.push(id);
+			return { events: id === "titled" ? [
+				{ seq: 0, time: before, type: "session/title", data: { title: "旧标题" } },
+				{ seq: 1, time: after, type: "session/title", data: { title: "真实会话标题" } }
+			] : [] };
+		}
+	};
+	const first = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled", "missing"], { cache: titleCache });
+	assert.equal(first.get("titled"), "真实会话标题", "the latest durable session/title event must win");
+	assert.equal(first.has("untitled"), false, "an untitled session must stay explicitly unlabeled");
+	assert.deepEqual(reads, ["titled", "untitled"]);
+	const second = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled"], { cache: titleCache });
+	assert.equal(second.get("titled"), "真实会话标题");
+	assert.deepEqual(reads, ["titled", "untitled"], "unchanged title revisions must reuse the cache");
+}
+console.log("durable session title lookup ok");
 
 // Fork logs repeat their parent's prefix; only the child's owned suffix is new usage.
 {

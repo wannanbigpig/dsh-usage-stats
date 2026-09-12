@@ -360,13 +360,17 @@ function createHarness(options = {}) {
 		assert.equal(capacity.ok, true);
 		assert.equal(capacity.value.settings.maxLedgerEntries, 100);
 
-		await harness.listeners.get("session/event")({ id: "s1" }, { type: "step/start", time: Date.now(), data: { turn: 1, step: 2 } });
+		await harness.listeners.get("session/event")({ id: "s1", header: { cwd: "/work/demo" } }, { type: "session/title", time: Date.now(), data: { title: "修复工作区会话名称", messageSeqs: [1], source: { kind: "fallback" } } });
+		await harness.listeners.get("session/event")({ id: "s1", header: { cwd: "/work/demo" } }, { type: "step/start", time: Date.now(), data: { turn: 1, step: 2 } });
 		const stream = harness.listeners.get("llm/stream")({ sessionId: "s1", provider: "deepseek-official", model: "deepseek-v4-flash" }, async function* () {
 			yield { type: "text", text: "ok" };
 			yield { type: "usage", usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } };
 		});
 		for await (const _chunk of stream) { /* drain */ }
 		assert.equal(ledgerEntriesOf(harness), 1);
+		const storedEntry = [...harness.domain.ledger.records.values()][0].entries[0];
+		assert.equal(storedEntry.sessionId, "s1", "live ledger entries must carry the session id");
+		assert.equal(storedEntry.workspace, "/work/demo", "live ledger entries must carry the session cwd");
 		assert.equal((await collectUsage(harness.ctx)).total.tokens, 2,
 			"a successful ledger write must invalidate the cached rendered usage");
 		const revisionAfter = await harness.rpc.handler("usage/revision", { query: {} });
@@ -411,6 +415,18 @@ function createHarness(options = {}) {
 			data: { turn: 1, step: 3, usage: { inputTokens: 2, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, message: { source: { provider: "deepseek-official", model: "deepseek-v4-flash" } } }
 		});
 		assert.equal(ledgerEntriesOf(harness), 3, "a later call with no stream usage must still use assistant/message fallback");
+
+		const workspaceView = await harness.rpc.handler("usage/workspaces", { query: {} });
+		assert.equal(workspaceView.value.ok, true);
+		assert.equal(workspaceView.value.workspaces[0].workspace, "/work/demo");
+		assert.equal(workspaceView.value.workspaces[0].sessions[0].sessionId, "s1");
+		assert.equal(workspaceView.value.workspaces[0].sessions[0].title, "修复工作区会话名称", "workspace sessions must expose the durable conversation title instead of the internal id");
+		assert.ok(workspaceView.value.tokens > 0);
+		const emptyWindow = await harness.rpc.handler("usage/workspaces", { query: { from: "2000-01-01", to: "2000-01-02" } });
+		assert.equal(emptyWindow.value.tokens, 0, "a date window without usage must return an empty workspace view");
+		assert.deepEqual(emptyWindow.value.workspaces, []);
+		assert.equal((await harness.rpc.handler("usage/workspaces", { query: { from: "2026/01/01" } })).error.code, "bad-request", "malformed dates must be rejected");
+		assert.equal((await harness.rpc.handler("usage/workspaces", { query: { from: "2026-09-12", to: "2026-09-01" } })).error.code, "bad-request", "an inverted window must be rejected");
 
 		const info = await harness.rpc.handler("data/get", { query: {} });
 		assert.equal(info.value.info.ledgerEntries, 3);

@@ -73,8 +73,8 @@ if (!source.includes('mainBody: "usg_mainBody"')) throw new Error("global main p
 if (!source.includes('.usg_rightbarBody .usg_header{top:-12px;grid-template-columns:minmax(0,1fr) auto;padding:0 0 10px;background:var(--dsw-alias-bg-base)}') || !source.includes('.usg_mainBody .usg_header{top:-24px;padding:0 0 12px;background:var(--dsw-alias-bg-base)}')) throw new Error("native host surfaces must keep their sticky header on the base background");
 if (!source.includes('container-type:inline-size;container-name:usage-pane')) throw new Error("right Sidebar responsiveness must follow pane width instead of the viewport");
 if (!source.includes('.usg_rightbarBody .usg_chartInner{min-width:0}')) throw new Error("right Sidebar hourly charts must fit the dock without a modal-only horizontal scrollbar");
-if (!source.includes('.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:minmax(0,1fr) minmax(264px,32%);grid-template-areas:\\"activity rail\\" \\"heat heat\\"}')) throw new Error("wide right Sidebar must use a fluid activity and insight composition");
-if (!source.includes('@container usage-pane (max-width:840px){.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\"activity\\" \\"rail\\" \\"heat\\"}') || !source.includes('.usg_rightbarBody .usg_insightRail{display:flex}')) throw new Error("narrow right Sidebar must stack full-width workbench sections");
+if (!source.includes('.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:minmax(0,1fr) minmax(248px,31%);grid-template-areas:\\"activity rail\\" \\"heat heat\\" \\"workspace workspace\\"}')) throw new Error("wide right Sidebar must keep a compact fluid insight rail beside the activity stage");
+if (!source.includes('@container usage-pane (max-width:680px){.usg_rightbarBody .usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\"activity\\" \\"rail\\" \\"heat\\" \\"workspace\\"}') || !source.includes('.usg_rightbarBody .usg_insightRail{display:flex}')) throw new Error("only genuinely narrow right Sidebar panes may stack full-width workbench sections");
 if (!source.includes('primitives.Switch') || source.includes('.usg_switch{')) throw new Error("settings switches must reuse the host Switch primitive");
 if (!source.includes('primitives.Tag') || source.includes('.usg_tag{') || source.includes('.usg_badge{')) throw new Error("status capsules must reuse the host Tag primitive");
 if (!source.includes('primitives.StateDot') || source.includes('.usg_statusDot{')) throw new Error("sidebar status markers must reuse the host StateDot primitive");
@@ -84,15 +84,18 @@ if (!source.includes('max-width:calc(100vw - 48px);max-height:94vh') || !source.
 if (!source.includes('const sectionRef = react.useRef(null)') || !source.includes('const [detailsMinHeight, setDetailsMinHeight] = react.useState(null)') || !source.includes('setDetailsMinHeight(Math.ceil(sectionRef.current.getBoundingClientRect().height))')) throw new Error("details tab must snapshot the overview section height before switching");
 if (!source.includes('ref: sectionRef') || !source.includes('onClick: showDetails') || !source.includes('style: activeTab === "details" && detailsMinHeight !== null ? { minHeight: `${detailsMinHeight}px` } : void 0')) throw new Error("only the details tab may inherit the overview height snapshot");
 if (!source.includes('border-radius:24px') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-elevation-prominent)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
-if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must split into summary/overview/details tabs");
+if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must keep summary/overview/details tabs");
+if (source.includes("panel.tabCharts") || source.includes("panel.tabWorkspace")) throw new Error("charts and workspaces must not remain separate top-level tabs");
 if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the selected provider overview tab");
 if (!source.includes('const usageProviderId = activeTab === "summary" ? null : selectedProviderId')) throw new Error("summary must request all providers while overview/details request the selected provider");
 if (!source.includes('if (activeTab !== "summary" && !selectedProviderId) { setUsageLoading(false); return Promise.resolve(); }')) throw new Error("current-provider views must wait for the default provider and clear loading state");
 if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('setLoaded(true);\n\t\t\t\t});')) throw new Error("settings usage failures must release the limits loading gate");
-if (!source.includes('"panel.tabSummary": "全部"') || !source.includes('"panel.tabOverview": "概览"') || !source.includes('"panel.tabSummary": "All"') || !source.includes('"panel.tabOverview": "Overview"')) throw new Error("provider scope tabs must use concise localized labels");
+if (!source.includes('"panel.tabSummary": "全部"') || !source.includes('"panel.tabOverview": "概览"') || !source.includes('"panel.tabDetails": "明细"') || !source.includes('"panel.tabSummary": "All"') || !source.includes('"panel.tabOverview": "Overview"') || !source.includes('"panel.tabDetails": "Details"')) throw new Error("panel tabs must use concise localized labels");
 if ((source.match(/\.\.\.sumRows\(rows\), models: rows/g) ?? []).length < 1 || !source.includes('...summed, models: rows')) throw new Error("client-side provider/model fallback filters must preserve hourly model rows for tooltips");
 if (!source.includes('"data-usage-summary": isSummaryTab')) throw new Error("summary workbench must expose its all-provider mode");
 if (!source.includes('function ProviderUsageList') || !source.includes('translate("usage.modelUsage")')) throw new Error("summary rail must render a cross-provider model usage list");
+if (!source.includes('function ModelTrendChart') || !source.includes('"data-usage-model-trend": true')) throw new Error("summary activity stage must expose a dedicated multi-model trend chart");
+if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(ModelTrendChart') || !source.includes(': react_jsx_runtime.jsx(DayDetail')) throw new Error("summary must use model trends while overview keeps provider model details");
 if (!source.includes('"data-usage-provider-summary": true')) throw new Error("summary provider list must expose a stable DOM contract");
 if (!source.includes('request request request') || !source.includes('.usg_providerUsageRequest{grid-area:request;white-space:nowrap}') || !source.includes('`${S.providerUsageMeta} ${S.providerUsageRequest}`')) throw new Error("summary request counts must use a dedicated non-wrapping row");
 if (source.includes('onDayHover: setRangeHoveredDay')) throw new Error("multi-day hover must not resize the parent model list");
@@ -105,9 +108,15 @@ if (!source.includes('isSummaryTab ? null : react_jsx_runtime.jsx(BalanceCard'))
 if (!source.includes('"data-usage-overview-workbench": true')) throw new Error("overview must expose the redesigned workbench layout");
 if (!source.includes('"data-usage-activity-stage": true')) throw new Error("overview must promote hourly activity into the primary stage");
 if (!source.includes('"data-usage-insight-rail": true')) throw new Error("overview must group account and summary metrics into an insight rail");
-if (!source.includes('"data-usage-heat-strip": true')) throw new Error("overview must render yearly activity as a separate full-width strip");
-if (!source.includes('.usg_overviewWorkbench{display:grid;grid-template-columns:minmax(0,1fr) 264px;grid-template-areas:\\\"activity rail\\\" \\\"heat heat\\\"')) throw new Error("overview must use an asymmetric two-column composition");
-if (!source.includes('@media(max-width:840px){.usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\\"activity\\\" \\\"rail\\\" \\\"heat\\\"}')) throw new Error("overview workbench must collapse deliberately on narrow screens without changing reading order");
+if (!source.includes('"data-usage-heat-strip": true')) throw new Error("the chart report must render yearly activity as a separate full-width strip");
+if (!source.includes('(activeTab === "summary" || activeTab === "overview") ? react_jsx_runtime.jsxs("div"')) throw new Error("summary and overview must render the full chart report directly");
+if (source.includes('"data-usage-overview-compact": true') || source.includes('"data-usage-quick-links": true')) throw new Error("summary and overview must not retain the compact jump-card layout");
+if (!source.includes('isSummaryTab && react_jsx_runtime.jsx(WorkspaceUsageView') || !source.includes('"data-usage-workspace-chart": true')) throw new Error("all-provider report must embed the workspace chart");
+if (!source.includes("/api/usage-stats/workspaces") || !source.includes("workspaceRangeWindow(range, serverToday, customFrom, customTo)")) throw new Error("workspace report must fetch a date-filtered aggregate");
+if (!source.includes('.usg_workspaceDonut{') || !source.includes('.usg_workspaceChartRow{') || !source.includes('.usg_sessionRow{')) throw new Error("workspace report must use a donut chart and retain session drill-down styles");
+if (!source.includes('.usg_overviewWorkbench{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-areas:\\\"activity rail\\\" \\\"heat heat\\\" \\\"workspace workspace\\\"')) throw new Error("overview must use an asymmetric chart-report composition");
+if (!source.includes('.usg_detailsWorkbench{') || !source.includes('.usg_detailsHero{') || !source.includes('.usg_detailsCard{')) throw new Error("details tab must use a dedicated visual hierarchy instead of a plain filter and list");
+if (!source.includes('@media(max-width:700px){.usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\\"activity\\\" \\\"rail\\\" \\\"heat\\\" \\\"workspace\\\"}')) throw new Error("overview workbench must preserve two columns until the viewport is genuinely narrow");
 if (!source.includes('.usg_activityStage{grid-area:activity') || !source.includes('background:var(--dsw-alias-bg-layer-3)')) throw new Error("primary activity stage must use a native Harness layer surface");
 if (source.includes('.usg_headerMark{') || source.includes('className: S.headerMark')) throw new Error("panel header must keep the title text-only without an identity glyph");
 if (!source.includes('.usg_header{position:sticky;top:-18px') || !source.includes('padding:0;background:var(--dsw-alias-bg-layer-2)')) throw new Error("panel header must use zero padding without duplicating the panel body's top spacing");
@@ -170,7 +179,7 @@ if (!source.includes('function animateNumberValue(from, to, progress)') || !sour
 if (!source.includes('function animationStartValue(current, target, replay)') || !source.includes('animationKey')) throw new Error("manual refresh must be able to replay numeric animation even when values are unchanged");
 if (!source.includes('window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches')) throw new Error("numeric animation must respect reduced-motion preferences");
 if (!source.includes('"data-usage-animated-number": true') || !source.includes('.usg_animatedNumber{display:inline-block;font-variant-numeric:tabular-nums}')) throw new Error("animated numeric values must expose a stable DOM marker and tabular digits");
-if (!source.includes('className: S.activityValue, value: stats.todayTokens') || !source.includes('className: S.dayTokens, value: day.tokens') || !source.includes('className: S.statValue, value: stats.monthTokens') || !source.includes('className: S.balanceAmount, value: balancePrimaryValue') || !source.includes('value: summary.balanceValue') || !source.includes('value: summary.todayValue')) throw new Error("token and balance surfaces must use the shared numeric animation");
+if (!source.includes('className: S.activityValue, value: rangeSummary.tokens') || !source.includes('className: S.dayTokens, value: day.tokens') || !source.includes('className: S.statValue, value: stats.monthTokens') || !source.includes('className: S.balanceAmount, value: balancePrimaryValue') || !source.includes('value: summary.balanceValue') || !source.includes('value: summary.todayValue')) throw new Error("token and balance surfaces must use the shared numeric animation");
 if (!source.includes('className: S.providerTokens, value: group.tokens, animationKey') || !source.includes('className: S.modelTokens, value: model.tokens, animationKey')) throw new Error("provider and model token rows must replay numeric animation after manual refresh");
 if ((source.match(/animationKey: refreshTick/g) ?? []).length < 6) throw new Error("manual refresh tick must reach the overview numeric surfaces");
 const providerLogoSource = source.slice(source.indexOf("function providerLogoOf"), source.indexOf("function pricingOf"));
@@ -280,11 +289,14 @@ exports_.apply({
 		const summaryTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabSummary");
 		await react.act(async () => { summaryTab.click(); await flush(); });
 		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("All tab must request unfiltered provider usage");
-		const allDayCell = document.querySelector('button[aria-label^="2026-09-05"]');
-		if (!allDayCell?.getAttribute("aria-label")?.includes("· 40 tokens")) throw new Error("all-provider heatmap must include persisted usage from every provider");
+		if (!document.querySelector(".usg_providerUsageList")?.textContent?.includes("other-provider")) throw new Error("summary must aggregate usage from every provider");
+		if (!document.querySelector("[data-usage-model-trend]") || document.querySelector(".usg_detailSummary")) throw new Error("All tab must replace duplicate model cards with the model trend chart");
+		if (!document.querySelector("[data-usage-workspace-chart]")) throw new Error("All tab must embed the workspace chart report");
 		const overviewTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabOverview");
 		await react.act(async () => { overviewTab.click(); await flush(); });
 		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("Overview tab must request the settings-selected provider");
+		if (document.querySelector("[data-usage-model-trend]") || !document.querySelector(".usg_detailSummary")) throw new Error("provider overview must keep provider model detail cards instead of the global trend chart");
+		if (document.querySelector("[data-usage-workspace-chart]")) throw new Error("provider overview must not mix in the all-provider workspace aggregate");
 		if (requests.filter(request => request.endpoint === "providers/list").length !== catalogBefore) throw new Error("switching usage tabs must not reload the provider catalog");
 		if (requests.filter(request => request.endpoint === "keys/list").length !== keysBefore) throw new Error("switching usage tabs must not reload account keys");
 		console.log("query tab request isolation ok");
@@ -421,6 +433,7 @@ if (typeof exports_.ContributionHeatmap !== "function") throw new Error("missing
 if (typeof exports_.buildYearContributionHeatmap !== "function") throw new Error("missing buildYearContributionHeatmap export");
 if (typeof exports_.chartTooltipAnchorStyle !== "function") throw new Error("missing chart tooltip anchor helper export");
 if (typeof exports_.DayBarsChart !== "function") throw new Error("missing multi-day chart export");
+if (typeof exports_.summarizeRange !== "function") throw new Error("missing selected-range summary helper export");
 if (!source.includes('.usg_section[data-usage-billing-settings] .usg_tab{position:relative;border:0;border-bottom:0;border-radius:0;margin-bottom:0;padding:7px 1px 9px;background:transparent;box-shadow:none;font-size:13px;line-height:20px;font-weight:400}')) throw new Error("settings tabs must clear the query-tab background and shadow while matching the host typography");
 if (!source.includes('.usg_section[data-usage-billing-settings] .usg_tab[data-active=true]::after{position:absolute;right:0;bottom:-1px;left:0;height:2px')) throw new Error("active settings tabs must use only the host-style bottom indicator");
 const dayBarSource = source.slice(source.indexOf("function DayBarsChart"), source.indexOf("function DayList"));
@@ -485,7 +498,7 @@ if (!source.includes(".usg_hourRangeSelect{height:28px;color:var(--dsw-alias-lab
 if (!source.includes('"aria-label": translate("usage.year")')) throw new Error("heatmap must expose a year selector");
 if (!source.includes('className: S.yearPicker') || !source.includes('.usg_yearPicker::after{') || !source.includes('.usg_yearSelect{appearance:none;-webkit-appearance:none')) throw new Error("heatmap year selection must use the compact custom picker treatment");
 if (!source.includes("width:10px;height:10px")) throw new Error("heatmap must use compact square day cells");
-if (!source.includes(".usg_contribGrid{grid-template-rows:16px repeat(7,10px);gap:5px;min-width:max-content;width:100%;justify-content:center;display:grid}")) throw new Error("heatmap must use the requested 5px gaps while centering the year grid");
+if (!source.includes(".usg_contribGrid{grid-template-rows:16px repeat(7,10px);gap:3px;min-width:max-content;width:100%;justify-content:center;display:grid}")) throw new Error("heatmap must use the current compact 3px gaps while centering the year grid");
 if (!source.includes("onMouseEnter: (event) => setHoveredCell") || !source.includes("day.inputTokens") || !source.includes("day: entry?.day ?? entry ?? null")) throw new Error("heatmap cells must show full-day hover details");
 if (!source.includes("function pointerTooltipStyle") || !source.includes("pointerTooltipStyle(hoveredCell.x, hoveredCell.y)") || !source.includes('"data-usage-heat-tooltip": true') || !source.includes("react_dom.createPortal")) throw new Error("heatmap tooltip must flip and escape pane clipping near viewport edges");
 if (!source.includes('"aria-label": title')) throw new Error("heatmap cells must retain an accessible label");
@@ -500,7 +513,7 @@ if (!source.includes('"data-peak-region"')) throw new Error("peak regions must b
 if (source.includes("min-height:3px")) throw new Error("zero-token hours must not fake a bar with min-height");
 if (!source.includes('onMouseLeave: () => setHoveredHour(null)')) throw new Error("hourly chart tooltip must clear when the pointer leaves");
 if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly tooltip must not persist after a click");
-if (!source.includes('filteredActiveDay !== null && react_jsx_runtime.jsx(DayDetail')) throw new Error("single-day view must retain the model detail summary");
+if (!source.includes(': react_jsx_runtime.jsx(DayDetail, { day: filteredActiveDay')) throw new Error("single-day overview must retain the provider model detail summary");
 if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
 if ((source.match(/translate\("usage.requestCount"\), fmtRequestCount\(/g) ?? []).length < 3) throw new Error("all usage tooltips must show request counts");
 if (!source.includes("Number(tokenMode ? hour.tokens : hour.cost)")) throw new Error("hourly bars must scale by cost or token count according to provider kind");
@@ -649,7 +662,7 @@ if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) t
 if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
 if (!source.includes('.usg_hourInput{background:var(--dsw-static-blue-500,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-static-green-500,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
-if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-module-platform);border-radius:3px;height:6px;flex:1;min-width:80px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:var(--usg-blue);opacity:.72}')) throw new Error("recent-day details must use a fixed track with a proportional fill");
+if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-layer-2);border-radius:999px;height:7px;min-width:70px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:linear-gradient(')) throw new Error("recent-day detail cards must retain a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
 const heatmapMix = 'color-mix(in srgb,var(--usg-blue) ${intensity}%,var(--usg-cellEmpty))';
 if ((source.split(heatmapMix).length - 1) < 2) throw new Error("heatmap cells and legend must share the scoped accent mix");
@@ -1315,7 +1328,7 @@ if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.fo
 console.log("apply ok, slots:", slotNames.join(", "));
 
 // Data helpers against a synthetic wire payload.
-const { activeDayKeyOf, adjacentDayKey, filterDay, summarize, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue } = exports_;
+const { activeDayKeyOf, adjacentDayKey, filterDay, summarize, summarizeRange, modelChoicesOf, recentDays, isPeak, isWeekendOffPeakDay, fmtMoney, fmt, sidebarSummaryOf, animateNumberValue, animationStartValue } = exports_;
 const nullBalanceMarkup = renderToStaticMarkup(exports_.BalanceCard({
 	keys: [],
 	providers: [{ id: "deepseek-official", capabilities: ["balance"], label: "DeepSeek" }],
@@ -1386,6 +1399,35 @@ const cacheOnlyChartMarkup = renderToStaticMarkup(react.createElement(exports_.H
 }));
 const cacheOnlyHourMarkup = cacheOnlyChartMarkup.match(/data-hour="9"[\s\S]*?<\/button>/)?.[0] ?? "";
 if (!cacheOnlyHourMarkup.includes('class="usg_hourInput" style="flex-basis:100%"')) throw new Error("cache-only hourly usage must render a visible input-side bar");
+const emptyChartMarkup = renderToStaticMarkup(react.createElement(exports_.HourlyChart, {
+	day: null,
+	money: String,
+	translate: (key) => key
+}));
+if (!emptyChartMarkup.includes("data-usage-chart-empty") || !emptyChartMarkup.includes("chart.empty")) throw new Error("an unavailable day must render an explicit chart empty state");
+
+const trendDay = {
+	date: "2026-08-26",
+	hours: [
+		{ hour: 0, models: [{ model: "provider-a/model-a", tokens: 30 }, { model: "provider-b/model-b", tokens: 10 }] },
+		{ hour: 1, models: [{ model: "provider-a/model-a", tokens: 20 }, { model: "provider-c/model-c", tokens: 40 }] }
+	]
+};
+const hourlyTrend = exports_.modelTrendSeriesOf(trendDay, [], true, 2);
+if (hourlyTrend.labels.join(",") !== "00,01" || hourlyTrend.series.map((item) => item.model).join(",") !== "provider-a/model-a,provider-c/model-c") throw new Error("single-day model trends must rank models by total hourly tokens");
+if (hourlyTrend.series[0].values.join(",") !== "30,20" || hourlyTrend.series[1].values.join(",") !== "0,40") throw new Error("single-day model trends must zero-fill absent hourly models");
+const dailyTrend = exports_.modelTrendSeriesOf(null, [
+	{ date: "2026-08-25", models: [{ model: "provider-a/model-a", tokens: 5 }] },
+	{ date: "2026-08-26", models: [{ model: "provider-b/model-b", tokens: 12 }] }
+], false, 5);
+if (dailyTrend.labels.join(",") !== "08-25,08-26" || dailyTrend.series.find((item) => item.model === void 0)) throw new Error("multi-day model trends must use compact date labels");
+const trendMarkup = renderToStaticMarkup(react.createElement(exports_.ModelTrendChart, {
+	day: trendDay,
+	rangeDays: [],
+	singleRange: true,
+	translate: (key) => key
+}));
+if (!trendMarkup.includes("data-usage-model-trend") || !trendMarkup.includes("model-a") || !trendMarkup.includes("<svg")) throw new Error("model trend chart must render an accessible visual model comparison");
 
 // Build dates relative to today so the 14-day window assertions hold on any day.
 const d0 = new Date();
@@ -1500,12 +1542,24 @@ const choices = modelChoicesOf([wireDay]);
 if (choices.length !== 2 || choices[0] !== "deepseek-v4-flash" || choices[1] !== "deepseek-v4-pro") {
 	throw new Error(`model choices ${JSON.stringify(choices)}`);
 }
+const rankedChoices = modelChoicesOf([
+	{ models: [{ model: "provider/model-a", tokens: 5 }, { model: "provider/model-z", tokens: 500 }] },
+	{ models: [{ model: "provider/model-a", tokens: 10 }] }
+]);
+if (rankedChoices.join(",") !== "model-z,model-a") throw new Error(`model choices must rank by token usage: ${JSON.stringify(rankedChoices)}`);
 
 const days = [wireDay, { ...wireDay, date: YESTERDAY_KEY, tokens: 100, cost: 0.02, models: wireDay.models }];
 const stats = summarize(days, "");
 if (stats.totalTokens !== 550) throw new Error(`summarize total ${stats.totalTokens}`);
 const flashStats = summarize(days, "deepseek-v4-flash");
 if (flashStats.totalTokens !== 500) throw new Error(`flash total ${flashStats.totalTokens}`);
+const rangeStats = summarizeRange([
+	{ tokens: 100, cost: 1, models: [{ model: "provider/model-a", tokens: 100, cost: 1 }] },
+	{ tokens: 200, cost: 2, models: [{ model: "provider/model-b", tokens: 200, cost: 2 }] }
+]);
+if (rangeStats.tokens !== 300 || rangeStats.cost !== 3 || rangeStats.costPriced !== 3 || rangeStats.unpriced !== false) throw new Error(`range summary ${JSON.stringify(rangeStats)}`);
+const partlyUnpricedRange = summarizeRange([{ tokens: 150, cost: null, models: [{ model: "provider/model-a", tokens: 100, cost: 1 }, { model: "provider/model-b", tokens: 50, cost: null }] }]);
+if (partlyUnpricedRange.cost !== null || partlyUnpricedRange.costPriced !== 1 || partlyUnpricedRange.unpriced !== true) throw new Error(`partly unpriced range summary ${JSON.stringify(partlyUnpricedRange)}`);
 
 if (!isPeak(2, [[1, 4], [6, 10]])) throw new Error("hour 2 must be peak");
 if (isPeak(5, [[1, 4], [6, 10]])) throw new Error("hour 5 must not be peak");
@@ -1550,6 +1604,12 @@ const sparseActiveRecent = recentDays([
 	{ ...wireDay, date: "2020-01-13", tokens: 5 }
 ], "2020-01-15", "2020-01-14");
 if (sparseActiveRecent.map((day) => day.date).join(",") !== "2020-01-15,2020-01-14,2020-01-13") throw new Error(`recentDays must retain a selected no-usage date for adjacent navigation: ${JSON.stringify(sparseActiveRecent)}`);
+const filteredRecent = recentDays([
+	{ ...wireDay, date: "2020-01-15", tokens: 0 },
+	{ ...wireDay, date: "2020-01-14", tokens: 9 },
+	{ ...wireDay, date: "2020-01-13", tokens: 0 }
+], "2020-01-15", "2020-01-15");
+if (filteredRecent.map((day) => day.date).join(",") !== "2020-01-15,2020-01-14") throw new Error(`recentDays must omit non-selected zero-token rows: ${JSON.stringify(filteredRecent)}`);
 const overriddenSidebar = sidebarSummaryOf(
 	{ ok: true, days: [wireDay, { ...wireDay, date: beijingToday, cost: 2.5, tokens: 900 }], pricing: { currency: "CNY" }, today: beijingToday },
 	{ ok: true, account: { balance: { total: 10, currency: "CNY" } } }
@@ -1601,6 +1661,7 @@ console.log("data helpers ok");
 	}));
 	if (!todayHeatMarkup.includes("usg_heatCellToday")) throw new Error("heatmap must highlight the server-provided today cell");
 	if (todayHeatMarkup.includes("usg_heatCellSelected")) throw new Error("heatmap today highlight must not imply a selected day");
+	if (!todayHeatMarkup.includes('aria-label="2026-08-15 · 0 tokens" disabled=""')) throw new Error("future heatmap days must be visible but disabled");
 	console.log("contribution heatmap helpers ok");
 }
 
@@ -1658,6 +1719,29 @@ async function clientRegression(name, run) {
 	}
 }
 
+await clientRegression("model trend hover details and legend toggles", async ({ root, step }) => {
+	await step(() => root.render(react.createElement(exports_.ModelTrendChart, {
+		day: trendDay,
+		rangeDays: [],
+		singleRange: true,
+		translate: key => key
+	})));
+	const overlay = document.querySelector("[data-usage-model-trend-hover]");
+	if (!overlay) throw new Error("model trend chart must expose a hover layer");
+	overlay.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 154, right: 100, bottom: 154, x: 0, y: 0, toJSON() {} });
+	await step(() => overlay.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 50 })));
+	const tooltip = document.querySelector("[data-usage-model-trend-tooltip]");
+	if (!tooltip?.textContent.includes("01:00") || !tooltip.textContent.includes("model-c") || !tooltip.textContent.includes("40")) throw new Error("hover tooltip must show the nearest time point and model values: " + tooltip?.textContent);
+	const toggles = [...document.querySelectorAll("[data-usage-model-toggle]")];
+	if (toggles.length !== 3 || document.querySelectorAll("[data-usage-model-line]").length !== 3) throw new Error("every model series must have a matching visible toggle");
+	await step(() => toggles[0].click());
+	if (toggles[0].getAttribute("aria-pressed") !== "false" || document.querySelectorAll("[data-usage-model-line]").length !== 2) throw new Error("clicking a model legend must hide its line and expose the disabled state");
+	await step(() => toggles[0].click());
+	if (toggles[0].getAttribute("aria-pressed") !== "true" || document.querySelectorAll("[data-usage-model-line]").length !== 3) throw new Error("clicking a disabled model legend must restore its line");
+	await step(() => overlay.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+	if (document.querySelector("[data-usage-model-trend-tooltip]")) throw new Error("model trend tooltip must close when the pointer leaves the plot");
+});
+
 await clientRegression("queued notification edits preserve independent switches", async ({ root, step, setResponder }) => {
 	let notifications = { channels: { sidebar: true, toast: false }, events: { warning: true, exceeded: true, lowBalance: true, recovery: true }, cooldownMs: 1800000 };
 	const writes = [];
@@ -1703,13 +1787,20 @@ await clientRegression("model filtering stays consistent across overview charts"
 			: endpoint === "keys/list" ? { ok: true, keys: [] } : { ok: true, status: {}, account: { status: "ok" } } }));
 	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
 	await step(() => button("panel.tabDetails").click());
+	if (!document.querySelector("[data-usage-details]") || !document.querySelector("[data-usage-details-hero]") || !document.querySelector("[data-usage-day-detail]")) throw new Error("details tab must render its redesigned report surface and day cards");
 	await step(() => change(document.querySelector('select[aria-label="usage.model"]'), "model-a"));
 	await step(() => button("panel.tabOverview").click());
+	const modelFilterChip = document.querySelector("[data-usage-model-filter]");
+	if (modelFilterChip?.getAttribute("data-usage-model-filter") !== "model-a") throw new Error("overview must expose the active model filter with a clear action");
 	await step(() => change(document.querySelector('select[aria-label="usage.timeRange"]'), "7d"));
+	if (document.querySelector('[data-usage-range-metric="7d"]') === null) throw new Error("overview headline must identify the selected time range");
+	if (!document.querySelector("[data-usage-activity-stage] .usg_cardTitle")?.textContent.includes("usage.daily")) throw new Error("multi-day overview must identify its chart as daily rather than hourly");
 	await step(() => document.querySelector('[data-day="2026-09-05"]').dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
 	const tooltip = document.querySelector('[data-usage-day-tooltip]').textContent;
 	const heatLabel = document.querySelector('[aria-label^="2026-09-05 ·"]').getAttribute("aria-label");
 	if (document.querySelector(".usg_activityValue").textContent !== "100" || tooltip.includes("model-b") || !heatLabel.includes("· 100 tokens")) throw new Error(`inconsistent filtered data: ${tooltip}; ${heatLabel}`);
+	await step(() => modelFilterChip.click());
+	if (document.querySelector("[data-usage-model-filter]") !== null || document.querySelector(".usg_activityValue").textContent !== "1,000") throw new Error("clearing the overview model filter must restore the range total");
 });
 
 await clientRegression("pricing inputs prevent unsaved edits during a pending save", async ({ root, step, button, setResponder }) => {
@@ -1789,6 +1880,45 @@ await clientRegression("pending plan quota saves preserve later drags and notifi
 	if (notifications.planQuota.windows.five_hour.warningRemainingPercent !== 40 || notifications.planQuota.windows.weekly.warningRemainingPercent !== 60 || !notifications.channels.toast) throw new Error("quota saves lost an independent edit");
 });
 
+await clientRegression("workspace view filters by date and drills into sessions", async ({ root, step, change, setResponder }) => {
+	if (exports_.workspaceLabelOf("/work/alpha/beta") !== "beta" || exports_.workspaceLabelOf("") !== "") throw new Error("workspace labels must use the final path segment");
+	if (exports_.sessionLabelOf("修复工作区会话名称") !== "修复工作区会话名称" || exports_.sessionLabelOf("") !== "") throw new Error("session labels must preserve durable conversation titles");
+	const all = exports_.workspaceRangeWindow("all", "2026-09-05", null, null);
+	if (all.from !== null || all.to !== null) throw new Error("all-time range must not bound the query");
+	const week = exports_.workspaceRangeWindow("7d", "2026-09-05", null, null);
+	if (week.to !== "2026-09-05" || week.from === null) throw new Error(`seven-day window wrong: ${JSON.stringify(week)}`);
+	const custom = exports_.workspaceRangeWindow("custom", "2026-09-05", "2026-08-01", "2026-08-10");
+	if (custom.from !== "2026-08-01" || custom.to !== "2026-08-10") throw new Error("custom range must use both endpoints");
+	const requests = [];
+	setResponder(async (_channel, endpoint, payload) => {
+		requests.push({ endpoint, payload });
+		if (endpoint !== "usage/workspaces") return { ok: true, value: { ok: true, status: {}, account: { status: "ok" } } };
+		return { ok: true, value: { ok: true, from: payload.query.from ?? null, to: payload.query.to ?? null, tokens: 300, inputTokens: 200, outputTokens: 40, cacheReadTokens: 60, cacheWriteTokens: 0, hasEstimatedHistory: true, workspaces: [
+			{ workspace: "/work/alpha", tokens: 200, inputTokens: 150, outputTokens: 30, cacheReadTokens: 20, cacheWriteTokens: 0, sessions: [
+				{ sessionId: "session-abcdef123456", title: "修复工作区会话名称", tokens: 200, inputTokens: 150, outputTokens: 30, cacheReadTokens: 20, cacheWriteTokens: 0 },
+				{ sessionId: "", tokens: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
+			] },
+			{ workspace: "/work/beta", tokens: 100, inputTokens: 50, outputTokens: 10, cacheReadTokens: 40, cacheWriteTokens: 0, sessions: [
+				{ sessionId: "session-beta", tokens: 100, inputTokens: 50, outputTokens: 10, cacheReadTokens: 40, cacheWriteTokens: 0 }
+			] }
+		] } };
+	});
+	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-09-05" })));
+	const first = requests.find(request => request.endpoint === "usage/workspaces");
+	if (first?.payload.query.from === undefined || first?.payload.query.to !== "2026-09-05") throw new Error(`workspace default window wrong: ${JSON.stringify(first?.payload.query)}`);
+	if (!document.querySelector("[data-usage-workspace]")) throw new Error("workspace view must expose its DOM marker");
+	if (!document.querySelector("[data-usage-workspace-donut]")) throw new Error("workspace distribution must render as a donut chart");
+	if (document.querySelectorAll("[data-usage-workspace-segment]").length !== 2) throw new Error("workspace donut must contain one segment per workspace");
+	if (!document.querySelector(".usg_workspaceList")?.textContent?.includes("alpha")) throw new Error("workspace rows must use the directory name as label");
+	if (!document.querySelector('[title="/work/alpha"]') || !document.querySelector('[title="/work/beta"]')) throw new Error("workspace rows must keep the full path in the tooltip");
+	if (!document.querySelector(".usg_workspaceWorkbench")?.textContent?.includes("workspace.estimatedNote")) throw new Error("estimated workspace history must be explained");
+	await step(() => document.querySelector('[title="/work/alpha"]').click());
+	const sessions = document.querySelector(".usg_sessionList")?.textContent ?? "";
+	if (!sessions.includes("修复工作区会话名称") || !sessions.includes("workspace.unknownSession") || sessions.includes("session-ab")) throw new Error(`session drill-down must prefer durable titles: ${sessions}`);
+	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-09-05", range: "all" })));
+	const last = requests.filter(request => request.endpoint === "usage/workspaces").at(-1);
+	if (last?.payload.query.from !== undefined || last?.payload.query.to !== undefined) throw new Error("all-time range must clear the date bounds");
+});
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 
 console.log("\nclient smoke: all passed");

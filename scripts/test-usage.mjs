@@ -34,6 +34,7 @@ import {
 	recordLedgerState,
 	renderFrozenArchive,
 	renderLedgerState,
+	renderWorkspaceUsage,
 	mergeFrozenArchive,
 	trimLedgerState
 } from "../lib/ledger.js";
@@ -880,6 +881,52 @@ if (realLog !== void 0 && realLog !== "") {
 	strictAssert.deepEqual(delta.days, days, "embedded attempts must preserve incremental aggregation");
 }
 console.log("embedded attempt usage aggregation ok");
+
+//#region workspace attribution through the ledger, compaction and estimated rebuild
+{
+	const wsA = "/work/alpha";
+	const wsB = "/work/beta";
+	const at = (hour) => Date.parse(`2026-09-12T0${hour}:00:00Z`);
+	const ledger = [];
+	appendLedger(ledger, { id: "w1", occurredAt: at(2), provider: "p", model: "m", sessionId: "s1", workspace: wsA, usage: { inputTokens: 100 } });
+	appendLedger(ledger, { id: "w2", occurredAt: at(3), provider: "p", model: "m", sessionId: "s2", workspace: wsA, usage: { inputTokens: 30 } });
+	appendLedger(ledger, { id: "w3", occurredAt: Date.parse("2026-09-13T02:00:00Z"), provider: "p", model: "m", workspace: wsB, usage: { inputTokens: 7 } });
+	strictAssert.equal(ledger[0].sessionId, "s1", "sessionId must persist on the ledger entry");
+	strictAssert.equal(ledger[0].workspace, wsA, "workspace must persist on the ledger entry");
+	strictAssert.equal(ledger[2].sessionId, undefined, "an absent sessionId must stay absent");
+
+	let state = createLedgerState({});
+	for (const entry of ledger) state = recordLedgerState(state, entry, { maxLedgerEntries: 100 });
+	StateSchema.parse(state);
+	const filtered = renderWorkspaceUsage(state, { from: "2026-09-12", to: "2026-09-12" });
+	strictAssert.equal(filtered.tokens, 130, `filtered workspace tokens ${filtered.tokens}`);
+	strictAssert.equal(filtered.workspaces.length, 1, "the date window must drop the other workspace");
+	strictAssert.equal(filtered.workspaces[0].workspace, wsA);
+	strictAssert.deepEqual(filtered.workspaces[0].sessions.map((row) => row.sessionId), ["s1", "s2"], "sessions must sort by tokens then id");
+	const unfiltered = renderWorkspaceUsage(state, {});
+	strictAssert.equal(unfiltered.tokens, 137, `unfiltered workspace tokens ${unfiltered.tokens}`);
+	strictAssert.equal(unfiltered.workspaces.find((row) => row.workspace === wsB).sessions[0].sessionId, "", "entries without a session id group under the empty key");
+
+	// Compaction must preserve attribution into the frozen archive.
+	let compacted = createLedgerState({});
+	for (let index = 0; index < 4; index += 1) {
+		compacted = recordLedgerState(compacted, { id: `f${index}`, occurredAt: at(2), provider: "p", model: "m", sessionId: "s1", workspace: wsA, usage: { inputTokens: 10 } }, { maxLedgerEntries: 2, recentSampleKeyCapacity: 2 });
+	}
+	const frozenDay = compacted.archive.frozen.days["2026-09-12"];
+	strictAssert.equal(frozenDay?.byWorkspace?.[wsA]?.sessions?.s1?.inputTokens, 20, "the two compacted calls must stay attributed to their workspace and session");
+	strictAssert.equal(renderWorkspaceUsage(compacted, {}).tokens, 40, "compacted workspace view must keep every token");
+
+	// Estimated rebuild workspaces merge with the exact layer and honor trimming.
+	const estimated = createLedgerState({ archive: { estimated: { sessionRebuild: { days: {}, workspaces: {
+		[wsB]: { sessions: { "s9": { days: { "2026-09-11": { inputTokens: 5, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } } } } }
+	} } } } });
+	const merged = renderWorkspaceUsage(estimated, {});
+	strictAssert.equal(merged.tokens, 6, `estimated workspace tokens ${merged.tokens}`);
+	strictAssert.equal(merged.workspaces[0].workspace, wsB);
+	strictAssert.equal(merged.hasEstimatedHistory, true, "workspace-only estimated sources must flag estimated history");
+	strictAssert.equal(renderWorkspaceUsage(trimLedgerState(estimated, "2026-09-12"), {}).tokens, 0, "trim must drop estimated workspace days before the cutoff");
+	console.log("workspace attribution ok");
+}
 
 if (failures > 0) {
 	console.error(`\n${failures} test(s) failed`);
