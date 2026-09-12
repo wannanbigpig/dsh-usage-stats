@@ -87,8 +87,8 @@ if (!source.includes('border-radius:24px') || !source.includes('background:var(-
 if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must keep summary/overview/details tabs");
 if (source.includes("panel.tabCharts") || source.includes("panel.tabWorkspace")) throw new Error("charts and workspaces must not remain separate top-level tabs");
 if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the selected provider overview tab");
-if (!source.includes('const usageProviderId = activeTab === "summary" ? null : selectedProviderId')) throw new Error("summary must request all providers while overview/details request the selected provider");
-if (!source.includes('if (activeTab !== "summary" && !selectedProviderId) { setUsageLoading(false); return Promise.resolve(); }')) throw new Error("current-provider views must wait for the default provider and clear loading state");
+if (!source.includes('const usageProviderId = activeTab === "overview" ? selectedProviderId : null')) throw new Error("only overview may request the selected provider; summary and details must request all providers");
+if (!source.includes('if (activeTab === "overview" && !selectedProviderId) { setUsageLoading(false); return Promise.resolve(); }')) throw new Error("the provider overview must wait for the default provider and clear loading state");
 if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('setLoaded(true);\n\t\t\t\t});')) throw new Error("settings usage failures must release the limits loading gate");
 if (!source.includes('"panel.tabSummary": "全部"') || !source.includes('"panel.tabOverview": "概览"') || !source.includes('"panel.tabDetails": "明细"') || !source.includes('"panel.tabSummary": "All"') || !source.includes('"panel.tabOverview": "Overview"') || !source.includes('"panel.tabDetails": "Details"')) throw new Error("panel tabs must use concise localized labels");
 if ((source.match(/\.\.\.sumRows\(rows\), models: rows/g) ?? []).length < 1 || !source.includes('...summed, models: rows')) throw new Error("client-side provider/model fallback filters must preserve hourly model rows for tooltips");
@@ -269,7 +269,7 @@ exports_.apply({
 			: endpoint === "keys/list" ? { ok: true, keys: [] }
 				: endpoint === "usage/get" ? (() => {
 					const otherProviderTokens = payload?.query?.provider === undefined ? 40 : 0;
-					return { ok: true, revision: usageRevision, days: [{ date: "2026-09-05", inputTokens: liveInputTokens + otherProviderTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens + otherProviderTokens, cost: null, models: [{ model: "test-local/model", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null }, ...(otherProviderTokens > 0 ? [{ model: "other-provider/model", inputTokens: otherProviderTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: otherProviderTokens, cost: null }] : [])], hours: [] }], today: "2026-09-05" };
+					return { ok: true, revision: usageRevision, days: [{ date: "2026-09-05", inputTokens: liveInputTokens + otherProviderTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens + otherProviderTokens, cost: null, models: [{ model: "test-local/model", inputTokens: liveInputTokens, outputTokens: liveOutputTokens, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: liveInputTokens + liveOutputTokens, cost: null }, ...(otherProviderTokens > 0 ? [{ model: "other-provider/external-model", inputTokens: otherProviderTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, tokens: otherProviderTokens, cost: null }] : [])], hours: [] }], today: "2026-09-05" };
 				})()
 					: endpoint === "usage/revision" ? { ok: true, revision: usageRevision }
 						: endpoint === "accounts/get" ? { ok: true, providers: [provider], defaultProviderId: provider.id, settings: { defaultProviderId: provider.id, display: { balance: true, todayCost: true } }, accounts: { [provider.id]: { status: "local" } } }
@@ -297,6 +297,12 @@ exports_.apply({
 		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("Overview tab must request the settings-selected provider");
 		if (document.querySelector("[data-usage-model-trend]") || !document.querySelector(".usg_detailSummary")) throw new Error("provider overview must keep provider model detail cards instead of the global trend chart");
 		if (document.querySelector("[data-usage-workspace-chart]")) throw new Error("provider overview must not mix in the all-provider workspace aggregate");
+		const detailsTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabDetails");
+		await react.act(async () => { detailsTab.click(); await flush(); await flush(); });
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("Details tab must request usage from every provider");
+		const detailModelOptions = [...document.querySelectorAll('select[aria-label="usage.model"] option')].map(option => option.value);
+		if (!detailModelOptions.includes("external-model")) throw new Error(`Details model filter must include models used by other providers: ${detailModelOptions.join(",")}`);
+		if (!document.querySelector("[data-usage-details]")?.textContent.includes("usage.detailsDescAllProviders")) throw new Error("Details tab must explain its all-provider scope");
 		if (requests.filter(request => request.endpoint === "providers/list").length !== catalogBefore) throw new Error("switching usage tabs must not reload the provider catalog");
 		if (requests.filter(request => request.endpoint === "keys/list").length !== keysBefore) throw new Error("switching usage tabs must not reload account keys");
 		console.log("query tab request isolation ok");

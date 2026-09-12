@@ -13,7 +13,7 @@ assert.match(patch, /^\s*- id:\s+connection\s*\n\s+inject:\s*\[[^\]]*webRuntime[
 
 const loaderId = client.match(/window\.__ModuleLoader__\.load\(\{\s*id:\s*["']([^"']+)["']/)?.[1];
 assert.equal(loaderId, packageJson.name, "client loader must register the installed package name");
-assert.equal(packageJson.version, "0.5.0", "monthly limits, independent supplier selection, current host seam adaptations, and pricing review release as the 0.5.0 line");
+assert.equal(packageJson.version, "0.5.1", "workspace reports, model trends, and all-provider details release as the 0.5.1 line");
 assert.equal(packageJson.dsh.manifestVersion, 1, "package uses the current public DSH manifest format");
 assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0", "package declares the tested DSH compatibility line");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-connection"), "client manifest injects the official Connection service");
