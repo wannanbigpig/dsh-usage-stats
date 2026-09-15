@@ -1,7 +1,7 @@
 {
   "name": "@wannanbigpig/dsh-usage-stats",
   "description": "DeepSeek 官方余额、Token 用量、月历热图与离线 tokenizer，内置在 Harness 侧栏",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wannanbigpig/dsh-usage-stats.git"
@@ -73,7 +73,7 @@
     "test:host-current": "node scripts/test-host-current.mjs"
   },
   "engines": {
-    "dsh": ">=0.1.5-rc.1 <0.1.6-0",
+    "dsh": ">=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1",
     "node": ">=18.0.0"
   },
   "devDependencies": {

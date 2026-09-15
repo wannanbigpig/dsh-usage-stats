@@ -21,6 +21,7 @@ import {
 	keyForProvider,
 	maxLedgerEntriesOf,
 	providerTodaySummaries,
+	recordLedgerEntry,
 	refreshCadenceOf,
 	resolveLimitRule,
 	runtimePricingOf,
@@ -612,5 +613,69 @@ console.log("settled retry usage accounting ok");
 	} finally { await harness.dispose(); await rm(home, { recursive: true, force: true }); }
 }
 console.log("durable attempt fallback usage accounting ok");
+
+// Disposed sessions must not lend their old step, route, cwd or title to a
+// reopened session. Already captured usage stays deduplicated during its write.
+for (const disposalEvent of ["session/disposed", "session/end", "session/stop", "session/delete"]) {
+	const home = await mkdtemp(join(tmpdir(), "usage-stats-session-disposed-"));
+	const session = { id: "reopened", header: { cwd: "/work/old" } };
+	const harness = createHarness({ sessionPersistence: {
+		listSnapshots: async () => [{ header: { id: session.id, cwd: "/work/old" }, revision: 1 }],
+		readFrom: async () => ({ events: [{ type: "session/title", data: { title: "Durable title" } }] })
+	} });
+	let releaseWrite;
+	let announceWrite;
+	const pendingWrite = new Promise(resolve => { releaseWrite = resolve; });
+	const writing = new Promise(resolve => { announceWrite = resolve; });
+	let writes = 0;
+	try {
+		await apply(harness.ctx, {}, {
+			dshHome: home, disableBackgroundRefresh: true,
+			limitsService: { check: async () => ({ status: "ok" }) },
+			recordLedger: async entry => {
+				if (++writes === 1) { announceWrite(); await pendingWrite; }
+				await recordLedgerEntry(harness.ctx, entry);
+			}
+		});
+		const notify = event => harness.listeners.get("session/event")(session, { time: Date.now(), ...event });
+		const disposeSession = () => disposalEvent === "session/disposed"
+			? harness.listeners.get("session/disposed")?.(session)
+			: notify({ type: disposalEvent });
+		await notify({ type: "session/title", data: { title: "Old live title" } });
+		await notify({ type: "request/header", data: { header: { config: { provider: "old-provider", model: "old-model" } } } });
+		await notify({ type: "step/start", data: { turn: 1, step: 1 } });
+		const run = async (provider, model) => {
+			for await (const chunk of harness.listeners.get("llm/stream")({ sessionId: session.id, provider, model }, async function* () {
+				yield { type: "usage", usage: { inputTokens: 1, outputTokens: 0 } };
+			})) { /* drain */ }
+		};
+		const settling = run("old-provider", "old-model");
+		await writing;
+		await disposeSession();
+		await harness.listeners.get("session/event")({ id: session.id }, { type: "assistant/message", time: Date.now(), data: { turn: 1, step: 1, usage: { inputTokens: 1, outputTokens: 0 }, message: { source: { provider: "old-provider", model: "old-model" } } } });
+		releaseWrite();
+		await settling;
+		assert.equal(writes, 1, "disposal must not remove the dedup identity of a sample still being written");
+		const workspaces = await harness.rpc.handler("usage/workspaces", { query: {} });
+		assert.equal(workspaces.value.workspaces[0].sessions[0].title, "Durable title", "disposed live titles must stop overriding durable titles");
+		session.header = {};
+		await notify({ type: "assistant/attempt", data: { turn: 2, step: 1, stream: [{ type: "chunk", chunk: { type: "usage", usage: { inputTokens: 2, outputTokens: 0 } } }] } });
+		const withoutRoute = [...harness.domain.ledger.records.values()].flatMap(row => row.entries).at(-1);
+		assert.equal(withoutRoute.provider, "unknown", "a disposed session must not retain either cached provider route");
+		await run("new-provider", "new-model");
+		const entries = [...harness.domain.ledger.records.values()].flatMap(row => row.entries);
+		const reopened = entries.find(entry => entry.provider === "new-provider");
+		assert.equal(reopened.turn, void 0, "reopened streams must not inherit a disposed active step");
+		assert.equal(reopened.step, void 0);
+		assert.equal(reopened.workspace, void 0, "reopened streams must not inherit a disposed cwd");
+		await notify({ type: "assistant/attempt", data: { turn: 3, step: 1, stream: [{ type: "chunk", chunk: { type: "usage", usage: { inputTokens: 2, outputTokens: 0 } } }] } });
+		const fallback = [...harness.domain.ledger.records.values()].flatMap(row => row.entries).at(-1);
+		assert.equal(fallback.provider, "new-provider", "attempt fallback must use the reopened stream route instead of the disposed header");
+	} finally {
+		releaseWrite();
+		await harness.dispose();
+		await rm(home, { recursive: true, force: true });
+	}
+}
 
 console.log("server official-seam integration tests passed");

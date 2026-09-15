@@ -666,7 +666,7 @@ if (!source.includes('toNumericModels')) throw new Error("pricing card must conv
 if (!source.includes('value: row?.[period]?.[field] ?? ""')) throw new Error("pricing edit inputs must render the raw draft string");
 if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) throw new Error("pricing card must reject blank, invalid, and negative values");
 if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
-if (!source.includes('.usg_hourInput{background:var(--dsw-static-blue-500,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-static-green-500,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
+if (!source.includes('.usg_hourInput{background:var(--dsw-alias-state-business-primary,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-alias-state-success-primary,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
 if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-layer-2);border-radius:999px;height:7px;min-width:70px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:linear-gradient(')) throw new Error("recent-day detail cards must retain a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
@@ -1183,9 +1183,7 @@ console.log("Z.ai plan quota billing card render ok, length:", zaiLimitsMarkup.l
 const dataMarkup = renderToStaticMarkup(react.createElement(exports_.DataCard, { translate: (key) => key }));
 if (!dataMarkup.includes("data-usage-data-card") || !dataMarkup.includes("data.title")) throw new Error("data card render missing title/identity");
 if (!dataMarkup.includes("data.desc")) throw new Error("data card render missing description");
-if (!dataMarkup.includes('data-usage-data-metrics="true"') || !dataMarkup.includes('data-usage-data-range="true"')) throw new Error("data card must separate numeric metrics from the date-range row");
-if (!dataMarkup.includes('data-usage-retention-panel="true"') || !dataMarkup.includes('data-usage-danger-panel="true"')) throw new Error("data card action groups must expose the redesigned layout");
-if (!dataMarkup.includes('data-usage-ledger-capacity-control="true"') || !dataMarkup.includes('min="100"') || !dataMarkup.includes('max="5000"') || !dataMarkup.includes('step="100"')) throw new Error("data card must render the editable 100-5000 ledger capacity control with a 100-record step");
+if (!dataMarkup.includes('role="status"') || dataMarkup.includes('data-usage-data-metrics="true"')) throw new Error("initial data card must show loading instead of fabricated zero counts");
 console.log("data card render ok, length:", dataMarkup.length);
 
 const countdownNow = Date.UTC(2026, 7, 21, 0, 0, 0);
@@ -1924,6 +1922,90 @@ await clientRegression("workspace view filters by date and drills into sessions"
 	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-09-05", range: "all" })));
 	const last = requests.filter(request => request.endpoint === "usage/workspaces").at(-1);
 	if (last?.payload.query.from !== undefined || last?.payload.query.to !== undefined) throw new Error("all-time range must clear the date bounds");
+});
+for (const [component, marker, readySelector, value] of [
+	[exports_.NotificationsCard, '[data-usage-notifications-card]', '[role="switch"]', { notifications: { channels: { sidebar: false, toast: true } }, alerts: [] }],
+	[exports_.DataCard, '[data-usage-data-card]', '[data-usage-data-metrics]', { info: { ledgerEntries: 42, ledgerCapacity: 5000, foldedCount: 0 } }]
+]) await clientRegression(`${component.name} read failure is recoverable without fabricated defaults`, async ({ root, step, button, setResponder }) => {
+	let fail = true;
+	setResponder(async () => fail ? { ok: false, error: { code: 'internal', message: 'offline' } } : { ok: true, value: { ok: true, ...value } });
+	await step(() => root.render(react.createElement(component, { translate: key => key })));
+	if (!document.querySelector(`${marker} [role="alert"]`) || document.querySelector(readySelector)) throw new Error('failed read must show an error instead of editable defaults or zero counts');
+	fail = false;
+	await step(() => button('action.retry').click());
+	if (!document.querySelector(readySelector) || document.querySelector(`${marker} [role="alert"]`)) throw new Error('retry must recover the stored state');
+});
+
+await clientRegression('data actions remain busy until refreshed counts arrive', async ({ root, step, button, setResponder }) => {
+	let reads = 0, finishRead;
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === 'data/get' && ++reads > 1) return new Promise(resolve => { finishRead = resolve; });
+		return { ok: true, value: { ok: true, info: { ledgerEntries: 42, ledgerCapacity: 5000 } } };
+	});
+	await step(() => root.render(react.createElement(exports_.DataCard, { translate: key => key })));
+	const dataMarkup = document.querySelector("[data-usage-data-card]").outerHTML;
+if (!dataMarkup.includes('data-usage-data-metrics="true"') || !dataMarkup.includes('data-usage-data-range="true"')) throw new Error("data card must separate numeric metrics from the date-range row");
+if (!dataMarkup.includes('data-usage-retention-panel="true"') || !dataMarkup.includes('data-usage-danger-panel="true"')) throw new Error("data card action groups must expose the redesigned layout");
+if (!dataMarkup.includes('data-usage-ledger-capacity-control="true"') || !dataMarkup.includes('min="100"') || !dataMarkup.includes('max="5000"') || !dataMarkup.includes('step="100"')) throw new Error("data card must render the editable 100-5000 ledger capacity control with a 100-record step");
+	await step(() => button('data.rebuild').click());
+	if (!button('data.rebuild').disabled) throw new Error('operation must wait for the follow-up read');
+	await step(() => finishRead({ ok: true, value: { ok: true, info: { ledgerEntries: 7, ledgerCapacity: 5000 } } }));
+	if (button('data.rebuild').disabled || !document.querySelector('[data-usage-data-metrics]').textContent.includes('7')) throw new Error('new counts must appear before enabling actions');
+});
+
+await clientRegression('workspace failures have a local retry and range changes discard old results', async ({ root, step, button, setResponder }) => {
+	let fail = true, pending;
+	setResponder(async (_channel, _endpoint, payload) => {
+		if (fail) return { ok: false, error: { code: 'internal', message: 'offline' } };
+		if (!payload.query.from) return new Promise(resolve => { pending = resolve; });
+		return { ok: true, value: { ok: true, tokens: 10, workspaces: [{ workspace: '/old-range', tokens: 10, sessions: [] }] } };
+	});
+	const render = range => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: '2026-09-15', range }));
+	await step(() => render('today'));
+	if (!button('action.retry')) throw new Error('workspace read failure needs a retry');
+	fail = false;
+	await step(() => button('action.retry').click());
+	if (!document.querySelector('[title="/old-range"]')) throw new Error('retry must show the workspace');
+	await step(() => render('all'));
+	if (document.querySelector('[title="/old-range"]')) throw new Error('old range must not be shown under new dates');
+	await step(() => pending({ ok: true, value: { ok: true, tokens: 0, workspaces: [] } }));
+});
+
+await clientRegression('report polling refreshes workspace data and pauses in hidden documents', async ({ root, step, button, setResponder }) => {
+	const timers = new Map();
+	window.setInterval = (fn, delay) => { const id = timers.size + 1; timers.set(id, { fn, delay }); return id; };
+	window.clearInterval = id => timers.delete(id);
+	let hidden = false, workspaceReads = 0;
+	Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === 'usage/workspaces') workspaceReads++;
+		return { ok: true, value: { ok: true, today: '2026-09-15', days: [], workspaces: [], tokens: 0, providers: [{ id: 'deepseek-official', capabilities: ['balance'] }], keys: [], status: {} } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+	await step(() => button('panel.tabSummary').click());
+	const before = workspaceReads;
+	await step(() => { for (const timer of timers.values()) if (timer.delay === 60000) timer.fn(); });
+	if (workspaceReads !== before + 1) throw new Error(`workspace must follow successful report refresh: ${before} -> ${workspaceReads}`);
+	hidden = true;
+	await step(() => { for (const timer of timers.values()) if (timer.delay === 60000) timer.fn(); });
+	if (workspaceReads !== before + 1) throw new Error('hidden report must pause automatic reads');
+	hidden = false;
+	await step(() => document.dispatchEvent(new window.Event('visibilitychange')));
+	if (workspaceReads !== before + 2) throw new Error('visible report must refresh immediately');
+});
+
+await clientRegression("switching report scopes hides old totals and ignores late replies", async ({ root, step, button, setResponder }) => {
+	const pending = [];
+	setResponder(async (_channel, endpoint, payload) => {
+		if (endpoint === "usage/get" && !payload.query.provider) return new Promise(resolve => pending.push(resolve));
+		return { ok: true, value: { ok: true, today: "2026-09-15", days: [], providers: [{ id: "deepseek-official", capabilities: ["balance"] }], keys: [], status: {} } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+	await step(() => button("panel.tabSummary").click());
+	if (document.querySelector("[data-usage-overview-workbench]")) throw new Error("new scope must wait for its own data");
+	await step(() => button("panel.tabOverview").click());
+	await step(() => pending[0]({ ok: true, value: { ok: true, today: "2026-09-15", days: [{ date: "2026-09-15", tokens: 999, models: [], hours: [] }] } }));
+	if (document.querySelector(".usg_activityValue")?.textContent !== "0") throw new Error("late global data must not overwrite the provider overview");
 });
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 

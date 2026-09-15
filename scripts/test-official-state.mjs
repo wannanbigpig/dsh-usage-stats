@@ -555,6 +555,36 @@ async function testMigrationBridge() {
 	}
 }
 
+async function testRepositoryCloseDrainsWrites() {
+	const domain = createFakeDomain();
+	domain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 1 };
+	let closing = false;
+	const close = domain.close.bind(domain);
+	domain.close = async () => { closing = true; await close(); };
+	for (const target of [domain.global, domain.ledger, domain.frozen]) {
+		for (const method of ["set", "put", "delete"]) {
+			if (typeof target[method] !== "function") continue;
+			const write = target[method].bind(target);
+			target[method] = (...args) => closing ? Promise.reject(new Error("domain closed")) : write(...args);
+		}
+	}
+	const repository = await openUsageStatsStorage({ storageDomain: { open: async () => domain } });
+	const failed = assert.rejects(repository.update(() => { throw new Error("earlier write failed"); }), /earlier write failed/);
+	const first = repository.update(state => ({ ...state, migration: { first: true } }));
+	const second = repository.update(state => ({ ...state, migration: { ...state.migration, second: true } }));
+	const stopped = repository.close();
+	const repeated = repository.close();
+	const refused = assert.rejects(repository.update(state => state), /closed/i);
+	const results = await Promise.allSettled([first, second]);
+	assert.deepEqual(results.map(result => result.status), ["fulfilled", "fulfilled"], "close must drain all updates accepted by the repository");
+	await Promise.all([failed, stopped, repeated, refused]);
+	assert.equal(stopped, repeated, "repeated close calls share one shutdown");
+	assert.deepEqual(domain.global.stored.migration, { first: true, second: true });
+	assert.equal(domain.closeCalls, 1);
+	await assert.rejects(repository.update(state => state), /closed/i);
+}
+
+await testRepositoryCloseDrainsWrites();
 await testStorageRepository();
 await testSettingsAdapter();
 await testMigrationBridge();

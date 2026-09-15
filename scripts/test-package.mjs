@@ -13,9 +13,9 @@ assert.match(patch, /^\s*- id:\s+connection\s*\n\s+inject:\s*\[[^\]]*webRuntime[
 
 const loaderId = client.match(/window\.__ModuleLoader__\.load\(\{\s*id:\s*["']([^"']+)["']/)?.[1];
 assert.equal(loaderId, packageJson.name, "client loader must register the installed package name");
-assert.equal(packageJson.version, "0.5.1", "workspace reports, model trends, and all-provider details release as the 0.5.1 line");
+assert.equal(packageJson.version, "0.5.2", "host compatibility and interaction fixes release as the 0.5.2 line");
 assert.equal(packageJson.dsh.manifestVersion, 1, "package uses the current public DSH manifest format");
-assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0", "package declares the tested DSH compatibility line");
+assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1", "package declares the tested DSH compatibility line");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-connection"), "client manifest injects the official Connection service");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-ui-layout"), "client manifest injects the global panel layout service");
 for (const dependency of ["@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-session-persistence"]) {
@@ -23,11 +23,11 @@ for (const dependency of ["@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-s
 }
 assert.equal(packageJson.devDependencies?.["@deepseek-ai/cordis"], packageJson.peerDependencies?.["@deepseek-ai/cordis"], "Cordis uses matching peer and development ranges");
 for (const dependency of ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-ui-primitives", "@deepseek-ai/dsh-host-webserver", "@deepseek-ai/dsh-settings"]) {
-	assert.equal(packageJson.devDependencies?.[dependency], "0.1.5-rc.2", `development uses the current Harness package ${dependency}`);
+	assert.equal(packageJson.devDependencies?.[dependency], "0.1.5-rc.2", `development keeps the earlier Harness regression package ${dependency}`);
 	assert.ok(!packageJson.peerDependencies?.[dependency], `${dependency} is a Client or service-injection relationship, not an installation peer`);
 }
 for (const dependency of ["@deepseek-ai/dsh-session-persistence", "@deepseek-ai/dsh-storage-domain"]) {
-	assert.equal(packageJson.devDependencies?.[dependency], "0.1.5-rc.2", `development uses the current Harness package ${dependency}`);
+	assert.equal(packageJson.devDependencies?.[dependency], "0.1.5-rc.2", `development keeps the earlier Harness regression package ${dependency}`);
 }
 assert.ok(client.includes('ctx.inject(["sidebarRight", "sidebarRightTabs"]'), "client registers its optional native right-Sidebar integration through host service injection");
 assert.ok(client.includes('ctx.inject(["layout"]'), "client registers its native global main panel through host service injection");
