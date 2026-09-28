@@ -14,6 +14,7 @@ import { recordLedgerState } from "../lib/ledger.js";
 import {
 	USAGE_STATS_SETTINGS_NAMESPACE,
 	USAGE_STATS_SETTINGS_SCHEMA,
+	USAGE_STATS_CONFIG_SCHEMA,
 	createUsageStatsSettings,
 	retiredSettingsFieldsOf,
 	validateUsageStatsSettings
@@ -487,6 +488,53 @@ async function testSettingsAdapter() {
 	assert.equal(calls.length, callsBeforePrune, "retireStaleFields must not write when no retired fields remain");
 }
 
+async function testCurrentHostSettings() {
+	const config = USAGE_STATS_CONFIG_SCHEMA({});
+	assert.equal(typeof USAGE_STATS_CONFIG_SCHEMA.toJSON, "function");
+	assert.equal(USAGE_STATS_CONFIG_SCHEMA.dict.display.meta.volatile, true);
+	const writeRef = Symbol.for("cosmokit.volatile.write");
+	const listeners = new Set();
+	const writes = [];
+	const ctx = {
+		fiber: { entry: { options: { id: "renamed-usage" } } },
+		settings: {
+			describe: () => [{ ns: "renamed-usage", user: {} }],
+			async update(namespace, patch) {
+				writes.push(["update", namespace, patch]);
+				for (const [key, value] of Object.entries(patch)) {
+					const current = config[key].get();
+					config[key][writeRef](value !== null && typeof value === "object" && !Array.isArray(value) ? { ...current, ...value } : value);
+				}
+				for (const listener of listeners) listener();
+			},
+			async mutate(namespace, operations) {
+				writes.push(["mutate", namespace, operations]);
+				for (const operation of operations) if (operation.op === "set") config[operation.path[0]][writeRef](operation.value);
+				for (const listener of listeners) listener();
+			}
+		},
+		on(event, listener) {
+			assert.equal(event, "loader/volatile-update");
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		}
+	};
+	const scope = createUsageStatsSettings(ctx, config);
+	assert.equal(scope.namespace, "renamed-usage");
+	assert.equal(scope.get().display.balance, true);
+	let changes = 0;
+	const unwatch = scope.watch(() => { changes++; });
+	await scope.update({ display: { balance: false } });
+	assert.equal(scope.get().display.balance, false);
+	await Promise.resolve();
+	assert.equal(changes, 1);
+	await assert.rejects(scope.update({ visibleProviderIds: ["same", "same"] }), /duplicates/);
+	assert.equal(writes.length, 1, "invalid cross-field edits must not reach the host");
+	await scope.replaceLimits(USAGE_STATS_SETTINGS_SCHEMA({}).limits);
+	assert.equal(writes[1][1], "renamed-usage");
+	unwatch();
+}
+
 async function testMigrationBridge() {
 	const root = await mkdtemp(join(tmpdir(), "dsh-usage-state-"));
 	try {
@@ -587,6 +635,7 @@ async function testRepositoryCloseDrainsWrites() {
 await testRepositoryCloseDrainsWrites();
 await testStorageRepository();
 await testSettingsAdapter();
+await testCurrentHostSettings();
 await testMigrationBridge();
 await testLegacyConverters();
 console.log("official storage/settings/migration tests passed");

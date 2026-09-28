@@ -16,9 +16,17 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(readFileSync(join(projectRoot, "package.json"), "utf8"));
 
-// Fake primitives: every named export is a no-op component.
+// Explicitly list the host primitives used by this bundle. Unknown names must
+// fail here instead of silently turning into no-op components.
 const Stub = () => null;
 const primitives = new Proxy({
+	FishLogo: Stub,
+	IconApiOutlineRegular: Stub,
+	IconCheckOutlineRegular: Stub,
+	IconChevronLeftOutlineRegular: Stub,
+	IconChevronRightOutlineRegular: Stub,
+	IconDataOutlineRegular: Stub,
+	IconWarningOutlineRegular: Stub,
 	Switch: function Switch({ checked, disabled, label, title, onChange }) {
 		return jsxRuntime.jsx("button", { type: "button", role: "switch", "aria-checked": checked, "aria-label": label, title, disabled, onClick: () => onChange(!checked) });
 	},
@@ -46,7 +54,10 @@ const primitives = new Proxy({
 			jsxRuntime.jsx("div", { role: "dialog", "aria-modal": "true", "aria-label": title, className, children })
 		] });
 	}
-}, { get: (target, key) => target[key] ?? Stub });
+}, { get: (target, key) => {
+	if (!(key in target)) throw new Error(`Unknown host UI primitive: ${String(key)}`);
+	return target[key];
+} });
 
 let captured = null;
 globalThis.window = { __ModuleLoader__: { load: (entry) => { captured = entry; } } };
@@ -369,6 +380,39 @@ exports_.apply({
 		if (!exports_.openHarnessSettings(layer) || settingsClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must click the host trigger without reopening usage");
 		await new Promise((resolve) => dom.window.setTimeout(resolve, 20));
 		if (scopedClicks !== 1 || decoyClicks !== 0) throw new Error(`settings section selection must stay inside the open dialog: scoped=${scopedClicks} decoy=${decoyClicks}`);
+		settings.remove();
+		settingsDialog.remove();
+		const accountLauncher = document.createElement("button");
+		accountLauncher.setAttribute("aria-haspopup", "menu");
+		accountLauncher.setAttribute("aria-label", "Account menu");
+		let accountClicks = 0;
+		let menuSettingsClicks = 0;
+		accountLauncher.onclick = () => {
+			accountClicks++;
+			const menu = document.createElement("div");
+			menu.setAttribute("role", "menu");
+			const menuSettings = document.createElement("button");
+			menuSettings.setAttribute("role", "menuitem");
+			menuSettings.textContent = "Settings⌘,";
+			menuSettings.onclick = () => {
+				menuSettingsClicks++;
+				menu.remove();
+				const dialog = document.createElement("div");
+				dialog.setAttribute("role", "dialog");
+				dialog.setAttribute("aria-modal", "true");
+				const section = document.createElement("button");
+				section.textContent = "用量与计费";
+				section.onclick = () => scopedClicks++;
+				dialog.append(section);
+				document.body.append(dialog);
+			};
+			menu.append(menuSettings);
+			document.body.append(menu);
+		};
+		footer.append(accountLauncher);
+		if (!exports_.openHarnessSettings(layer) || accountClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must open the current host account menu");
+		await new Promise((resolve) => dom.window.setTimeout(resolve, 30));
+		if (menuSettingsClicks !== 1 || scopedClicks !== 2 || decoyClicks !== 0) throw new Error("account menu settings handoff must select the plugin settings section");
 	} finally {
 		await react.act(async () => { root.unmount(); await flush(); });
 		dom.window.close();
@@ -495,7 +539,7 @@ if (!source.includes(".usg_modelNameCopyTip{position:fixed") || !source.includes
 if (!source.includes('"data-usage-model-name-tip": true') || !source.includes("onMouseEnter: cancelClose") || !source.includes("onMouseLeave: scheduleClose")) throw new Error("model-name tips must stay open while the pointer moves into them");
 if (!source.includes("transform:translate(-50%,-100%)")) throw new Error("model-name tips must appear above the hovered label");
 if (!source.includes(".usg_hourRangeSelect{") || !source.includes("appearance:none")) throw new Error("hour range selector must be transparent and borderless");
-if (!source.includes(".usg_section :is(button,input,select,summary):focus-visible,.usg_sidebarButton:focus-visible{outline:2px solid var(--dsw-alias-label-secondary);outline-offset:2px}")) throw new Error("keyboard focus must remain visible on plugin controls");
+if (!source.includes(".usg_section :is(button,input,select,summary):focus-visible,.usg_sidebarButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}")) throw new Error("keyboard focus must follow the host focus ring theme");
 if (source.includes("var(--dsw-alias-fill-l2)") || source.includes("var(--dsw-alias-interactive-bg)")) throw new Error("plugin backgrounds must use existing host theme tokens");
 if (!source.includes('"data-loading": usageLoading || balanceLoading')) throw new Error("global refresh must reflect both usage and balance loading");
 if (source.includes('function BalanceCard({ keys, selectedKey, onSelectKey, account, accountLoading, accountError, balanceTone = "muted", translate, onRefresh })')) throw new Error("balance card must not render a duplicate refresh action");

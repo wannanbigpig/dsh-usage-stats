@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
 	apply,
+	afterSettingsEntryReady,
 	collectUsage,
 	configuredKeys,
 	createBackgroundRefreshController,
@@ -32,6 +33,26 @@ import {
 	validateLimits,
 	visibleProviderIdsOf
 } from "../lib/index.js";
+
+// appReady can fire synchronously during a hot reload. A profile write must
+// still wait for this plugin's async apply to finish and its entry to appear.
+{
+	let activate;
+	let active = false;
+	let calls = 0;
+	const ctx = {
+		fiber: { await: () => new Promise(resolve => { activate = () => { active = true; resolve(); }; }) },
+		settings: { describe: () => active ? [{ ns: "usage-stats" }] : [] },
+		get: () => ({ onReady(callback) { callback(); return () => {}; } }),
+		effect: () => {}
+	};
+	const pending = afterSettingsEntryReady(ctx, "usage-stats", () => { calls++; });
+	await Promise.resolve();
+	assert.equal(calls, 0, "migration must not edit the profile while apply is still loading");
+	activate();
+	await pending;
+	assert.equal(calls, 1);
+}
 
 // Disposing while a settings restart is waiting for the old refresh to stop
 // must not start a new orphaned refresh instance.
