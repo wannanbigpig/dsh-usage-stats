@@ -28,6 +28,14 @@ if (!process.argv.includes('--source')) {
 	process.exit(child.status ?? 1);
 }
 const fromHost = path => import(pathToFileURL(join(harnessRoot, path)).href);
+const settingsShellSource = readFileSync(join(harnessRoot, 'packages/client/ui-settings-general/src/client/index.ts'), 'utf8');
+assert.ok(settingsShellSource.includes("name: 'sidebar.settings'") && settingsShellSource.includes('store: shellStore'),
+	'current host must expose its root settings store through the sidebar.settings slot');
+const { createSettingsShellStore } = await fromHost('packages/client/ui-settings-general/src/client/shell-store.ts');
+const settingsStore = createSettingsShellStore().create();
+settingsStore.actions.openSection('usage-stats');
+assert.deepEqual(settingsStore.store.getSnapshot(), { open: true, activeId: 'usage-stats' },
+	'current host settings store must open the plugin section directly');
 const hostIcons = await fromHost('packages/client/ui-primitives/src/icons/index.tsx');
 for (const name of usedPrimitives.filter(name => name.startsWith('Icon'))) {
 	assert.equal(typeof hostIcons[name], 'function', `current host icon ${name} is not a component`);

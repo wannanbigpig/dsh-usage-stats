@@ -38,7 +38,7 @@ import {
 	mergeFrozenArchive,
 	trimLedgerState
 } from "../lib/ledger.js";
-import { filterRenderedUsageByProvider } from "../lib/index.js";
+import { filterRenderedUsageByProvider, todayCostPerKey } from "../lib/index.js";
 import { normalizePricing, validatePricingInput } from "../lib/pricing.js";
 import { StateSchema, createEmptyUsageState } from "../lib/storage.js";
 
@@ -149,6 +149,31 @@ assert(hourKey(Date.UTC(2026, 0, 1, 1, 0, 0)) === 9, "Beijing peak-hour boundary
 		usage: tinyUsage
 	}, pricing);
 	assert(tiny.costState === "priced" && tiny.costNanosCny === "50", "freeze must persist priced nano-CNY state");
+	const account = freezeLedgerEntry({
+		id: "account-call", occurredAt: beijingTime(2026, 0, 2, 12),
+		provider: "deepseek-account", model: "deepseek-v4-flash", usage: tinyUsage
+	}, pricing);
+	assert(account.costState === "priced" && account.costNanosCny === tiny.costNanosCny,
+		"the signed-in DeepSeek account route must use the same frozen price as the API Key route");
+	const customProvider = freezeLedgerEntry({
+		id: "custom-call", occurredAt: beijingTime(2026, 0, 2, 12),
+		provider: "user-custom", model: "deepseek-v4-flash", usage: tinyUsage
+	}, pricing);
+	assert(customProvider.costState === "not-billable", "custom providers must preserve token usage without guessing a charge");
+	const legacyAccount = { ...account, id: "old-account-call", costState: "not-billable" };
+	delete legacyAccount.costNanosCny;
+	assert(renderLedgerState(createLedgerState({ ledger: [legacyAccount] }), 123, pricing).total.cost === null,
+		"old account records frozen before account pricing must remain unknown, not zero or repriced");
+	const oldArchive = foldFrozenLedgerEntries([legacyAccount]);
+	const oldBucket = oldArchive.days["2026-01-02"].models["deepseek-account/deepseek-v4-flash"];
+	const oldHourBucket = oldArchive.days["2026-01-02"].hours["12"].models["deepseek-account/deepseek-v4-flash"];
+	oldBucket.unpricedCount = 0;
+	oldHourBucket.unpricedCount = 0;
+	assert(renderFrozenArchive(oldArchive, 123).total.cost === null,
+		"pre-upgrade account archives with token usage and no stored charge must not display zero");
+	const mixedAccountArchive = foldFrozenLedgerEntries([account], oldArchive);
+	assert(renderFrozenArchive(mixedAccountArchive, 123).total.cost === null,
+		"a new priced account call must not hide an old unpriced account archive");
 
 	const unpriced = freezeLedgerEntry({
 		id: "unknown",
@@ -473,6 +498,14 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(costOf("deepseek-official/unknown-model", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing) === null, "unknown model cost must be null");
 	assert(costOf("external-relay/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing) === null,
 		"a DeepSeek-named model served by a non-official provider must remain token-only");
+	assert(costOf("deepseek-account/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing)
+		=== costOf("deepseek-official/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing),
+	"the signed-in account and API Key routes must share one DeepSeek price calculation");
+	const keyCharges = todayCostPerKey([{ date: "2026-01-02", models: [
+		{ model: "deepseek-official/deepseek-v4-flash", cost: 2 },
+		{ model: "deepseek-account/deepseek-v4-flash", cost: 5 }
+	] }], "2026-01-02", { defaultKeyRef: "DEEPSEEK_API_KEY", keyProviders: {} });
+	assert(keyCharges.perKey.get("DEEPSEEK_API_KEY") === 2, "account estimates must not count toward API Key spending limits");
 	// 1M input (miss) + 1M output at flash idle time: ¥1.5 + ¥4.5 = ¥6
 	const cost = costOf("deepseek-official/deepseek-v4-flash", { inputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing);
 	assert(Math.abs(cost - 6) < 1e-9, `flash cost ${cost}`);

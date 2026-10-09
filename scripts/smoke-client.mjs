@@ -161,7 +161,7 @@ if (!accountsCardSource.includes('S.providerAccountIdentity') || !accountsCardSo
 if (!accountsCardSource.includes("planWindows.map")) throw new Error("provider accounts must render every plan quota window");
 if (accountsCardSource.includes('"data-usage-window-progress": true')) throw new Error("provider account plan windows must render text without progress bars");
 if (!accountsCardSource.includes("windowResetCountdownForItem(window, translate)") || !accountsCardSource.includes('children: `(${reset})`')) throw new Error("provider account plan windows must show compact reset status in parentheses");
-if (!accountsCardSource.includes('translate("panel.balance")') || !accountsCardSource.includes('translate("accounts.today")')) throw new Error("DeepSeek account rows must label balance and today spend");
+if (!accountsCardSource.includes('translate("panel.balance")') || !accountsCardSource.includes('"accounts.todayEstimate" : "accounts.today"')) throw new Error("DeepSeek account rows must distinguish API Key spend from account estimates");
 if (!accountsCardSource.includes('translate("balance.keyLimit")') || !accountsCardSource.includes('account?.keyLimit')) throw new Error("provider accounts must render OpenRouter ordinary-key limits separately from account balance");
 if (!source.includes('translate("balance.managementKeyMissing")') || !source.includes('managementStatus')) throw new Error("OpenRouter must explain when Management Credits are not configured or unavailable");
 if (!source.includes('status === "not-subscribed" ? translate("balance.status.subscriptionRequired")')) throw new Error("OpenCode Go entitlement failures must render as subscription-required");
@@ -202,7 +202,7 @@ if (!providerLogoSource.includes("OPENCODE_LOGO_DATA_URL") || !source.includes('
 if (!providerLogoSource.includes('providerId === "moonshotai" || providerId === "moonshotai-cn"') || !providerLogoSource.includes('M117.9648 684.6464l342.30272 93.57312v75.34592')) throw new Error("Moonshot providers must use the supplied brand SVG");
 if (!source.includes('.usg_providerLogoImage{display:block;width:100%;height:100%;object-fit:cover}')) throw new Error("raster provider logos must fill the provider logo seat");
 if (!source.includes('.usg_balanceIcon[data-provider-id=moonshotai],.usg_balanceIcon[data-provider-id=moonshotai-cn]{color:#fff;background:#111}')) throw new Error("Moonshot icons must use a black brand seat");
-if (!source.includes('.usg_balanceIcon[data-provider-id=deepseek-official],.usg_balanceIcon[data-provider-id=zai-coding-cn]{color:#fff;background:#111}')) throw new Error("SVG provider logos must use a white foreground on a black seat");
+if (!source.includes('.usg_balanceIcon[data-provider-id=deepseek-official],.usg_balanceIcon[data-provider-id=deepseek-account],.usg_balanceIcon[data-provider-id=zai-coding-cn]{color:#fff;background:#111}')) throw new Error("SVG provider logos must use a white foreground on a black seat");
 if (!source.includes('tokenMode ? `${fmt(hovered.tokens)} tokens`')) throw new Error("plan hourly chart must use token counts instead of money");
 if (!source.includes('!tokenMode && visiblePeakHours.map')) throw new Error("plan and weekend hourly charts must hide peak-hour regions");
 if (!source.includes('function isWeekendOffPeakDay')) throw new Error("client must recognize weekend off-peak days by Beijing date");
@@ -1362,6 +1362,16 @@ const mainDisposer = mainEntry[1]();
 if (typeof mainDisposer !== "function") throw new Error("global main panel registration must return a disposer");
 const mainReg = registeredOptions.find((entry) => entry.options?.name === "main");
 if (mainReg?.options?.key !== "@wannanbigpig/dsh-usage-stats/main" || typeof mainReg.component !== "function") throw new Error("global main panel must use the selected panel id");
+const openedSections = [];
+ctx.slots.entries = (name) => name === "sidebar.settings"
+	? [{ store: { create: () => ({ actions: { openSection: (id) => openedSections.push(id) } }) } }]
+	: [];
+if (footerFace.openSettings(null) !== true
+	|| rightbarReg.options.inject().openSettings(null) !== true
+	|| mainReg.options.inject().openSettings(null) !== true
+	|| openedSections.join(",") !== "usage-stats,usage-stats,usage-stats") {
+	throw new Error("each query surface must open the native settings store directly at usage-stats");
+}
 mainReg.options.inject().closePanel();
 if (mainPanelSelections.at(-1) !== null) throw new Error("global main panel close action must return to the Conversation");
 const sectionEntry = registrations.find(([slot]) => slot === "settings.section");

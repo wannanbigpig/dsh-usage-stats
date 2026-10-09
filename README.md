@@ -6,6 +6,12 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 **文档导航：** [核心亮点](#核心亮点--features) · [Provider 支持](#provider-支持) · [界面预览](#界面预览--screenshots) · [快速安装](#快速安装--quick-start) · [配置](#配置--configuration) · [数据与隐私](#数据与隐私--privacy)
 
+## 0.5.4 更新
+
+- 对照 Harness `0.2.0-rc.2` 和当前 `0.2.1-alpha.1` 源码，“前往设置”直接打开原生「用量与计费」页；旧宿主保留入口回退。
+- DeepSeek 登录账号的 Token 按现有 DeepSeek 模型价格估算费用，不计入 API Key 消费限额；账号余额仍由宿主管理。
+- 其他和自定义供应商继续记录 Token，不推断未知价格；旧版账号账本未冻结金额时显示未知费用。
+
 ## 0.5.3 更新
 
 - 对照 Harness `0.1.7-rc.2` 适配新版 Settings/Config：插件设置接入宿主配置编辑器，旧 JSON 设置在插件激活后导入。
@@ -89,9 +95,11 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 ## 快速安装 / Quick start
 
-`0.5.3` 已对照 Harness `0.1.7-rc.2` 修复兼容问题，`0.5.2` 以 Harness `0.1.6-alpha.1` 为基线。开发依赖保留 `0.1.5-rc.2` 用于旧版回归，`test:host-current` 直接加载当前宿主源码验证。包清单使用 `dsh.manifestVersion: 1`，并通过顶层 `engines.dsh` 声明完整 UI 兼容范围 `>=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0`。要求 `web` profile；客户端 UI 依赖 `@deepseek-ai/dsh-client-ui-layout >=0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-ui-primitives >=0.1.3-alpha.2`，独立 RPC channel 依赖 `@deepseek-ai/dsh-host-webserver >=0.1.3-alpha.2`，插件自身支持 Node.js `>=18`，运行最新宿主应遵守其 Node.js `^22.19 || >=24` 要求。插件直接依赖 `storageDomain`、`settings`、`connection.rpc`、`webServer` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。服务端仍保留 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 的接口读取路径，但旧宿主不再属于完整 UI 兼容范围。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；最新 Connection 契约要求独立 channel 的调用方同时注入 `connection` 与 `webServer`，使 route 归调用插件 Fiber 所有并随其卸载；当前 `master` 又将 Connection 自身对 `webServer` 改为可选子注入，而专用 channel 注册仍从 Connection owner Fiber 读取该服务，因此插件的 bundle patch 会同步给 Web profile 的 `connection` 行补充 `webServer`；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），最新宿主的 `handle.read()` 返回 `{ eventState, events }`，插件会先归一化其中的 `events` 再重建；过渡版本直接返回事件数组、旧宿主使用 `listSnapshots`/`readFrom` 的路径仍可读取，所有新宿主只读句柄都会在读取后必达关闭；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
+`0.5.4` 对照 Harness `0.2.0-rc.2`（桌面版）和 `0.2.1-alpha.1`（最新宿主源码）适配设置入口及计费；`0.5.3` 已对照 Harness `0.1.7-rc.2` 修复兼容问题，`0.5.2` 以 Harness `0.1.6-alpha.1` 为基线。开发依赖保留 `0.1.5-rc.2` 用于旧版回归，`test:host-current` 直接加载当前宿主源码验证。包清单使用 `dsh.manifestVersion: 1`，并通过顶层 `engines.dsh` 声明完整 UI 兼容范围 `>=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0`。要求 `web` profile；客户端 UI 依赖 `@deepseek-ai/dsh-client-ui-layout >=0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-ui-primitives >=0.1.3-alpha.2`，独立 RPC channel 依赖 `@deepseek-ai/dsh-host-webserver >=0.1.3-alpha.2`，插件自身支持 Node.js `>=18`，运行最新宿主应遵守其 Node.js `^22.19 || >=24` 要求。插件直接依赖 `storageDomain`、`settings`、`connection.rpc`、`webServer` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。服务端仍保留 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 的接口读取路径，但旧宿主不再属于完整 UI 兼容范围。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；最新 Connection 契约要求独立 channel 的调用方同时注入 `connection` 与 `webServer`，使 route 归调用插件 Fiber 所有并随其卸载；当前 `master` 又将 Connection 自身对 `webServer` 改为可选子注入，而专用 channel 注册仍从 Connection owner Fiber 读取该服务，因此插件的 bundle patch 会同步给 Web profile 的 `connection` 行补充 `webServer`；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），最新宿主的 `handle.read()` 返回 `{ eventState, events }`，插件会先归一化其中的 `events` 再重建；过渡版本直接返回事件数组、旧宿主使用 `listSnapshots`/`readFrom` 的路径仍可读取，所有新宿主只读句柄都会在读取后必达关闭；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
 
 最新宿主适配还包括：历史重建按只读句柄的 `inheritedEventCount` 跳过 fork 继承前缀，避免父会话用量重复统计；读取 `assistant/attempt` 内嵌流的最后一份 usage，每个已结算尝试分别计入；实时重试以已结算尝试划分账本身份，成功消息只与自己的流式样本去重。旧宿主未提供继承边界时仍按旧读路径处理，不能保证 fork 历史去重。已有重建估算可在「数据管理」重新执行重建以更新，已冻结的实时历史不会被追溯改价或自动修正。
+
+查询面板的「前往设置」优先调用宿主 `sidebar.settings` Store 的 `openSection("usage-stats")`，直接打开插件设置页；旧宿主沿用原生设置入口回退。DeepSeek 登录账号与 API Key 使用同一份本地价格策略估算费用，但账号费用不会归入 API Key 限额；账号余额仍由宿主负责。其他及自定义供应商记录 Token，用量和模型明细可查，费用保持未定价。升级前的账号账本若未冻结金额，显示未知费用，不伪造零金额。
 
 查询面板优先注册到最新宿主的原生右侧 Sidebar，可与主会话并排常驻；没有活动会话时使用宿主 `main` Slot 的全局主面板，布局服务或面板尚不可用时再回退到原生 Modal。Modal 继续支持 Escape、点击遮罩关闭和焦点返回侧栏。开关、状态标签、状态点与页面通知分别复用宿主 `Switch`、`Tag`、`StateDot`、`Toast`；右侧栏和全局面板使用宿主基础背景，侧栏入口高度、hover token 和窄栏尺寸与当前宿主 footer 对齐。插件不扫描或替换宿主设置图标，也不修改宿主布局。
 

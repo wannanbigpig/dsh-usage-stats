@@ -13,9 +13,9 @@ assert.match(patch, /^\s*- id:\s+connection\s*\n\s+inject:\s*\[[^\]]*webRuntime[
 
 const loaderId = client.match(/window\.__ModuleLoader__\.load\(\{\s*id:\s*["']([^"']+)["']/)?.[1];
 assert.equal(loaderId, packageJson.name, "client loader must register the installed package name");
-assert.equal(packageJson.version, "0.5.3", "current host compatibility and sidebar fixes release as the 0.5.3 line");
+assert.equal(packageJson.version, "0.5.4", "current host settings and account billing fixes release as the 0.5.4 line");
 assert.equal(packageJson.dsh.manifestVersion, 1, "package uses the current public DSH manifest format");
-assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0", "package declares the tested DSH compatibility lines");
+assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0", "package declares the tested DSH compatibility lines");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-connection"), "client manifest injects the official Connection service");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-ui-layout"), "client manifest injects the global panel layout service");
 for (const dependency of ["@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-session-persistence"]) {

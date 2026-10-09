@@ -460,6 +460,24 @@ function createHarness(options = {}) {
 		assert.equal(cleared.value.cleared, true);
 		assert.equal(ledgerEntriesOf(harness), 0);
 		assert.equal(harness.domain.global.stored.migration.legacyCacheImported, true);
+		for (const [provider, model, inputTokens] of [
+			["deepseek-account", "deepseek-v4-flash", 1_000_000],
+			["user-custom", "deepseek-v4-flash", 20]
+		]) {
+			for await (const _chunk of harness.listeners.get("llm/stream")({ sessionId: provider, provider, model }, async function* () {
+				yield { type: "usage", usage: { inputTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } };
+			})) { /* drain */ }
+		}
+		const routedEntries = [...harness.domain.ledger.records.values()].flatMap(row => row.entries);
+		assert.equal(routedEntries.length, 2, "account and custom routes must both be captured from llm/stream");
+		assert.equal(routedEntries.find(entry => entry.provider === "deepseek-account")?.costState, "priced");
+		assert.equal(routedEntries.find(entry => entry.provider === "user-custom")?.costState, "not-billable");
+		const accountUsage = (await harness.rpc.handler("usage/get", { query: { provider: "deepseek-account" } })).value;
+		const customUsage = (await harness.rpc.handler("usage/get", { query: { provider: "user-custom" } })).value;
+		assert.equal(accountUsage.total.tokens, 1_000_000);
+		assert.ok(accountUsage.total.cost > 0, "signed-in account usage must expose its estimated DeepSeek charge");
+		assert.equal(customUsage.total.tokens, 20);
+		assert.equal(customUsage.total.cost, null, "custom providers have token totals but no inferred charge");
 	} finally {
 		await harness.dispose();
 		await rm(home, { recursive: true, force: true });
