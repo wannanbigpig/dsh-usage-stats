@@ -1,7 +1,207 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { validateConfig, defaultLimits, defaultLimitRule, evaluateKeyQuota, createLimitsService, createBalanceService, createProviderService, configuredKeys, createUsageOperations, startBackgroundRefresh } from '../lib/index.js';
+import { validateConfig, defaultLimits, defaultLimitRule, evaluateKeyQuota, createLimitsService, createBalanceService, createProviderService, configuredKeys, configuredProviders, createUsageOperations, startBackgroundRefresh } from '../lib/index.js';
 import { USAGE_STATS_SETTINGS_SCHEMA, validateUsageStatsSettings } from '../lib/settings.js';
+
+function accountFixture() {
+ let state = { status: 'credential-stored', attempt: { id: 'login-a', phase: 'succeeded' } };
+ let calls = 0;
+ let query = async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }, { currency: 'USD', balance: '90' }], bonusWallets: [{ currency: 'CNY', balance: '5.66' }] });
+ const listeners = new Map();
+ const ctx = {
+  credentials: { resolve: async ref => ref === 'DEEPSEEK_API_KEY' ? { value: 'api-fixture' } : null },
+  settings: { get: ns => ns === 'llm-deepseek' ? { apiKeyEnv: 'DEEPSEEK_API_KEY' } : undefined },
+  llm: { listProviders: () => [{ id: 'deepseek-official' }, { id: 'deepseek-account' }], listConfigurableProviders: () => [] },
+  deepseekAccount: { getState: async () => state, getBalance: async client => { assert.equal(client.version, '0.2.1-alpha.3'); assert.equal(typeof client.locale, 'string'); assert.equal(Number.isFinite(client.timezoneOffsetSeconds), true); calls++; return query(); } },
+  get(name) { return this[name]; },
+  on(event, callback) { listeners.set(event, callback); return () => listeners.delete(event); }
+ };
+ const settings = { defaultProviderId: 'auto', refreshMs: 60000 };
+ const service = createProviderService({ ctx, config: validateConfig({}), credentials: ctx.credentials, settingsService: { snapshot: () => settings }, deps: { accountClientMetadata: () => ({ version: '0.2.1-alpha.3', locale: 'zh-CN', timezoneOffsetSeconds: 28800 }), now: () => 1000 } });
+ return { ctx, service, settings, calls: () => calls, setQuery: value => { query = value; }, setState: value => { state = value; }, emit: event => listeners.get(event)?.() };
+}
+
+test('DeepSeek Account exposes its own Host-backed balance and keeps API credentials separate', async () => {
+ const f = accountFixture();
+ const providers = await f.service.providers();
+ const account = providers.find(row => row.id === 'deepseek-account');
+ assert.equal(account?.configured, true);
+ assert.equal(account?.queryable, true);
+ assert.equal(account?.keyRef, null);
+ assert.ok(account.capabilities.includes('balance'));
+ const [one, two] = await Promise.all([f.service.get('deepseek-account'), f.service.get('deepseek-account', null, true)]);
+ assert.deepEqual(one.balance, { currency: 'CNY', total: 18, granted: 5.66, toppedUp: 12.34 });
+ assert.equal(one.providerId, 'deepseek-account');
+ assert.equal(one.status, 'ok');
+ assert.deepEqual(one, two);
+ assert.equal(f.calls(), 1, 'concurrent force requests share one Host balance read');
+ await f.service.get('deepseek-account');
+ assert.equal(f.calls(), 1, 'ordinary reads honor the refresh TTL');
+ assert.equal((await f.service.cached('deepseek-account')).balance.total, 18);
+});
+
+test('Account wallet failures, missing amounts and empty wallets never become fake zero balances', async () => {
+ const f = accountFixture();
+ for (const value of [{ status: 'failed' }, { status: 'ready', value: [], bonusWallets: [] }, { status: 'ready', value: [{ currency: 'CNY', balance: '' }], bonusWallets: [] }]) {
+  f.setQuery(async () => value);
+  const result = await f.service.get('deepseek-account', null, true);
+  assert.notEqual(result.status, 'ok');
+  assert.equal(result.balance, undefined);
+ }
+ f.setQuery(async () => { throw new Error('sensitive-host-error'); });
+ const failed = await f.service.get('deepseek-account', null, true);
+ assert.equal(failed.status, 'unavailable');
+ assert.equal(JSON.stringify(failed).includes('sensitive-host-error'), false);
+ f.setQuery(async () => ({ status: 'ready', value: [{ currency: 'USD', balance: '2.5' }], bonusWallets: [{ currency: 'USD', balance: '0E-16' }] }));
+ assert.deepEqual((await f.service.get('deepseek-account', null, true)).balance, { currency: 'USD', total: 2.5, granted: 0, toppedUp: 2.5 });
+});
+
+test('Account logout and sign-in changes invalidate cached and in-flight balances', async () => {
+ const f = accountFixture();
+ await f.service.get('deepseek-account');
+ f.setState({ status: 'signed-out', attempt: null });
+ f.emit('deepseek-account/signed-out');
+ assert.equal(await f.service.cached('deepseek-account'), null);
+ assert.equal((await f.service.get('deepseek-account')).status, 'not-configured');
+ assert.equal(f.calls(), 1);
+ f.setState({ status: 'credential-stored', attempt: { id: 'login-b', phase: 'succeeded' } });
+ let resolve;
+ f.setQuery(() => new Promise(done => { resolve = done; }));
+ const pending = f.service.get('deepseek-account');
+ while (!resolve) await new Promise(done => setImmediate(done));
+ f.setState({ status: 'signed-out', attempt: null });
+ f.emit('deepseek-account/signed-out');
+ resolve({ status: 'ready', value: [{ currency: 'CNY', balance: '999' }], bonusWallets: [] });
+ assert.notEqual((await pending).status, 'ok');
+ assert.equal(await f.service.cached('deepseek-account'), null);
+});
+
+test('replacing the Host Account service never reuses another service balance', async () => {
+ const f = accountFixture();
+ assert.equal((await f.service.get('deepseek-account')).balance.total, 18);
+ f.ctx.deepseekAccount = {
+  getState: async () => ({ status: 'credential-stored', attempt: { id: 'login-a', phase: 'succeeded' } }),
+  getBalance: async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '42' }], bonusWallets: [] })
+ };
+ assert.equal(await f.service.cached('deepseek-account'), null, 'identical account state does not imply the same Host service');
+ assert.equal((await f.service.get('deepseek-account')).balance.total, 42);
+});
+
+test('Cordis per-read service facades share one balance identity without recursive reads', async () => {
+ const f = accountFixture();
+ let reads = 0;
+ f.ctx.get = function (name) {
+  if (name !== 'deepseekAccount') return this[name];
+  if (++reads > 30) throw new Error('unbounded service facade identity comparison');
+  return new Proxy(this.deepseekAccount, { get: (target, property) => property === Symbol.for('cordis.original') ? target : Reflect.get(target, property) });
+ };
+ assert.equal((await f.service.get('deepseek-account')).status, 'ok');
+ assert.equal((await f.service.get('deepseek-account')).balance.total, 18);
+ assert.equal(f.calls(), 1, 'fresh traced facades must retain the same cache');
+ assert.ok(reads < 30);
+});
+
+test('automatic provider follows available Host default while explicit plugin choices stay unchanged', async () => {
+ const f = accountFixture();
+ assert.equal(USAGE_STATS_SETTINGS_SCHEMA({}).defaultProviderId, 'auto');
+ f.ctx.agentDefaultModel = { currentSelection: () => ({ provider: 'deepseek-account', model: 'deepseek-flash' }) };
+ const selected = async raw => (await configuredProviders(f.ctx, validateConfig({}), { defaultProviderId: raw })).find(row => row.default)?.id;
+ assert.equal(await selected('auto'), 'deepseek-account');
+ assert.equal(await selected('deepseek-official'), 'deepseek-official', 'an existing explicit choice is never migrated');
+ f.ctx.agentDefaultModel.currentSelection = () => ({ provider: 'deepseek-official' });
+ assert.equal(await selected('auto'), 'deepseek-official');
+ f.ctx.credentials.resolve = async () => null;
+ assert.equal(await selected('auto'), 'deepseek-account', 'an unconfigured Host route cannot hide the signed-in account');
+ f.setState({ status: 'signed-out', attempt: null });
+ f.ctx.profileContext = { name: 'desktop' };
+ assert.equal(await selected('auto'), 'deepseek-account');
+ f.ctx.profileContext.name = 'web';
+ assert.equal(await selected('auto'), 'deepseek-official');
+});
+
+test('Account identity notifications invalidate the cache and stop with the owning context', async () => {
+ const f = accountFixture();
+ let wake;
+ let frames = 0;
+ let aborted = false;
+ const disposers = [];
+ f.ctx.effect = callback => { disposers.push(callback()); };
+ f.ctx.deepseekAccount.watch = async function* (signal, includeIdentityChanges) {
+  assert.equal(includeIdentityChanges, true);
+  signal.addEventListener('abort', () => { aborted = true; wake?.(); }, { once: true });
+  yield { status: 'credential-stored' };
+  while (!signal.aborted) {
+   await new Promise(resolve => { wake = resolve; });
+   if (!signal.aborted) { frames++; yield { status: 'credential-stored' }; }
+  }
+ };
+ await f.service.get('deepseek-account');
+ wake();
+ while (frames === 0) await new Promise(resolve => setImmediate(resolve));
+ await new Promise(resolve => setImmediate(resolve));
+ assert.equal(await f.service.cached('deepseek-account'), null, 'same status can represent a changed account identity');
+ await f.service.get('deepseek-account');
+ assert.equal(f.calls(), 2);
+ f.ctx.deepseekAccount = { getState: async () => ({ status: 'credential-stored', attempt: null }), getBalance: async () => ({ status: 'ready', value: [{ currency: 'CNY', balance: '42' }], bonusWallets: [] }) };
+ assert.equal(await f.service.cached('deepseek-account'), null);
+ assert.equal(aborted, true, 'replacing the Host service must abort its old identity watcher');
+ assert.equal((await f.service.get('deepseek-account')).balance.total, 42);
+ await Promise.all(disposers.map(dispose => dispose()));
+ assert.equal(aborted, true);
+});
+
+test('automatic default RPC resolves its selection and preserves the stored automatic mode', async () => {
+ const f = accountFixture();
+ f.ctx.agentDefaultModel = { currentSelection: () => ({ provider: 'deepseek-official' }) };
+ const operations = createUsageOperations({ ctx: f.ctx, config: validateConfig({}), providerService: f.service,
+  settingsService: { load: async () => f.settings, update: async patch => Object.assign(f.settings, patch) } });
+ assert.equal((await operations['providers/list']()).defaultProviderId, 'deepseek-official');
+ const saved = await operations['accounts/update']({ body: { defaultProviderId: 'auto', visibleProviderIds: ['deepseek-account'] } });
+ assert.equal(saved.defaultProviderId, 'deepseek-official');
+ assert.equal(saved.automaticDefaultProviderId, 'deepseek-official');
+ assert.equal(saved.settings.defaultProviderId, 'auto');
+ assert.deepEqual(saved.settings.visibleProviderIds, ['deepseek-official', 'deepseek-account']);
+ const manual = await operations['accounts/update']({ body: { defaultProviderId: 'deepseek-account' } });
+ assert.equal(manual.defaultProviderId, 'deepseek-account');
+ assert.equal(manual.settings.defaultProviderId, 'deepseek-account');
+ await assert.rejects(() => operations['accounts/update']({ body: { defaultProviderId: 'not-a-provider' } }), /configured provider/);
+});
+
+test('disabled automatic refresh preserves the unsigned Account status', async () => {
+ const f = accountFixture();
+ f.settings.refreshMs = null;
+ f.setState({ status: 'signed-out', attempt: null });
+ const operations = createUsageOperations({ ctx: f.ctx, config: validateConfig({}), providerService: f.service, settingsService: { load: async () => f.settings } });
+ assert.equal((await operations['balance/get']({ query: { provider: 'deepseek-account', auto: '1' } })).account.status, 'not-configured');
+ assert.equal(f.calls(), 0);
+});
+
+test('failed Account identity streams can resume after the Host recovers', async () => {
+ const f = accountFixture();
+ const disposers = [];
+ let watches = 0;
+ let wake;
+ let frames = 0;
+ f.ctx.effect = callback => { disposers.push(callback()); };
+ f.ctx.deepseekAccount.watch = async function* (signal) {
+  if (++watches === 1) throw new Error('temporary Host storage failure');
+  signal.addEventListener('abort', () => wake?.(), { once: true });
+  yield { status: 'credential-stored' };
+  while (!signal.aborted) {
+   await new Promise(resolve => { wake = resolve; });
+   if (!signal.aborted) { frames++; yield { status: 'credential-stored' }; }
+  }
+ };
+ await f.service.get('deepseek-account');
+ await new Promise(resolve => setImmediate(resolve));
+ await f.service.get('deepseek-account');
+ assert.equal(watches, 2, 'a failed stream must not suppress the next identity subscription');
+ wake();
+ while (!frames) await new Promise(resolve => setImmediate(resolve));
+ await new Promise(resolve => setImmediate(resolve));
+ assert.equal(await f.service.cached('deepseek-account'), null);
+ await Promise.all(disposers.map(dispose => dispose()));
+});
 
 test('disabled rules cannot contribute limits or hard stops', () => {
  const limits = { ...defaultLimits(), global: { ...defaultLimitRule(), enabled: false, dailyCostLimit: 1, stopOnExceed: true }, keys: { A: { ...defaultLimitRule(), enabled: true, dailyCostLimit: 100 } } };

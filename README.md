@@ -6,6 +6,13 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 **文档导航：** [核心亮点](#核心亮点--features) · [Provider 支持](#provider-支持) · [界面预览](#界面预览--screenshots) · [快速安装](#快速安装--quick-start) · [配置](#配置--configuration) · [数据与隐私](#数据与隐私--privacy)
 
+## 0.6.2 更新
+
+- 修复切换历史日期后顶部指标归零，保持 Token、请求次数、缓存命中率、费用与图表一致。
+- DeepSeek API Key 与登录账号均可查询余额；两套 Token、消费金额和余额分别统计，共用计价规则。
+- 默认展示可自动跟随宿主已配置可用的供应商，保留原有手动选择。
+- 修复全局明细钻取到错误供应商、热图提示旧快照和部分定价费用图归零，并补齐账户切换与设置刷新竞态保护。
+
 ## 0.6.1 更新
 
 - 重排「全部 / 概览 / 明细」，突出区间指标、模型趋势与工作区分布；圆润图表适配宽窄容器与明暗主题，年度热图图例位于右下角。
@@ -69,7 +76,8 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 | route 示例 | 远端查询 | 能否直接复用模型设置中的 Key | 展示与额外操作 |
 | --- | --- | --- | --- |
-| `deepseek-official`、`deepseek` | `/user/balance` | 可以 | 余额、CNY 费用估算、每日消费限额与余额提醒 |
+| `deepseek-official`、`deepseek` | `/user/balance` | 可以 | API Key 所属账户的余额、CNY 费用估算、每日消费限额与余额提醒 |
+| `deepseek-account` | 宿主 `deepseekAccount.getBalance()` | 使用宿主登录凭据，无需 API Key | Web 与桌面端均可查询登录账号余额；充值与赠送按同币种合计，优先展示 CNY；宿主未提供查询服务时保留本地用量与费用估算 |
 | `moonshotai`、`moonshotai-cn` | `/v1/users/me/balance` | 可以 | USD/CNY 可用余额、现金与代金券余额；Key 必须与国际/国内站匹配 |
 | `openrouter` | `/api/v1/key`，可选 `/api/v1/credits` | Key 查询可复用 | 普通模型 Key 的消费上限、已用与剩余额度；账户 Credits 需额外配置 `OPENROUTER_MANAGEMENT_KEY`，不会拿普通模型 Key 试探该接口 |
 | `opencode-go` | `/zen/go/v1/usage` | 可以 | OpenCode Go 5 小时滚动 / 每周 / 每月订阅窗口；已有接口查询，不重复显示官网按钮 |
@@ -92,6 +100,8 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 | 供应商用量与计费 | DeepSeek 限额、余额提醒、峰谷价格与可选硬停止；其他直连供应商的模型自定义价格；套餐 provider 的窗口状态阈值 |
 | 通知与提示 | 侧栏状态点、页面 Toast、预警/超限/余额不足/恢复事件、冷却时间和进程内告警历史 |
 | 数据管理 | 近期精细记录、冻结金额精确归档与历史估算范围；按北京日历裁剪、恢复估算或二次确认清空本地数据 |
+
+默认供应商可选择「自动」：优先跟随宿主当前已配置可用的默认供应商，再选择可用的登录账号或 API Key，最后按 Web / 桌面运行环境兜底。该设置只决定插件展示，不修改宿主模型路由。已有的手动默认供应商保持不变，也可随时手动切换或改回自动。账户概览始终保留实际默认供应商，最多显示 3 个。
 
 每日消费进度只表达「今日消费 / 每日限额」，不会被余额提醒状态改变。套餐阈值仅控制状态提示颜色，不会修改供应商真实额度。
 
@@ -125,17 +135,21 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
   </tr>
 </table>
 
+<a href="docs/assets/screenshots/usage-overview-deepseek-account.png"><img src="docs/assets/screenshots/usage-overview-deepseek-account.png" alt="DeepSeek 登录账号独立余额与用量概览" width="600" /></a>
+
+DeepSeek 登录账号：独立显示余额、充值与赠送金额，以及该账号的 Token 和费用估算。
+
 | 模型价格编辑 | 窄屏全部 | 窄屏明细 |
 | --- | --- | --- |
 | <a href="docs/assets/screenshots/settings-pricing.png"><img src="docs/assets/screenshots/settings-pricing.png" alt="自定义供应商与模型价格编辑" width="280" /></a> | <a href="docs/assets/screenshots/usage-all-narrow.png"><img src="docs/assets/screenshots/usage-all-narrow.png" alt="窄屏全部用量" height="360" /></a> | <a href="docs/assets/screenshots/usage-details-narrow.png"><img src="docs/assets/screenshots/usage-details-narrow.png" alt="窄屏每日用量明细" height="360" /></a> |
 
 ## 快速安装 / Quick start
 
-`0.6.1` 对照 Harness `0.2.1-alpha.3` 当前宿主源码验证 UI、升级和计价契约；`0.5.4` 曾对照 Harness `0.2.0-rc.2`（桌面版）和 `0.2.1-alpha.1` 验证设置入口及计费；`0.5.3` 已对照 Harness `0.1.7-rc.2` 修复兼容问题，`0.5.2` 以 Harness `0.1.6-alpha.1` 为基线。开发依赖保留 `0.1.5-rc.2` 用于旧版回归，`test:host-current` 直接加载当前宿主源码验证。包清单使用 `dsh.manifestVersion: 1`，并通过顶层 `engines.dsh` 声明完整 UI 兼容范围 `>=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0`。要求 `web` profile；客户端 UI 依赖 `@deepseek-ai/dsh-client-ui-layout >=0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-ui-primitives >=0.1.3-alpha.2`，独立 RPC channel 依赖 `@deepseek-ai/dsh-host-webserver >=0.1.3-alpha.2`，插件自身支持 Node.js `>=18`，运行最新宿主应遵守其 Node.js `^22.19 || >=24` 要求。插件直接依赖 `storageDomain`、`settings`、`connection.rpc`、`webServer` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。服务端仍保留 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 的接口读取路径，但旧宿主不再属于完整 UI 兼容范围。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；最新 Connection 契约要求独立 channel 的调用方同时注入 `connection` 与 `webServer`，使 route 归调用插件 Fiber 所有并随其卸载；`0.2.1-alpha.2` 起 Connection 自身对 `webServer` 改为可选子注入，而专用 channel 注册仍从 Connection owner Fiber 读取该服务，因此插件的 bundle patch 会同步给 Web profile 的 `connection` 行补充 `webServer`；该行在 `0.2.1-alpha.2` 的 inject 写成 `[webStartup, webServer]`——这一版用 `webStartup` 取代了旧宿主的 `webRuntime` 服务（两代宿主都提供 `webStartup`），trustedHosts 表达式改为优先读取 `webRuntime`、回退 `webStartup`，同一个 bundle patch 因此在两代宿主上都能装配；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），最新宿主的 `handle.read()` 返回 `{ eventState, events }`，插件会先归一化其中的 `events` 再重建；过渡版本直接返回事件数组、旧宿主使用 `listSnapshots`/`readFrom` 的路径仍可读取，所有新宿主只读句柄都会在读取后必达关闭；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
+`0.6.2` 对照 Harness `0.2.1-alpha.3` 当前宿主源码验证 UI、升级和计价契约；`0.5.4` 曾对照 Harness `0.2.0-rc.2`（桌面版）和 `0.2.1-alpha.1` 验证设置入口及计费；`0.5.3` 已对照 Harness `0.1.7-rc.2` 修复兼容问题，`0.5.2` 以 Harness `0.1.6-alpha.1` 为基线。开发依赖保留 `0.1.5-rc.2` 用于旧版回归，`test:host-current` 直接加载当前宿主源码验证。包清单使用 `dsh.manifestVersion: 1`，并通过顶层 `engines.dsh` 声明完整 UI 兼容范围 `>=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0`。要求 `web` profile；客户端 UI 依赖 `@deepseek-ai/dsh-client-ui-layout >=0.1.5-rc.1` 与 `@deepseek-ai/dsh-client-ui-primitives >=0.1.3-alpha.2`，独立 RPC channel 依赖 `@deepseek-ai/dsh-host-webserver >=0.1.3-alpha.2`，插件自身支持 Node.js `>=18`，运行最新宿主应遵守其 Node.js `^22.19 || >=24` 要求。插件直接依赖 `storageDomain`、`settings`、`connection.rpc`、`webServer` 与 `sessionPersistence`，不再兼容缺少这些官方 seam 的旧 Harness。服务端仍保留 `dsh-v0.1.2-alpha.3` 与 `dsh-v0.1.1-rc.2` 的接口读取路径，但旧宿主不再属于完整 UI 兼容范围。适配内容：宿主 RPC 通道自 `0.1.2-alpha.1` 起改由传输层统一认证（旧的通道级 `authority` 参数被忽略）；最新 Connection 契约要求独立 channel 的调用方同时注入 `connection` 与 `webServer`，使 route 归调用插件 Fiber 所有并随其卸载；`0.2.1-alpha.2` 起 Connection 自身对 `webServer` 改为可选子注入，而专用 channel 注册仍从 Connection owner Fiber 读取该服务，因此插件的 bundle patch 会同步给 Web profile 的 `connection` 行补充 `webServer`；该行在 `0.2.1-alpha.2` 的 inject 写成 `[webStartup, webServer]`——这一版用 `webStartup` 取代了旧宿主的 `webRuntime` 服务（两代宿主都提供 `webStartup`），trustedHosts 表达式改为优先读取 `webRuntime`、回退 `webStartup`，同一个 bundle patch 因此在两代宿主上都能装配；settings 自 `0.1.2-alpha.2` 起移除 `settingsNamespace()` 运行时 brand，插件改用纯字符串 namespace（两代宿主均接受）；persistence 读路径对未知事件类型 fail-closed——用量重建遇到由更新宿主写入、当前 Harness 运行时无法解读的 session 时会跳过并在 `unreadableSessions` 中计数，数据管理页会给出跳过提示，不再整体失败；session-persistence 自 `0.1.2-alpha.4` 起替换为 handle 化 API（`list`/`open('read')`），最新宿主的 `handle.read()` 返回 `{ eventState, events }`，插件会先归一化其中的 `events` 再重建；过渡版本直接返回事件数组、旧宿主使用 `listSnapshots`/`readFrom` 的路径仍可读取，所有新宿主只读句柄都会在读取后必达关闭；存储域声明 `invalidRecords: 'backup-and-skip'`（`0.1.2-alpha.5` 起），单日记录损坏时宿主自动备份该记录并继续打开，旧宿主保持原有的整体拒绝行为。存储格式同步升级到 v4（per-record 按日布局），首次打开自动拆分迁移既有 v3 单文件数据，升级前仍请保留 `$DSH_HOME/storages` 备份。
 
 最新宿主适配还包括：历史重建按只读句柄的 `inheritedEventCount` 跳过 fork 继承前缀，避免父会话用量重复统计；读取 `assistant/attempt` 内嵌流的最后一份 usage，每个已结算尝试分别计入；实时重试以已结算尝试划分账本身份，成功消息只与自己的流式样本去重。旧宿主未提供继承边界时仍按旧读路径处理，不能保证 fork 历史去重。已有重建估算可在「数据管理」重新执行重建以更新，已冻结的实时历史不会被追溯改价或自动修正。
 
-查询面板的「前往设置」优先调用宿主 `sidebar.settings` Store 的 `openSection("usage-stats")`，直接打开插件设置页；旧宿主沿用原生设置入口回退。DeepSeek 登录账号与 API Key 使用同一份本地价格策略估算费用，但账号费用不会归入 API Key 限额；账号余额仍由宿主负责。其他直连供应商未设置价格时只统计 Token；可按供应商和模型自定义 CNY 价格，保存后仅为新调用计价，旧 Token-only 记录不补计。升级前的账号账本若未冻结金额，显示未知费用，不伪造零金额。
+查询面板的「前往设置」优先调用宿主 `sidebar.settings` Store 的 `openSection("usage-stats")`，直接打开插件设置页；旧宿主沿用原生设置入口回退。DeepSeek 登录账号与 API Key 使用同一份本地价格策略估算费用，但 Token、消费金额与余额按账户分别统计，不合并，也不会把账号费用归入 API Key 限额。登录账号余额通过宿主公共账号服务查询，API Key 余额通过官方 API 查询；查询不可用时显示状态，不将缺失余额当作 0。其他直连供应商未设置价格时只统计 Token；可按供应商和模型自定义 CNY 价格，保存后仅为新调用计价，旧 Token-only 记录不补计。升级前的账号账本若未冻结金额，显示未知费用，不伪造零金额。
 
 查询面板优先注册到最新宿主的原生右侧 Sidebar，可与主会话并排常驻；没有活动会话时使用宿主 `main` Slot 的全局主面板，布局服务或面板尚不可用时再回退到原生 Modal。Modal 继续支持 Escape、点击遮罩关闭和焦点返回侧栏。开关、状态标签、状态点与页面通知分别复用宿主 `Switch`、`Tag`、`StateDot`、`Toast`；右侧栏和全局面板使用宿主基础背景，侧栏入口高度、hover token 和窄栏尺寸与当前宿主 footer 对齐。插件不扫描或替换宿主设置图标，也不修改宿主布局。
 
@@ -287,11 +301,11 @@ OpenRouter 是唯一需要双凭据的内置适配器：普通 `OPENROUTER_API_K
 ## 使用 / Usage
 
 1. 侧栏底部 **用量/余额** 会直接显示默认账户余额与今日消费（今日消费为 0 时不显示该段）：本地账本每次成功写入后，今日消费会在约 1 秒内更新；远端余额遵循账户刷新周期，查询面板打开时每分钟同步摘要，关闭时每 5 分钟同步。点击整行优先在宿主右侧 Sidebar 打开查询中心；没有活动会话时打开宿主全局主面板，宿主不提供该能力时再回退到 Modal。窄侧栏模式只显示数据图标。
-2. 查询中心分「全部 / 概览 / 明细」三个标签，默认打开「概览」：全部 = 跨供应商 Token 汇总、多模型趋势、供应商/模型排行、工作区 Token 分布与年度热图；概览 = 默认供应商的账户卡、摘要、小时统计、模型拆分与年度热图；明细 = 全部供应商历史已用模型的筛选与最近日期按日明细（点击日期可联动概览小时图）。
+2. 查询中心分「全部 / 概览 / 明细」三个标签，默认打开「概览」：全部 = 跨供应商 Token 汇总、多模型趋势、供应商/模型排行、工作区 Token 分布与年度热图；概览 = 默认供应商的账户卡、摘要、小时统计、模型拆分与年度热图；明细 = 全部供应商历史已用模型的筛选与最近日期按日明细。点击日期时，若当天筛选结果只属于一个仍在配置中的供应商，会联动该供应商的概览小时图；跨供应商或已移除供应商的历史会打开全部报告，保留当日及模型筛选，避免切到无关账户。手动点击「全部」恢复全模型范围。
 
-   查询报告每分钟刷新时同步更新工作区分布；页面进入后台后暂停报告轮询，回到前台立即刷新。切换查询范围时清除旧范围的数据，工作区读取失败可在图表内重试。通知与数据设置在读取成功前显示加载状态，失败时提供重试；数据操作等待统计刷新后才恢复操作按钮。图表颜色和状态边框使用宿主主题变量，动效遵循系统“减少动态效果”偏好。
+   查询报告每分钟刷新时同步更新工作区分布；页面进入后台后暂停报告轮询，回到前台立即刷新。切换查询范围时清除旧范围的数据，工作区读取失败可在图表内重试。账户、通知与数据设置在读取成功前禁止编辑，失败时提供重试；账户刷新与数据操作等待最新快照返回后才恢复操作按钮。图表颜色和状态边框使用宿主主题变量，动效遵循系统“减少动态效果”偏好。
 
-3. 顶部余额卡片：DeepSeek 官方余额 + 充值/赠送明细；多个 Key 时可切换；右上角刷新时图标会持续旋转到请求结束，旁边有「前往设置」链接。余额查询失败会缓存错误快照并在 `refreshMs`（默认 5 分钟）内复用，网络错误时余额显示「暂不可用」。
+3. 账户余额卡片：分别展示 DeepSeek API Key 账户或登录账号的余额 + 充值/赠送明细；API Key 有多个时可切换；右上角刷新时图标会持续旋转到请求结束，旁边有「前往设置」链接。余额查询失败会缓存错误快照并在 `refreshMs`（默认 5 分钟）内复用，网络错误时余额显示「暂不可用」。
 4. 「年度每日用量」：默认只展示今年 1–12 月；右上角切换年份，悬停方块查看整日日期、Token、输入/输出、缓存、费用和模型摘要，点击方块联动当天明细。
 5. 「按小时统计」：展示所选日期的 24 小时输入/输出柱状图；零用量小时不渲染数据柱，工作日高峰时段以跨全图的浅色背景区段提示，周末不显示高峰区段并标注全天低谷价；鼠标悬停、键盘聚焦或触屏点击某小时可查看总 Token、输入、输出、缓存、费用和模型拆分。费用与 Token 按**请求完成时间（usage 上报时间）**（北京时）归入对应日期与小时：跨整点或跨日边界的流式请求同样按完成时间归属（如 17:59 发起、18:01 完成的请求计入 18 点小时并按低谷价计费，而不是计入 17 点高峰价），与官方账单口径一致。
 6. 限额、价格、通知和展示配置请在「设置 → 用量与计费」中操作；「供应商用量与计费」可独立选择正在编辑的供应商。DeepSeek 可按 Key（或全局）配置每日或每月消费限额、余额提醒线、预警百分比与是否停止新调用；套餐供应商只显示其支持的窗口阈值；开启硬停止时会弹出确认。
@@ -314,7 +328,7 @@ npm run tokens -- \
 
 ## 数据与隐私 / Privacy
 
-- API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。
+- API Key 只在服务端凭据服务中解析，响应中只有余额数值，没有任何 Key。DeepSeek 登录账号余额仅通过宿主公共账号服务读取，不读取浏览器 Cookie、复制登录 Token 或自行存储账号凭据。
 - Host 只注册官方 Connection RPC `/usage-stats`，不注册自有 REST route、Host fence 或 JSON body parser。`dsh-v0.1.1-rc.x` 上通道由 `authority: "loopback"` 围栏保护；`dsh-v0.1.2-alpha.1` 起宿主忽略该参数，改为在传输层统一认证（签名浏览器 cookie + launch token + 回环围栏），插件注册保持双版本兼容。
 - `usage_stats` storage domain 自存储格式 v4 起采用宿主 per-record 布局：近期 ledger 按北京日历拆为每日一行、精确冻结归档按日一行，去重窗口、coverage cutoff、估算来源和迁移标记存放在全局槽。一次采样只重写当天的日记录和小的全局文档，单个损坏文件读为空行而不影响整个状态；旧版本 v3 单文件在首次打开时自动拆分迁移。
 - 插件不保存提示词、回复、文件路径或 API Key。`llm/stream` 最终 usage 是调用级权威数据，`assistant/message` 仅在没有匹配 stream usage 时补记；缺少 `turn/step` 时按同一 `sessionId/provider/model` 的短期关联键去重。

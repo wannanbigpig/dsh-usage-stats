@@ -67,6 +67,31 @@ const metric = key => document.querySelector(`[data-usage-metric="${key}"] .usg_
 await tick(() => root.render(React.createElement(api.UsageStatsSection, { t })));
 await tick(); await tick();
 assert.equal(Boolean(document.querySelector('[data-usage-upgrade]')), false, 'no update means no upgrade button');
+const assertHistoricalMetrics = message => {
+ assert.equal(metric('tokens'), '500', `${message}: Token total must match the selected day`);
+ assert.equal(metric('requests'), '3', `${message}: requests must match the selected day`);
+ assert.equal(metric('cache'), '87.5%', `${message}: cache hit rate must match the selected day`);
+ assert.equal(metric('cost'), '¥0.25', `${message}: cost must match the selected day`);
+ assert.equal(document.querySelector('select[aria-label="usage.timeRange"]').selectedOptions[0].textContent, '2026-10-13');
+};
+for (const tab of ['panel.tabOverview', 'panel.tabSummary']) {
+ await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === tab).click());
+ await tick();
+ await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: 'today' } }));
+ const todayMetrics = ['tokens', 'requests', 'cache', 'cost'].map(metric);
+ await tick(() => document.querySelector('[aria-label="action.prevDay"]').click());
+ assertHistoricalMetrics(`${tab} previous-day navigation`);
+ await tick(() => document.querySelector('[aria-label="action.nextDay"]').click());
+ assert.deepEqual(['tokens', 'requests', 'cache', 'cost'].map(metric), todayMetrics, `${tab}: next-day navigation must restore today's metrics`);
+ await tick(() => document.querySelector('[aria-label^="2026-10-13 ·"]').click());
+ assertHistoricalMetrics(`${tab} heatmap selection`);
+ await tick(() => document.querySelector('[aria-label^="2026-10-12 ·"]').click());
+ assert.deepEqual(['tokens', 'requests', 'cache', 'cost'].map(metric), ['0', '0', '—', '¥0.00'], `${tab}: an empty selected day must clear the previous day's metrics`);
+ await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: 'yesterday' } }));
+ assert.deepEqual(['tokens', 'requests', 'cache', 'cost'].map(metric), ['500', '3', '87.5%', '¥0.25'], `${tab}: yesterday preset must share the same daily metrics`);
+ await tick(() => [...document.querySelectorAll('button')].find(node => node.textContent === 'action.today').click());
+ assert.deepEqual(['tokens', 'requests', 'cache', 'cost'].map(metric), todayMetrics, `${tab}: returning to today must restore its metrics`);
+}
 updateAvailable = true;
 await tick(() => document.querySelector('[data-usage-refresh]').click());
 assert.ok(document.querySelector('[data-usage-upgrade]'), 'show the button only after a newer version is detected');
@@ -219,6 +244,67 @@ await tick(() => root.render(null));
 const readsAfterUnmount = upgradeReads;
 await tick(() => connectionEvents.get('connection/reset')());
 assert.equal(upgradeReads, readsAfterUnmount, 'unmounted reports release their event listeners');
+const chartMoney = value => value === null || value === undefined ? '—' : `¥${value.toFixed(2)}`;
+const chartModels = [
+ { model: 'sample-api/priced', inputTokens: 400, outputTokens: 200, tokens: 600, requestCount: 2, cost: .5 },
+ { model: 'sample-api/unpriced', inputTokens: 300, outputTokens: 100, tokens: 400, requestCount: 1, cost: null }
+];
+const partialHour = { hour: 10, inputTokens: 700, outputTokens: 300, tokens: 1000, requestCount: 3, cost: null, models: chartModels };
+const unknownHour = { ...chartModels[1], hour: 11, models: [chartModels[1]] };
+const zeroPriceHour = { ...chartModels[0], hour: 12, cost: 0, models: [{ ...chartModels[0], cost: 0 }] };
+const partialDay = { ...partialHour, date: '2026-10-14', hours: [partialHour, unknownHour, zeroPriceHour] };
+await tick(() => root.render(React.createElement(api.HourlyChart, { day: partialDay, tokenMode: false, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('[data-hour="10"] .usg_hourBar').style.height, '100%', 'mixed priced/unpriced hourly usage must draw the known cost instead of zero');
+assert.equal(document.querySelector('[data-hour="10"]').getAttribute('aria-label'), '10:00 · ¥0.50');
+assert.ok(document.querySelector('[data-usage-bar-legend]').textContent.includes('usage.knownCostScope'), 'a partial-cost chart must disclose its priced-model scope');
+await tick(() => Simulate.focus(document.querySelector('[data-hour="10"]')));
+assert.equal(document.querySelector('.usg_hourTooltipAmount').textContent, '¥0.50');
+assert.ok(document.querySelector('.usg_hourTooltip').textContent.includes('usage.knownCostScope'));
+await tick(() => Simulate.focus(document.querySelector('[data-hour="11"]')));
+assert.equal(document.querySelector('.usg_hourTooltipAmount').textContent, '—', 'an entirely unpriced hour must retain unknown cost');
+await tick(() => Simulate.focus(document.querySelector('[data-hour="12"]')));
+assert.equal(document.querySelector('.usg_hourTooltipAmount').textContent, '¥0.00', 'an explicitly priced zero must remain distinct from an unknown amount');
+await tick(() => root.render(React.createElement(api.HourlyChart, { day: partialDay, tokenMode: true, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('[data-hour="10"] .usg_hourBar').style.height, '100%');
+assert.ok(document.querySelector('[data-hour="10"] .usg_hourOutput'));
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.inputusage.output', 'Token charts must keep their original input/output composition');
+const partialDays = [partialDay, { ...zeroPriceHour, date: '2026-10-13' }, { ...unknownHour, date: '2026-10-12' }];
+await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: partialDays, tokenMode: false, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('[data-day="2026-10-14"] .usg_dayBar').style.height, '100%', 'daily cost bars must use the same known-cost amount as report metrics');
+assert.equal(document.querySelector('[data-day="2026-10-14"]').getAttribute('aria-label'), '2026-10-14 · ¥0.50');
+assert.ok(document.querySelector('[data-usage-bar-legend]').textContent.includes('usage.knownCostScope'));
+await tick(() => Simulate.focus(document.querySelector('[data-day="2026-10-14"]')));
+assert.equal(document.querySelector('[data-usage-day-tooltip] .usg_hourTooltipAmount').textContent, '¥0.50');
+assert.ok(document.querySelector('[data-usage-day-tooltip]').textContent.includes('usage.knownCostScope'));
+await tick(() => Simulate.focus(document.querySelector('[data-day="2026-10-12"]')));
+assert.equal(document.querySelector('[data-usage-day-tooltip] .usg_hourTooltipAmount').textContent, '—');
+await tick(() => Simulate.focus(document.querySelector('[data-day="2026-10-13"]')));
+assert.equal(document.querySelector('[data-usage-day-tooltip] .usg_hourTooltipAmount').textContent, '¥0.00');
+await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: partialDays, tokenMode: true, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('[data-day="2026-10-14"] .usg_dayBar').style.height, '100%');
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.inputusage.output');
+assert.ok(document.querySelector('[data-day="2026-10-14"] .usg_hourOutput'));
+await tick(() => root.render(React.createElement(api.HourlyChart, { day: { ...unknownHour, date: '2026-10-14', hours: [unknownHour] }, tokenMode: false, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('.usg_chartScale').textContent, '———', 'entirely unpriced hours must not imply a known monetary scale');
+assert.equal(document.querySelector('[data-hour="11"]').getAttribute('aria-label'), '11:00 · —');
+await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: [{ ...unknownHour, date: '2026-10-14' }], tokenMode: false, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('.usg_chartScale').textContent, '———', 'entirely unpriced days must keep their amount unknown');
+await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: [{ date: '2026-10-14', tokens: 600, cost: .25 }], tokenMode: false, money: chartMoney, translate: t })));
+assert.equal(document.querySelector('[data-day="2026-10-14"]').getAttribute('aria-label'), '2026-10-14 · ¥0.25', 'legacy buckets without model rows must retain their recorded cost');
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.cost');
+const heatFor = (tokens, cost) => ({ year: 2026, months: [], max: tokens, weeks: [[{
+ key: '2026-10-13', tokens, hitRate: 80,
+ day: { date: '2026-10-13', tokens, cost, requestCount: 1, models: [] }
+}]] });
+const renderHeat = heat => root.render(React.createElement(api.ContributionHeatmap, { heat, translate: t, today: '2026-10-14', money: value => `¥${value.toFixed(2)}` }));
+await tick(() => renderHeat(heatFor(100, .1)));
+await tick(() => Simulate.mouseEnter(document.querySelector('[aria-label^="2026-10-13 ·"]'), { clientX: 100, clientY: 100 }));
+assert.ok(document.querySelector('[data-usage-heat-tooltip]').textContent.includes('usage.tooltipTotal100'));
+await tick(() => renderHeat(heatFor(800, .8)));
+assert.ok(document.querySelector('[data-usage-heat-tooltip]').textContent.includes('usage.tooltipTotal800'), 'an open heatmap tooltip must follow refreshed usage');
+assert.equal(document.querySelector('[data-usage-heat-tooltip] .usg_hourTooltipAmount').textContent, '¥0.80', 'an open heatmap tooltip must follow refreshed costs');
+await tick(() => renderHeat({ year: 2025, months: [], max: 0, weeks: [] }));
+assert.equal(document.querySelector('[data-usage-heat-tooltip]'), null, 'a date absent from the current heatmap must close its tooltip');
 await tick(() => root.unmount());
 dom.window.close();
 console.log('query metric scopes, unpriced costs, chart modes, daily fields and upgrade interactions ok');

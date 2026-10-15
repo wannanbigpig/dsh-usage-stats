@@ -400,12 +400,13 @@ function createHarness(options = {}) {
 		const catalogCalls = [];
 		harness.ctx.llm = { listModels: async provider => { catalogCalls.push(provider); return [{ id: "vendor/model-v2", name: "Model v2", apiKey: "fixture-secret" }]; } };
 		const balance = { id: "DEEPSEEK_API_KEY", status: "ok", fetchedAt: Date.now(), balance: { total: 12, currency: "CNY" }, capabilities: ["balance"] };
-		const providers = [{ id: "deepseek-official", label: "DeepSeek", keyRef: "DEEPSEEK_API_KEY", default: true, queryable: true, capabilities: ["balance"] }];
+		const providers = [{ id: "deepseek-official", label: "DeepSeek", keyRef: "DEEPSEEK_API_KEY", default: true, queryable: true, capabilities: ["balance"] },
+			{ id: "deepseek-account", label: "DeepSeek Account", keyRef: null, configured: false, default: false, queryable: true, capabilities: ["balance", "local_usage"] }];
 		await apply(harness.ctx, {}, {
 			dshHome: home,
 			disableBackgroundRefresh: true,
 			balanceService: { cached: () => balance, get: async () => balance },
-			providerService: { providers: async () => providers, cached: () => balance, get: async () => balance },
+			providerService: { providers: async () => providers, cached: id => id === "deepseek-account" ? null : balance, get: async () => balance },
 			fetchOfficialPricing: async () => ({ currency: "CNY", sourceUrl: "https://example.invalid/pricing", checkedAt: "2026-08-25T00:00:00.000Z", models: { "deepseek-v4-flash": { offPeak: { inputMiss: 1, inputHit: 1, output: 1 }, peak: { inputMiss: 2, inputHit: 2, output: 2 } } } })
 		});
 		assert.deepEqual(inject, ["credentials", "settings", "storageDomain", "connection", "webServer", "sessionPersistence"]);
@@ -433,6 +434,9 @@ function createHarness(options = {}) {
 		assert.equal((await harness.rpc.handler("limits/update", { body: limitsBefore.value.limits })).value.ok, true);
 		const accountsBefore = await harness.rpc.handler("accounts/get", { query: {} });
 		assert.equal(accountsBefore.value.accounts["deepseek-official"].balance.total, 12);
+		assert.equal(accountsBefore.value.accounts["deepseek-official"].today.currency, "CNY", "empty usage keeps its pricing currency independent of wallet currency");
+		assert.equal(accountsBefore.value.accounts["deepseek-account"].today.currency, "CNY");
+		assert.equal(accountsBefore.value.accounts["deepseek-account"].status, "not-configured", "an unsigned Account must not remain pending indefinitely");
 		assert.equal((await harness.rpc.handler("accounts/update", { body: { display: { balance: false, todayCost: true, statusDot: true } } })).value.settings.display.balance, false);
 		const pricingBefore = await harness.rpc.handler("pricing/get", { query: {} });
 		assert.equal(pricingBefore.value.usingCustom, false);

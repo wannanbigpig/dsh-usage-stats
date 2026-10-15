@@ -133,6 +133,45 @@ async function testCurrentHostAuthenticatedLookup() {
 await testCurrentHostUpgradeContract();
 await testCurrentHostAuthenticatedLookup();
 
+async function testCurrentHostAccountBalanceContract() {
+	const [{ DeepSeekAccount }, { APP_IDENTITY }, { createProviderService, validateConfig }] = await Promise.all([
+		fromHost('packages/credentials/deepseek-account/src/index.ts'),
+		fromHost('packages/llm/llm/src/attribution.ts'),
+		import('../lib/index.js')
+	]);
+	const context = new Context();
+	let signedIn = true;
+	let reads = 0;
+	class HostAccount extends DeepSeekAccount {
+		getState() { return Promise.resolve({ status: signedIn ? 'credential-stored' : 'signed-out', links: { usageUrl: 'https://example.test/usage', topUpUrl: 'https://example.test/top_up' }, attempt: null }); }
+		getBalance(client) {
+			assert.equal(client.version, APP_IDENTITY.version);
+			reads++;
+			return Promise.resolve({ status: 'ready', value: [{ currency: 'CNY', balance: '12.50' }, { currency: 'USD', balance: '100' }], bonusWallets: [{ currency: 'CNY', balance: '0.50' }] });
+		}
+	}
+	try {
+		await context.plugin(HostAccount);
+		const bridge = {
+			get(name) { return name === 'llm' ? { listProviders: () => [{ id: 'deepseek-account' }] } : context.get(name); },
+			on: (...args) => context.on(...args),
+			effect: (...args) => context.effect(...args)
+		};
+		const providers = createProviderService({ ctx: bridge, config: validateConfig({}), credentials: {}, deps: { accountClientMetadata: () => ({ version: APP_IDENTITY.version, locale: 'zh-CN', timezoneOffsetSeconds: 28800 }) } });
+		const account = await providers.get('deepseek-account');
+		assert.equal(account.status, 'ok');
+		assert.deepEqual(account.balance, { currency: 'CNY', total: 13, granted: 0.5, toppedUp: 12.5 });
+		assert.equal(reads, 1);
+		signedIn = false;
+		context.emit('deepseek-account/signed-out');
+		assert.equal(await providers.cached('deepseek-account'), null);
+		assert.equal((await providers.get('deepseek-account')).status, 'not-configured');
+		assert.equal(reads, 1, 'signed-out reads never query a previous account');
+		console.log('Current Host account balance: public service projection, independent currency totals, and logout invalidation passed');
+	} finally { await context.fiber.dispose(); }
+}
+await testCurrentHostAccountBalanceContract();
+
 async function testCurrentHostPricingCatalog() {
 	const [{ default: LlmRuntime, LlmAdapter }, { configuredProviders, pricingModelsOf, validateConfig }] = await Promise.all([
 		fromHost('packages/llm/llm/src/index.ts'),

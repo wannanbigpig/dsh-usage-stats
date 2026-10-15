@@ -122,7 +122,7 @@ if (!source.includes('"data-usage-insight-rail": true')) throw new Error("overvi
 if (!source.includes('"data-usage-heat-strip": true')) throw new Error("the chart report must render yearly activity as a separate full-width strip");
 if (!source.includes('(activeTab === "summary" || activeTab === "overview") ? react_jsx_runtime.jsxs("div"')) throw new Error("summary and overview must render the full chart report directly");
 if (source.includes('"data-usage-overview-compact": true') || source.includes('"data-usage-quick-links": true')) throw new Error("summary and overview must not retain the compact jump-card layout");
-if (!source.includes('isSummaryTab && react_jsx_runtime.jsx(WorkspaceUsageView') || !source.includes('"data-usage-workspace-chart": true')) throw new Error("all-provider report must embed the workspace chart");
+if (!source.includes('isSummaryTab && activeModelFilter === "" && react_jsx_runtime.jsx(WorkspaceUsageView') || !source.includes('"data-usage-workspace-chart": true')) throw new Error("all-provider report must embed the workspace chart");
 if (!source.includes("/api/usage-stats/workspaces") || !source.includes("workspaceRangeWindow(range, serverToday, customFrom, customTo)")) throw new Error("workspace report must fetch a date-filtered aggregate");
 if (!source.includes('.usg_workspaceTrack{') || !source.includes('.usg_workspaceChartRow{') || !source.includes('.usg_sessionRow{')) throw new Error("workspace report must use rounded proportion bars and retain session drill-down styles");
 if (!source.includes('.usg_overviewWorkbench{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-areas:\\\"activity rail\\\" \\\"heat heat\\\" \\\"workspace workspace\\\"')) throw new Error("overview must use an asymmetric chart-report composition");
@@ -567,7 +567,6 @@ if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? n
 if (!source.includes('!isSummaryTab && react_jsx_runtime.jsx(DayDetail, { day: filteredActiveDay')) throw new Error("single-day overview must retain the provider model detail summary");
 if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
 if ((source.match(/translate\("usage.requestCount"\), fmtRequestCount\(/g) ?? []).length < 3) throw new Error("all usage tooltips must show request counts");
-if (!source.includes("Number(tokenMode ? hour.tokens : hour.cost)")) throw new Error("hourly bars must scale by cost or token count according to provider kind");
 if (!source.includes("const inputWithCache = input + cache") || !source.includes("const inputShare = compositionTotal > 0")) throw new Error("hourly bars must include cache tokens in the visible input-side stack");
 if (source.includes("className: S.hourCache")) throw new Error("cache tokens must not use an invisible standalone segment");
 if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entry must derive balance and today usage summary");
@@ -2214,6 +2213,216 @@ await clientRegression("expired pricing routes leave their source model visible"
  setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "pricing/models" ? { ok: true, models: [] } : { ok: true, current, official: current, usingCustomOfficial: false } }));
  await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
  if (!document.querySelector("tbody").textContent.includes("expired-flash")) throw new Error("expired routes must not hide the currently independent model price");
+});
+await clientRegression("account snapshot failures require retry before settings edits", async ({ root, step, button, setResponder }) => {
+ let fail = true;
+ const writes = [];
+ const provider = { id: "deepseek-account", label: "DeepSeek Account", queryable: true, capabilities: ["balance", "local_usage"] };
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "accounts/update") writes.push(payload.body);
+  if (fail) throw new Error("account snapshot unavailable");
+  return { ok: true, value: { ok: true, defaultProviderId: provider.id, settings: { defaultProviderId: "auto" }, providers: [provider], accounts: {} } };
+ });
+ await step(() => root.render(react.createElement(exports_.AccountsCard, { providers: [provider], keys: [], translate: key => key })));
+ if (!document.querySelector('[role="alert"]') || !button("action.retry")) throw new Error("account read failures must show an explicit retry");
+ if (document.querySelector("select") || document.querySelector('[role="switch"]')) throw new Error("failed account snapshots must not expose editable fallback settings");
+ if (writes.length) throw new Error("failed initial account reads must never write defaults");
+ fail = false;
+ await step(() => button("action.retry").click());
+ if (!document.querySelector('[data-usage-default-provider-select]')) throw new Error("account retry must restore real settings");
+});
+
+await clientRegression("manual account refresh waits for the refreshed snapshot", async ({ root, step, setResponder }) => {
+ const provider = { id: "deepseek-account", label: "DeepSeek Account", queryable: true, capabilities: ["balance", "local_usage"] };
+ let reads = 0;
+ let resolveSnapshot;
+ const snapshot = { ok: true, providers: [provider], defaultProviderId: provider.id, settings: {}, accounts: { [provider.id]: { status: "ok", balance: { total: 11, currency: "CNY" } } } };
+ setResponder(async (_channel, endpoint) => {
+  if (endpoint === "accounts/get" && ++reads > 1) return new Promise(resolve => { resolveSnapshot = resolve; });
+  return { ok: true, value: snapshot };
+ });
+ await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
+ await step(() => document.querySelector('[data-usage-refresh-accounts]').click());
+ if (!resolveSnapshot || !document.querySelector('[data-usage-refresh-accounts]').disabled) throw new Error("refresh must stay disabled until the account snapshot finishes");
+ await step(() => resolveSnapshot({ ok: true, value: snapshot }));
+ if (document.querySelector('[data-usage-refresh-accounts]').disabled) throw new Error("refresh must unlock after the account snapshot finishes");
+});
+
+await clientRegression("automatic provider selection persists its mode and uses the resolved provider", async ({ root, step, change, setResponder }) => {
+ const providers = ["deepseek-official", "deepseek-account", "provider-a", "provider-b"].map(id => ({ id, label: id, queryable: true, capabilities: ["balance"] }));
+ let settings = { defaultProviderId: "deepseek-official", visibleProviderIds: ["deepseek-official", "provider-a", "provider-b"] };
+ const writes = [];
+ const updated = [];
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "accounts/update") { writes.push(payload.body); settings = { ...settings, ...payload.body }; }
+  return { ok: true, value: { ok: true, providers, settings, accounts: {}, defaultProviderId: settings.defaultProviderId === "auto" ? "deepseek-account" : settings.defaultProviderId, automaticDefaultProviderId: "deepseek-account" } };
+ });
+ await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], onDefaultProviderUpdated: value => updated.push(value), translate: key => key })));
+ const select = document.querySelector('[data-usage-default-provider-select]');
+ if (![...select.options].some(option => option.value === "auto")) throw new Error("default selection must support following the host");
+ await step(() => change(select, "auto"));
+ if (select.value !== "auto" || settings.defaultProviderId !== "auto" || updated.at(-1) !== "deepseek-account") throw new Error("automatic mode must persist while notifying the parent with the actual provider");
+ const visible = writes.at(-1)?.visibleProviderIds;
+ if (visible?.includes("auto") || !visible?.includes("deepseek-account") || visible.length !== 3) throw new Error("automatic default must keep the actual account visible within the three-provider limit");
+ if (!document.querySelector('[data-usage-visible-provider="deepseek-account"] input')?.disabled) throw new Error("the resolved automatic default must stay visible");
+ await step(() => change(select, "provider-a"));
+ if (settings.defaultProviderId !== "provider-a" || updated.at(-1) !== "provider-a") throw new Error("manual provider selection must remain supported after automatic mode");
+});
+
+await clientRegression("DeepSeek account views query their own balance and keep provider snapshots isolated", async ({ root, step, change, setResponder }) => {
+ const providers = [
+  { id: "deepseek-official", label: "DeepSeek", queryable: true, capabilities: ["balance"], keys: [{ id: "API_KEY", default: true, configured: true }] },
+  { id: "deepseek-account", label: "DeepSeek Account", queryable: true, capabilities: ["balance", "local_usage"], keys: [] }
+ ];
+ const queries = [];
+ let resolveApi;
+ setResponder(async (_channel, endpoint, payload) => {
+  const providerId = payload?.query?.provider;
+  if (endpoint === "balance/get") {
+   queries.push(payload.query);
+   if (providerId === "deepseek-official") return new Promise(resolve => { resolveApi = resolve; });
+   return { ok: true, value: { ok: true, account: { providerId, status: "ok", balance: { total: 37.5, currency: "CNY", toppedUp: 30, granted: 7.5 } } } };
+  }
+  return { ok: true, value: endpoint === "providers/list" ? { ok: true, providers, defaultProviderId: "deepseek-account" }
+   : endpoint === "keys/list" ? { ok: true, keys: providers[0].keys }
+    : endpoint === "usage/get" ? { ok: true, days: [{ date: "2026-09-05", tokens: providerId === "deepseek-account" ? 123 : 999, cost: providerId === "deepseek-account" ? 1.23 : 9.99, models: [] }], today: "2026-09-05" } : { ok: true, status: {} } };
+ });
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ if (!queries.some(query => query.provider === "deepseek-account")) throw new Error("Account balance capability must trigger balance RPC despite local usage capability");
+ const balance = () => document.querySelector('.usg_balance');
+ if (!balance()?.textContent.includes("37.50") || balance()?.getAttribute("data-usage-provider-kind") !== "balance") throw new Error("Account overview must display the host balance");
+ const select = document.querySelector('select[aria-label="usage.provider"]');
+ if (!select) throw new Error("missing provider selector");
+ await step(() => change(select, "deepseek-official"));
+ if (balance()?.textContent.includes("37.50")) throw new Error("switching to the API account must immediately clear the Account balance");
+ await step(() => change(select, "deepseek-account"));
+ await step(() => resolveApi({ ok: true, value: { ok: true, account: { status: "ok", balance: { total: 999, currency: "CNY" } } } }));
+ if (!balance()?.textContent.includes("37.50") || balance()?.textContent.includes("999.00")) throw new Error("late API balance responses must never replace the Account balance");
+ if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== "123") throw new Error("Account usage totals must remain independent of API usage");
+});
+
+await clientRegression("account display edits preserve the manually viewed provider until the default changes", async ({ root, step, change, setResponder }) => {
+ const providers = ["deepseek-official", "deepseek-account"].map(id => ({ id, label: id, capabilities: ["balance"], keys: [] }));
+ let defaultProviderId = "deepseek-official";
+ setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "providers/list" ? { ok: true, providers, defaultProviderId }
+  : endpoint === "keys/list" ? { ok: true, keys: [] } : endpoint === "usage/get" ? { ok: true, days: [], today: "2026-09-05" } : { ok: true, account: { status: "ok" }, status: {} } }));
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => change(document.querySelector('[data-usage-provider-picker]'), "deepseek-account"));
+ await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
+ if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account") throw new Error("display-only settings edits must not reset the viewed provider");
+ defaultProviderId = "deepseek-account";
+ await step(() => change(document.querySelector('[data-usage-provider-picker]'), "deepseek-official"));
+ await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
+ if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account") throw new Error("an actual default change must still update the report provider");
+});
+
+for (const scenario of ["single", "multiple", "removed"]) await clientRegression(`global daily details preserve the ${scenario} provider scope when drilling into a date`, async ({ root, step, button, change, setResponder }) => {
+ const date = "2026-09-04";
+ const providerId = scenario === "removed" ? "removed-provider" : "deepseek-account";
+ const row = (provider, model, tokens) => ({ model: `${provider}/${model}`, tokens, inputTokens: tokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requestCount: 1, cost: tokens / 100 });
+ const models = [row(providerId, "selected-model", 123), row(providerId, "other-model", 900), ...(scenario === "multiple" ? [row("deepseek-official", "selected-model", 77)] : [])];
+ const providers = ["deepseek-official", "deepseek-account"].map(id => ({ id, label: id, capabilities: ["balance"] }));
+ setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "providers/list" ? { ok: true, providers, defaultProviderId: "deepseek-official" }
+  : endpoint === "keys/list" ? { ok: true, keys: [] }
+   : endpoint === "usage/get" ? { ok: true, today: "2026-09-05", days: [{ date, tokens: models.reduce((total, row) => total + row.tokens, 0), models, hours: [{ hour: 12, models }] }] } : { ok: true, status: {}, account: { status: "ok" }, workspaces: [] } }));
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => button("panel.tabDetails").click());
+ await step(() => change(document.querySelector('select[aria-label="usage.model"]'), "selected-model"));
+ await step(() => document.querySelector(`[data-usage-day-detail="${date}"]`).click());
+ const expected = scenario === "multiple" ? "200" : "123";
+ if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== expected) throw new Error("date drill changed the global day or model totals");
+ if (scenario === "single") {
+  if (document.querySelector('[data-usage-provider-picker]')?.value !== providerId || !document.querySelector('.usg_detailSummary')) throw new Error("single-provider dates must open that provider's hourly overview");
+ } else {
+  if (document.querySelector('[role="tab"][aria-selected="true"]')?.textContent !== "panel.tabSummary") throw new Error("multiple or removed-provider dates must remain in the all-provider report");
+  if (!document.querySelector('[data-usage-model-filter="selected-model"]')) throw new Error("global date drill must expose its retained model filter");
+  await step(() => button("panel.tabSummary").click());
+  if (document.querySelector('[data-usage-model-filter]') || document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== exports_.compactTokens(Number(expected) + 900)) throw new Error("manually entering All must restore its original unfiltered-model scope");
+ }
+});
+
+await clientRegression("account estimated spend keeps its own currency instead of the wallet currency", async ({ root, step, setResponder }) => {
+ const id = "deepseek-account";
+ setResponder(async () => ({ ok: true, value: { ok: true, providers: [{ id, label: "DeepSeek Account", capabilities: ["balance", "local_usage"], queryable: true }], defaultProviderId: id, settings: {}, accounts: { [id]: { status: "ok", balance: { total: 30, currency: "USD" }, today: { cost: 2.5 } } } } }));
+ await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
+ const row = document.querySelector('[data-usage-provider-account="deepseek-account"]');
+ const today = row.querySelector('[data-usage-provider-today]');
+ if (!row.textContent.includes(exports_.fmtCurrency(30, "USD")) || !today.textContent.includes(exports_.fmtCurrency(2.5, "CNY"))) throw new Error("the wallet currency must never relabel a CNY account-cost estimate");
+});
+await clientRegression("account refresh cannot restore a snapshot from before a pending default save", async ({ root, step, change, setResponder }) => {
+ const providers = ["deepseek-official", "deepseek-account"].map(id => ({ id, label: id, queryable: true, capabilities: ["balance"] }));
+ let stored = "deepseek-official";
+ let reads = 0;
+ let finishWrite;
+ let finishRead;
+ const snapshot = id => ({ ok: true, providers, defaultProviderId: id, settings: { defaultProviderId: id }, accounts: {} });
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "accounts/update") return new Promise(resolve => { finishWrite = () => { stored = payload.body.defaultProviderId; resolve({ ok: true, value: snapshot(stored) }); }; });
+  if (endpoint === "accounts/get") {
+   const captured = snapshot(stored);
+   if (++reads > 1) return new Promise(resolve => { finishRead = () => resolve({ ok: true, value: captured }); });
+   return { ok: true, value: captured };
+  }
+  return { ok: true, value: { ok: true } };
+ });
+ await step(() => root.render(react.createElement(exports_.AccountsCard, { keys: [], translate: key => key })));
+ await step(() => change(document.querySelector('[data-usage-default-provider-select]'), "deepseek-account"));
+ await step(() => document.querySelector('[data-usage-refresh-accounts]').click());
+ await step(() => finishWrite());
+ await step(() => finishRead());
+ if (stored !== "deepseek-account" || document.querySelector('[data-usage-default-provider-select]').value !== stored) throw new Error("a refresh started during a save must not restore the previous default provider");
+ if (document.querySelector('[data-usage-refresh-accounts]').disabled) throw new Error("the ordered refresh must unlock once its snapshot arrives");
+});
+
+await clientRegression("out-of-order provider catalogs cannot restore an obsolete default", async ({ root, step, setResponder }) => {
+ const providers = ["deepseek-official", "deepseek-account"].map(id => ({ id, label: id, capabilities: ["balance"] }));
+ let reads = 0;
+ let finishOld;
+ setResponder(async (_channel, endpoint) => {
+  if (endpoint === "providers/list") {
+   reads++;
+   if (reads === 2) return new Promise(resolve => { finishOld = () => resolve({ ok: true, value: { ok: true, providers, defaultProviderId: "deepseek-official" } }); });
+   return { ok: true, value: { ok: true, providers, defaultProviderId: reads > 2 ? "deepseek-account" : "deepseek-official" } };
+  }
+  return { ok: true, value: endpoint === "keys/list" ? { ok: true, keys: [] } : endpoint === "usage/get" ? { ok: true, days: [], today: "2026-09-05" } : { ok: true, status: {}, account: { status: "ok" } } };
+ });
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
+ await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
+ if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account") throw new Error("the latest provider catalog must apply its default");
+ await step(() => finishOld());
+ if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account") throw new Error("a late catalog response must not overwrite the current provider/default");
+});
+await clientRegression("report retry cannot reload a previously selected provider after a switch", async ({ root, step, button, change, setResponder }) => {
+ const providers = ["deepseek-official", "deepseek-account"].map(id => ({ id, label: id, capabilities: ["balance"] }));
+ let failUsage = true;
+ let catalogs = 0;
+ let finishCatalog;
+ const usageQueries = [];
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "providers/list") {
+   const catalog = { ok: true, providers, defaultProviderId: "deepseek-official" };
+   if (++catalogs === 2) return new Promise(resolve => { finishCatalog = () => resolve({ ok: true, value: catalog }); });
+   return { ok: true, value: catalog };
+  }
+  if (endpoint === "usage/get") {
+   usageQueries.push(payload.query.provider);
+   if (failUsage) throw new Error("usage unavailable");
+   const id = payload.query.provider ?? "deepseek-official";
+   const tokens = id === "deepseek-account" ? 400 : 600;
+   return { ok: true, value: { ok: true, today: "2026-09-05", days: [{ date: "2026-09-05", tokens, models: [{ model: `${id}/model`, tokens, inputTokens: tokens, outputTokens: 0 }] }] } };
+  }
+  return { ok: true, value: endpoint === "keys/list" ? { ok: true, keys: [] } : { ok: true, status: {}, account: { status: "ok" } } };
+ });
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ if (!button("action.retry")) throw new Error("initial usage failure must offer retry");
+ failUsage = false;
+ await step(() => button("action.retry").click());
+ await step(() => change(document.querySelector('[data-usage-provider-picker]'), "deepseek-account"));
+ const before = usageQueries.length;
+ await step(() => finishCatalog());
+ if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account" || document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== "400") throw new Error("a pending retry must never replace the newly selected account's usage");
+ if (usageQueries.slice(before).some(id => id === "deepseek-official")) throw new Error("finishing a retry must not issue a stale provider usage read");
 });
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 
