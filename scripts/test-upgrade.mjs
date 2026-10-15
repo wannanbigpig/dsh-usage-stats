@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createUpgradeOperations, newerRelease, readLatestRelease, installSourceType, UPGRADE_PACKAGE } from '../lib/upgrade.js';
 
 assert.equal(newerRelease('0.6.0', '0.5.4'), true);
@@ -68,6 +71,42 @@ const manager = { listBundles: async () => [bundle], installBundle: async (spec,
   assert.match(options.requestId, /^[0-9a-f-]{36}$/);
   return new Promise(resolve => { settle = resolve; });
 } };
+// Desktop 0.2.0-rc.2 owns profile packages without exposing availability/source.
+const legacyDir = await mkdtemp(join(tmpdir(), 'usage-legacy-upgrade-'));
+try {
+ const legacyBundle = { name: UPGRADE_PACKAGE, version: '0.5.4', enabled: true, installed: true, removable: true, rows: [], overrides: [] };
+ const legacyManager = metadata => ({ ...manager, listBundles: async () => [metadata] });
+ const legacyOps = metadata => createUpgradeOperations({ getManager: () => legacyManager(metadata), getProfile: () => ({ dir: legacyDir }), currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ const saveSource = source => writeFile(join(legacyDir, 'package.json'), JSON.stringify({ private: true, dependencies: { [UPGRADE_PACKAGE]: source } }));
+ await saveSource('^0.5.4');
+ const legacyStatus = await legacyOps(legacyBundle)['upgrade/check']();
+ assert.equal(legacyStatus.available, true, 'an npm update remains visible with actual old Desktop metadata');
+ assert.equal(legacyStatus.sourceType, 'registry');
+ for (const source of ['link:/my/plugin', 'file:../plugin', 'github:example/plugin#v1', 'file:../plugin.tgz', 'npm:other-package@1.0.0']) {
+  await saveSource(source);
+  const status = await legacyOps(legacyBundle)['upgrade/check']();
+  assert.equal(status.supported, false, `legacy ${source} keeps its installation source`);
+  assert.equal(status.reason, 'source-managed');
+  assert.equal(status.sourceType, installSourceType(source));
+ }
+ await saveSource('^0.5.4');
+ const changedSource = legacyOps(legacyBundle);
+ assert.equal((await changedSource['upgrade/check']()).available, true);
+ const installsBeforeSourceChange = installs;
+ await saveSource('github:example/plugin#v1');
+ await assert.rejects(() => changedSource['upgrade/start']({ body: { confirm: true, version: '0.5.5' } }), /source/i);
+ assert.equal(installs, installsBeforeSourceChange, 'a changed legacy source cannot be overwritten by the earlier npm update');
+ await saveSource('^0.5.4');
+ for (const metadata of [{ ...legacyBundle, removable: false }, { ...legacyBundle, installed: false }, { ...legacyBundle, readOnlyReason: 'management-required' }, { ...legacyBundle, availability: 'installation' }, { ...legacyBundle, availability: null }, { ...legacyBundle, source: 'github:example/plugin' }, { ...legacyBundle, error: { code: 'not-bundle' } }]) {
+  assert.equal((await legacyOps(metadata)['upgrade/check']()).supported, false, 'old Host installation ownership and management protection win');
+ }
+ for (const contents of [JSON.stringify({ dependencies: {} }), '{bad json', JSON.stringify({ dependencies: { [UPGRADE_PACKAGE]: null } }), JSON.stringify({ dependencies: [] }), JSON.stringify({ dependencies: { [UPGRADE_PACKAGE]: ' ' } })]) {
+  await writeFile(join(legacyDir, 'package.json'), contents);
+  assert.equal((await legacyOps(legacyBundle)['upgrade/check']()).supported, false, 'missing or unreadable profile specs cannot authorize an upgrade');
+ }
+ await rm(join(legacyDir, 'package.json'));
+ assert.equal((await legacyOps(legacyBundle)['upgrade/check']()).supported, false);
+} finally { await rm(legacyDir, { recursive: true, force: true }); }
 const ops = createUpgradeOperations({ getManager: () => manager, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
 assert.equal((await ops['upgrade/get']()).supported, true);
 assert.equal(installs, 0, 'opening upgrade is read-only');

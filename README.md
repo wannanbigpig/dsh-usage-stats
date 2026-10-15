@@ -6,6 +6,11 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 **文档导航：** [核心亮点](#核心亮点--features) · [Provider 支持](#provider-支持) · [界面预览](#界面预览--screenshots) · [快速安装](#快速安装--quick-start) · [配置](#配置--configuration) · [数据与隐私](#数据与隐私--privacy)
 
+## 0.6.3 更新
+
+- 兼容桌面宿主 `0.2.0-rc.2` 的旧插件信息格式，修复已安装 npm 插件无法显示升级入口；保留原安装来源及管理保护。
+- 已安装 `0.6.1` / `0.6.2` 的旧桌面宿主需通过插件管理器或配套 CLI 手动更新一次，重启后使用修复后的检测逻辑。
+
 ## 0.6.2 更新
 
 - 修复切换历史日期后顶部指标归零，保持 Token、请求次数、缓存命中率、费用与图表一致。
