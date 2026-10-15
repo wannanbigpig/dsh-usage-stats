@@ -532,10 +532,10 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	const proBeforeRoute = costOf("deepseek-official/deepseek-v4-pro", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 11, pricing, "2026-09-14");
 	assert(Math.abs(proBeforeRoute - 9) < 1e-9, `V4 Pro 在 9 月 14 日 12 点前应保留 Pro 高峰价格: ${proBeforeRoute}`);
 	const proAfterRoute = costOf("deepseek-official/deepseek-v4-pro", { inputTokens: 1e6, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, 12, pricing, "2026-09-14");
-	assert(Math.abs(proAfterRoute - 1) < 1e-9, `V4 Pro 在 9 月 14 日 12 点起应按 V4.1 Flash 价格计费: ${proAfterRoute}`);
+	assert(Math.abs(proAfterRoute - 4.5) < 1e-9, `V4 Pro 继续服务，应保留 Pro 低谷价格: ${proAfterRoute}`);
 	// Custom pricing override works.
 	const custom = { ...pricing, pricing: { ...pricing.pricing, "my-model": { inputMiss: 1, inputHit: 0.1, output: 2 } } };
-	assert(priceOf("p/my-model", custom).output === 2, "custom model price");
+	assert(priceOf("deepseek-official/my-model", custom).output === 2, "custom model price");
 	const unpricedDays = foldUsage([
 		requestHeader(10, beijingTime(2026, 0, 8, 3), "model-not-configured"),
 		usageChunk(11, beijingTime(2026, 0, 8, 3, 1), 1, 1, { inputTokens: 100, outputTokens: 20 })
@@ -565,6 +565,75 @@ function beijingTime(year, month, day, hour, minute = 0) {
 	assert(day.models.some((model) => model.model === "zai-coding-cn/glm-5.2" && model.cost === null), "non-official provider model stays token-only");
 	assert(day.models.some((model) => model.model === "deepseek-official/deepseek-v4-flash" && model.cost !== null), "official model is priced");
 	console.log("non-official provider token-only ok");
+}
+
+// Explicit direct-provider prices are isolated and frozen across edits/compaction.
+{
+	const directRate = { offPeak: { inputMiss: 2, inputHit: .25, output: 4 }, peak: { inputMiss: 2, inputHit: .25, output: 4 } };
+	const pricing = normalizePricing({ providerModels: { openrouter: { "vendor/model": directRate, "deepseek-flash": directRate } } });
+	const usage = { inputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 1e6, cacheWriteTokens: 1e6 };
+	const date = "2026-10-15";
+	assert(costOf("openrouter/vendor/model", usage, 10, defaultPricing(), date) === null, "non-DeepSeek usage has no implicit price");
+	assert(priceOf("relay/deepseek-flash", pricing) === null, "a DeepSeek model id alone never inherits official prices");
+	assert(costOf("openrouter/vendor/model", usage, 10, pricing, date) === 8.25, "flat custom provider prices include cache writes and cache hits");
+	assert(costNanosOf("openrouter/vendor/model", usage, 10, pricing, date) === "8250000000", "direct-provider exact cost agrees with renderer");
+	assert(costOf("openrouter/deepseek-flash", { inputTokens: 1e6 }, 10, pricing, date) === 2, "provider-specific model overrides stay independent of official pricing");
+	assert(costOf("relay/vendor/model", usage, 10, pricing, date) === null, "another provider cannot inherit a custom model price");
+	assert(pricingVersionOf(pricing) !== pricingVersionOf(defaultPricing()), "the frozen price version includes provider prices");
+	const reordered = normalizePricing({ providerModels: { openrouter: { "deepseek-flash": directRate, "vendor/model": directRate } } });
+	assert(pricingVersionOf(pricing) === pricingVersionOf(reordered), "provider-price fingerprints ignore object insertion order");
+	const peakPricing = normalizePricing({ providerModels: { openrouter: { "vendor/model": { ...directRate, peak: { inputMiss: 5, inputHit: 1, output: 8 } } } } });
+	assert(costOf("openrouter/vendor/model", { inputTokens: 1e6 }, 10, peakPricing, date) === 5, "explicit provider peak prices use the existing time window");
+	const at = Date.parse("2026-10-15T10:00:00+08:00");
+	const raw = { id: "direct-priced", occurredAt: at, provider: "openrouter", model: "vendor/model", usage };
+	const frozen = freezeLedgerEntry(raw, pricing);
+	assert(frozen.costState === "priced" && frozen.costNanosCny === "8250000000", "custom-provider calls freeze their configured amount");
+	const old = freezeLedgerEntry({ ...raw, id: "direct-before-configuration" }, defaultPricing());
+	assert(old.costState === "not-billable", "unconfigured direct-provider calls freeze as token-only");
+	const changed = normalizePricing({ providerModels: { openrouter: { "vendor/model": { offPeak: { inputMiss: 99, inputHit: 99, output: 99 }, peak: { inputMiss: 99, inputHit: 99, output: 99 } } } } });
+	for (const currentPricing of [pricing, changed, defaultPricing()]) {
+		const rendered = renderLedger([frozen, old], 0, currentPricing);
+		assert(rendered.days[0].models[0].cost === 8.25, "historical token-only calls never acquire a charge; a frozen charge survives changed/deleted prices");
+		assert(rendered.total.cost === 8.25, "known custom provider charges remain in mixed aggregation");
+	}
+	const oldOnly = renderLedger([old], 0, pricing);
+	assert(oldOnly.days[0].models[0].cost === null, "a token-only call remains unpriced after a price is configured");
+	assert(oldOnly.total.cost === 0 && oldOnly.days[0].hours[10].cost === 0, "a token-only call cannot enter aggregate charges through the baseline estimate");
+	const archive = foldFrozenLedgerEntries([frozen, old]);
+	assert(renderFrozenArchive(archive, 0).total.cost === 8.25, "compaction preserves a custom provider's known frozen charge");
+	assert(renderFrozenArchive(foldFrozenLedgerEntries([old]), 0).days[0].models[0].cost === null, "compaction must not turn token-only calls into a zero-CNY bill");
+	let state = createLedgerState();
+	state = recordLedgerState(state, frozen, { maxLedgerEntries: 0, pricing });
+	StateSchema.parse(state);
+	assert(renderLedgerState(state, 0, defaultPricing()).total.cost === 8.25, "frozen provider charges survive all layered rendering without current price configuration");
+	const oldEstimate = foldLedger([{ ...raw, id: "imported-before-price" }]);
+	const estimatedSeed = createLedgerState({ archive: { estimated: { importedLegacy: {
+		days: Object.fromEntries([...oldEstimate].map(([day, entry]) => [day, {
+			totals: entry.totals,
+			models: Object.fromEntries(entry.models),
+			hours: Object.fromEntries([...entry.hours].map(([hour, models]) => [hour, Object.fromEntries(models)]))
+		}]))
+	} } } });
+	const estimatedOnly = renderLedgerState(estimatedSeed, 0, pricing);
+	assert(estimatedOnly.days[0].models[0].cost === null && estimatedOnly.total.cost === 0, "adding a provider price must not backfill imported/session-rebuilt history");
+	const withNewCall = recordLedgerState(estimatedSeed, { ...frozen, id: "new-priced-beside-old-estimate" }, { pricing, maxLedgerEntries: 10 });
+	const mixedLayers = renderLedgerState(withNewCall, 0, pricing);
+	assert(mixedLayers.total.cost === 8.25 && mixedLayers.days[0].models[0].cost === 8.25, "old token-only estimates never hide new explicitly frozen provider charges");
+	const zeroPricing = normalizePricing({ providerModels: { openrouter: { "free/model": { offPeak: { inputMiss: 0, inputHit: 0, output: 0 }, peak: { inputMiss: 0, inputHit: 0, output: 0 } } } } });
+	const zeroEntry = freezeLedgerEntry({ ...raw, id: "explicit-free", model: "free/model" }, zeroPricing);
+	const zeroArchive = foldFrozenLedgerEntries([zeroEntry]);
+	assert(renderFrozenArchive(zeroArchive, 0).days[0].models[0].cost === 0, "an explicitly free model remains a priced zero, distinct from unconfigured usage");
+	const oldArchive = foldFrozenLedgerEntries([old]);
+	delete oldArchive.days[date].models["openrouter/vendor/model"].pricedCount;
+	delete oldArchive.days[date].hours["10"].models["openrouter/vendor/model"].pricedCount;
+	StateSchema.parse(createLedgerState({ archive: { frozen: oldArchive } }));
+	assert(renderFrozenArchive(oldArchive, 0).days[0].models[0].cost === null, "pre-extension archives without pricedCount remain token-only");
+	const unavailable = { ...frozen, id: "missing-frozen-amount", costState: "unpriced" };
+	delete unavailable.costNanosCny;
+	assert(renderLedgerState(createLedgerState({ ledger: [unavailable] }), 0, pricing).total.cost === null, "a failed explicit frozen charge remains unknown rather than zero after layered rendering");
+	const unmarkedLegacy = renderLedger([{ ...raw, id: "legacy-unmarked" }], 0, pricing);
+	assert(unmarkedLegacy.days[0].models[0].cost === null, "old direct-provider ledger entries without frozen pricing are never backfilled");
+	console.log("explicit direct-provider prices and frozen history ok");
 }
 
 //#region ledger projection isolates call-level entries from session turn/step replacement

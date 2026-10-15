@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { defaultPricingPolicy, fetchOfficialPricing, normalizePricing, parseOfficialPricingHtml, validatePricingInput, validatePricingPolicy } from "../lib/pricing.js";
+import { defaultPricingPolicy, defaultPricingVersion, fetchOfficialPricing, normalizePricing, parseOfficialPricingHtml, validatePricingInput, validatePricingPolicy } from "../lib/pricing.js";
 import { validateConfig } from "../lib/index.js";
 
 const model = "deepseek-v4-flash";
@@ -72,4 +72,37 @@ assert.deepEqual(remotelyComposed.routes, remotePolicy.routes, "validated remote
 assert.equal(remotelyComposed.models["deepseek-flash"].peak.output, 8, "official HTML prices must win over policy fallback prices");
 assert.throws(() => validatePricingPolicy({ ...bundledPolicy, routes: [{ model: "deepseek-v4-pro", priceModel: "deepseek-missing", effectiveFrom: "2026-09-15T00:00:00+08:00" }] }), /no price row/);
 await assert.rejects(fetchOfficialPricing({ fetchPolicy: false, fetchImpl: async () => ({ ok: true, text: async () => "<html>no pricing table</html>" }) }), /pricing table was not found/, "a failed official fetch must not be reported as fresh when only the built-in fallback is available");
+// Current official policy keeps Pro pricing and preserves legacy Flash history.
+const currentDefault = defaultPricingVersion();
+assert.equal(currentDefault.checkedAt, "2026-10-15T00:00:00+08:00");
+assert.equal(currentDefault.routes.some(route => route.model === "deepseek-v4-pro"), false, "Pro remains available at its own prices");
+const { billingModelIdOf } = await import("../lib/usage.js");
+assert.equal(billingModelIdOf("deepseek-official/deepseek-v4-pro", currentDefault, Date.parse("2026-10-15T10:00:00+08:00")), "deepseek-v4-pro");
+assert.equal(billingModelIdOf("deepseek-official/deepseek-v4-flash", currentDefault, Date.parse("2026-10-15T10:00:00+08:00")), "deepseek-flash");
+const replacement = normalizePricing({ mode: "custom", replaceModels: true, models: { "my-model": { offPeak: { inputMiss: 1, inputHit: .1, output: 2 }, peak: { inputMiss: 2, inputHit: .2, output: 4 } } }, routes: [] });
+assert.deepEqual(Object.keys(replacement.models), ["my-model"], "an explicit model replacement must not resurrect deleted default rows");
+assert.deepEqual(normalizePricing(replacement), replacement, "custom model replacement must survive reload");
+assert.throws(() => validatePricingInput({ models: { "bad model": {} } }), /model id/);
+assert.doesNotThrow(() => validatePricingInput({ models: { "provider/model": { offPeak: { inputMiss: 1, inputHit: .1, output: 2 }, peak: { inputMiss: 1, inputHit: .1, output: 2 } } } }), "provider-qualified API model ids are valid");
+const directRate = { offPeak: { inputMiss: 2, inputHit: .25, output: 4 }, peak: { inputMiss: 2, inputHit: .25, output: 4 } };
+const providerModels = { "openrouter": { "vendor/model": directRate } };
+assert.deepEqual(normalizePricing({ providerModels }).providerModels, providerModels, "explicit provider prices must survive normalization");
+assert.equal(normalizePricing({ providerModels }).mode, "official", "other-provider customization must not replace the DeepSeek official scheme");
+assert.deepEqual(normalizePricing(normalizePricing({ providerModels })).providerModels, providerModels);
+for (const model of ["", "bad model", "model\n", "\u0000bad", "__proto__", "constructor", "prototype"]) {
+  assert.throws(() => validatePricingInput({ models: JSON.parse(JSON.stringify({ [model]: directRate })) }), /model id/);
+  assert.throws(() => validatePricingInput({ providerModels: { provider: { [model]: directRate } } }), /model id/);
+}
+for (const provider of ["", "has space", "bad/provider", "__proto__", "constructor"]) {
+  assert.throws(() => validatePricingInput({ providerModels: { [provider]: { model: directRate } } }), /provider id/);
+}
+for (const providerModels of [null, [], { provider: null }, { provider: [] }, { provider: { model: {} } }, { provider: { model: { offPeak: directRate.offPeak } } }, { provider: { model: { ...directRate, peak: { inputMiss: 1, inputHit: 1 } } } }, { provider: { model: { ...directRate, peak: { ...directRate.peak, inputMiss: false } } } }]) {
+  assert.throws(() => validatePricingInput({ providerModels }), /providerModels/);
+}
+assert.throws(() => validatePricingInput({ replaceModels: "true" }), /replaceModels/);
+assert.throws(() => validatePricingInput({ currency: "USD", providerModels }), /CNY/);
+assert.doesNotThrow(() => validatePricingInput({ currency: "USD" }), "legacy global currency configuration remains readable");
+assert.throws(() => validatePricingInput({ providerModels: { provider: { model: { ...directRate, offPeak: { ...directRate.offPeak, inputMiss: [] } } } } }), /non-negative/);
+assert.deepEqual(normalizePricing({ replaceModels: true, models: {}, routes: [] }).models, {}, "deleting all custom rows must remain empty after reload");
+assert.deepEqual(Object.keys(normalizePricing({ replaceModels: true, models: { "my-model": directRate }, pricing: { "old-model": directRate.offPeak }, routes: [] }).models), ["my-model"], "a stale legacy mirror cannot resurrect deleted replacement rows");
 console.log("pricing review regressions passed");

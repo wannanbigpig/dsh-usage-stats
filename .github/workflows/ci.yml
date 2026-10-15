@@ -56,5 +56,9 @@ jobs:
         env:
           DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
         run: npm test
+      - name: Verify current Host upgrade and UI contracts
+        env:
+          DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
+        run: npm run test:host-current
       - name: Build Pages artifact
         run: npm run build:site

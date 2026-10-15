@@ -8,6 +8,7 @@ import {
 	afterSettingsEntryReady,
 	collectUsage,
 	configuredKeys,
+	configuredProviders,
 	createBackgroundRefreshController,
 	createBalanceService,
 	createLimitsService,
@@ -22,6 +23,7 @@ import {
 	keyForProvider,
 	maxLedgerEntriesOf,
 	providerTodaySummaries,
+	pricingModelsOf,
 	recordLedgerEntry,
 	refreshCadenceOf,
 	resolveLimitRule,
@@ -236,6 +238,19 @@ function createHarness(options = {}) {
 	assert.throws(() => validateConfig({ maxLedgerEntries: 99 }), /at least 100/);
 	assert.throws(() => validateConfig({ maxLedgerEntries: 5001 }), /at most 5000/);
 	assert.throws(() => validateConfig({ maxLedgerEntries: 100.5 }), /integer/);
+	const customRate = { offPeak: { inputMiss: 1, inputHit: 0.1, output: 2 }, peak: { inputMiss: 3, inputHit: 0.3, output: 4 } };
+	const providerPricing = { openrouter: { "vendor/model-v2": customRate } };
+	const customProviderConfig = validateConfig({ pricing: { providerModels: providerPricing } });
+	assert.deepEqual(customProviderConfig.pricing.providerModels, providerPricing,
+		"host config validation must retain provider-specific prices and slash-containing model ids");
+	const customProviderLimits = createLimitsService({ ctx: {}, config: customProviderConfig, balanceService: null, deps: {} });
+	assert.deepEqual(await customProviderLimits.check({ provider: "openrouter" }), { status: "not_applicable", blocked: false, reason: "provider_not_billed" },
+		"custom provider prices must not extend DeepSeek-only budget enforcement");
+	const replaced = validateConfig({ pricing: { models: { "custom-model": customRate }, replaceModels: true } }).pricing;
+	assert.deepEqual(Object.keys(replaced.models), ["custom-model"], "explicit model replacement must survive Host config validation");
+	assert.equal(replaced.replaceModels, true);
+	assert.throws(() => validateConfig({ pricing: { providerModels: { openrouter: { model: { offPeak: { inputMiss: -1, inputHit: 0, output: 1 }, peak: customRate.peak } } } } }), /non-negative/);
+	assert.throws(() => validateConfig({ pricing: { providerModels: { openrouter: { model: { offPeak: customRate.offPeak } } } } }), /peak/);
 
 	const limits = validateLimits({ version: 2, global: { ...defaultLimitRule(), enabled: true, dailyCostLimit: 10 }, keys: {} });
 	assert.equal(resolveLimitRule(limits, "missing").dailyCostLimit, 10);
@@ -301,6 +316,63 @@ function createHarness(options = {}) {
 	assert.equal(todayCostFor("B", costs, 2, config), 2);
 }
 
+// Pricing catalogs follow configured Host routes; secrets and subscription
+// accounts never become editable direct-API pricing targets.
+{
+	const profiles = {
+		"llm-deepseek-api-key": { apiKeyEnv: "DEEPSEEK_API_KEY" },
+		"llm-pi-ai": { providers: {
+			openrouter: { apiKeyEnv: "OPENROUTER_API_KEY", apiKey: "fixture-secret", headers: { authorization: "fixture-secret" } },
+			"custom-provider": { apiKeyEnv: "CUSTOM_KEY", baseURL: "https://gateway.example/v1" },
+			zai: { apiKeyEnv: "ZAI_API_KEY" },
+			"deepseek-account": { account: "fixture-secret" }
+		} }
+	};
+	const modelCalls = [];
+	const ctx = {
+		credentials: { resolve: async () => ({ value: "fixture-secret" }) },
+		settings: { get: ns => profiles[ns] },
+		llm: {
+			listProviders: () => ["deepseek-official", "openrouter", "custom-provider", "not-configured", "zai", "deepseek-account"].map(id => ({ id, name: id })),
+			listConfigurableProviders: () => [
+				{ provider: "deepseek-official", displayName: "DeepSeek", settingsNs: "llm-deepseek-api-key", settingsPath: [] },
+				...["openrouter", "custom-provider", "not-configured", "zai", "deepseek-account"].map(provider => ({ provider, displayName: provider === "custom-provider" ? "Custom API" : provider, settingsNs: "llm-pi-ai", settingsPath: ["providers", provider] }))
+			],
+			listModels: async provider => {
+				modelCalls.push(provider);
+				return [{ id: "vendor/model-v2", name: "Model v2", apiKey: "fixture-secret", config: { token: "fixture-secret" } }];
+			}
+		},
+		get(name) { return this[name]; }
+	};
+	const providers = await configuredProviders(ctx, validateConfig({}));
+	const directory = await pricingModelsOf(ctx, providers);
+	assert.deepEqual(directory.providers.map(row => row.id), ["deepseek-official", "custom-provider", "openrouter"]);
+	assert.equal(directory.providerId, null);
+	assert.deepEqual(modelCalls, [], "opening pricing settings must not poll every provider's models");
+	const selected = await pricingModelsOf(ctx, providers, "openrouter");
+	assert.deepEqual(modelCalls, ["openrouter"], "only the selected provider catalog is read");
+	assert.deepEqual(selected.models, [{ id: "vendor/model-v2", name: "Model v2" }], "slash-containing model ids remain intact");
+	assert.equal(JSON.stringify(selected).includes("fixture-secret"), false);
+	assert.equal(JSON.stringify(selected).includes("apiKey"), false);
+	assert.deepEqual(selected.providers[1], { id: "custom-provider", label: "Custom API" });
+	await assert.rejects(() => pricingModelsOf(ctx, providers, "zai"), /configured direct API/);
+	await assert.rejects(() => pricingModelsOf(ctx, providers, "not-configured"), /configured direct API/);
+	await assert.rejects(() => pricingModelsOf(ctx, providers, {}), /provider id/);
+	ctx.llm.listModels = async () => { throw new Error("fixture-secret at https://user:fixture-secret@gateway.example"); };
+	const failed = await pricingModelsOf(ctx, providers, "openrouter");
+	assert.equal(failed.ok, false);
+	assert.equal(failed.retryable, true);
+	assert.equal(failed.errorCode, "model-catalog-unavailable");
+	assert.equal(JSON.stringify(failed).includes("fixture-secret"), false, "adapter failures must not expose credentials");
+	delete ctx.llm.listModels;
+	assert.equal((await pricingModelsOf(ctx, providers, "openrouter")).modelCatalogAvailable, false);
+	const abort = new AbortController();
+	abort.abort();
+	ctx.llm.listModels = async () => [];
+	await assert.rejects(() => pricingModelsOf(ctx, providers, "openrouter", abort.signal), error => error.name === "AbortError");
+}
+
 // Balance/provider service core remains independently testable.
 {
 	const config = validateConfig({});
@@ -325,6 +397,8 @@ function createHarness(options = {}) {
 	const home = await mkdtemp(join(tmpdir(), "usage-stats-host-"));
 	const harness = createHarness();
 	try {
+		const catalogCalls = [];
+		harness.ctx.llm = { listModels: async provider => { catalogCalls.push(provider); return [{ id: "vendor/model-v2", name: "Model v2", apiKey: "fixture-secret" }]; } };
 		const balance = { id: "DEEPSEEK_API_KEY", status: "ok", fetchedAt: Date.now(), balance: { total: 12, currency: "CNY" }, capabilities: ["balance"] };
 		const providers = [{ id: "deepseek-official", label: "DeepSeek", keyRef: "DEEPSEEK_API_KEY", default: true, queryable: true, capabilities: ["balance"] }];
 		await apply(harness.ctx, {}, {
@@ -362,9 +436,37 @@ function createHarness(options = {}) {
 		assert.equal((await harness.rpc.handler("accounts/update", { body: { display: { balance: false, todayCost: true, statusDot: true } } })).value.settings.display.balance, false);
 		const pricingBefore = await harness.rpc.handler("pricing/get", { query: {} });
 		assert.equal(pricingBefore.value.usingCustom, false);
+		assert.equal(pricingBefore.value.usingCustomOfficial, false);
+		const pricingDirectory = await harness.rpc.handler("pricing/models", { query: {} });
+		assert.deepEqual(pricingDirectory.value.providers, [{ id: "deepseek-official", label: "DeepSeek" }]);
+		assert.deepEqual(catalogCalls, []);
+		assert.deepEqual((await harness.rpc.handler("pricing/models", { query: { provider: "deepseek-official" } })).value.models, [{ id: "vendor/model-v2", name: "Model v2" }]);
+		assert.deepEqual(catalogCalls, ["deepseek-official"]);
+		assert.equal((await harness.rpc.handler("pricing/models", { query: { provider: "not-configured" } })).error.code, "bad-request");
 		assert.equal((await harness.rpc.handler("pricing/update", { body: { action: "fetch-official" } })).value.candidate.models["deepseek-v4-flash"].peak.output, 2);
 		assert.equal((await harness.rpc.handler("pricing/update", { body: { mode: "custom", pricing: pricingBefore.value.current } })).value.usingCustom, true);
 		assert.equal((await harness.rpc.handler("pricing/update", { body: { action: "restore" } })).value.usingCustom, false);
+		const customRate = { offPeak: { inputMiss: 1, inputHit: 0.1, output: 2 }, peak: { inputMiss: 3, inputHit: 0.3, output: 4 } };
+		const providerModels = { openrouter: { "vendor/model-v2": customRate } };
+		const providerSave = await harness.rpc.handler("pricing/update", { body: { mode: "custom", officialMode: "official", preserveOfficialMetadata: true, pricing: { ...pricingBefore.value.current, checkedAt: "2099-01-01T00:00:00Z", providerModels } } });
+		assert.equal(providerSave.value.usingCustom, true, "provider overrides retain the historical persisted-custom marker");
+		assert.equal(providerSave.value.usingCustomOfficial, false, "other provider prices must not mark DeepSeek prices as custom");
+		assert.deepEqual(providerSave.value.current.providerModels, providerModels);
+		assert.equal(providerSave.value.current.checkedAt, pricingBefore.value.current.checkedAt, "editing another provider must preserve the server's official price verification time");
+		assert.equal((await harness.rpc.handler("pricing/update", { body: { mode: "custom", officialMode: "invalid", pricing: pricingBefore.value.current } })).error.code, "bad-request");
+		assert.equal((await harness.rpc.handler("pricing/update", { body: { mode: "custom", preserveOfficialMetadata: "true", pricing: pricingBefore.value.current } })).error.code, "bad-request");
+		const officialRestore = (await harness.rpc.handler("pricing/update", { body: { action: "restore" } })).value;
+		assert.equal(officialRestore.usingCustomOfficial, false);
+		assert.deepEqual(officialRestore.current.providerModels, providerModels, "restoring DeepSeek official prices must keep other provider prices");
+		const removal = (await harness.rpc.handler("pricing/update", { body: { mode: "custom", officialMode: "official", pricing: { ...officialRestore.current, providerModels: {} } } })).value;
+		assert.deepEqual(removal.current.providerModels, {}, "explicitly removing all custom provider prices must persist");
+		assert.equal((await harness.rpc.handler("pricing/update", { body: { action: "restore" } })).value.usingCustom, false);
+		await harness.ctx.settings.mutate("usage-stats", [{ op: "set", path: ["pricing"], value: { ...pricingBefore.value.current, currency: "USD" } }]);
+		const currencyMismatch = await harness.rpc.handler("pricing/update", { body: { mode: "custom", pricing: { providerModels } } });
+		assert.equal(currencyMismatch.error?.code, "bad-request", "partial provider-price writes must validate the current global currency");
+		assert.match(currencyMismatch.error.message, /CNY/);
+		assert.equal((await harness.rpc.handler("pricing/get", {})).value.current.currency, "USD", "invalid pricing must not overwrite the existing scheme");
+		await harness.rpc.handler("pricing/update", { body: { action: "restore" } });
 		const alertsBefore = await harness.rpc.handler("alerts/get", { query: {} });
 		assert.equal((await harness.rpc.handler("alerts/update", { body: { notifications: alertsBefore.value.notifications } })).value.ok, true);
 		assert.equal((await harness.rpc.handler("data/trim", { body: { retentionDays: 1 } })).value.trimmed, true);

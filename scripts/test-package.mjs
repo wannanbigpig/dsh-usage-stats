@@ -9,11 +9,12 @@ const insertedName = patch.match(/^\s+name:\s+(["'])(.+)\1\s*$/m)?.[2];
 assert.equal(insertedName, packageJson.name, "cordis.patch.yml must mount the installed package name");
 assert.match(patch, /^\s+name:\s+["']@[^"']+["']\s*$/m, "scoped package names must be quoted in YAML");
 assert.match(patch, /^\s+- id:\s+usage-stats\s*$/m, "cordis.patch.yml must keep the stable plugin id");
-assert.match(patch, /^\s*- id:\s+connection\s*\n\s+inject:\s*\[[^\]]*webRuntime[^\]]*webServer[^\]]*\]\s*$/m, "the web profile must inject webServer into the Connection owner fiber used by dedicated RPC channels");
+assert.match(patch, /^\s*- id:\s+connection\s*\n\s+inject:\s*\[[^\]]*webStartup[^\]]*webServer[^\]]*\]\s*$/m, "the web profile must select webServer on the Connection owner fiber used by dedicated RPC channels");
+assert.match(patch, /^\s+trustedHosts:\s*!!js[^\n]*webRuntime[^\n]*webStartup[^\n]*$/m, "the Connection trustedHosts expression reads the bind/trust service of both host generations");
 
 const loaderId = client.match(/window\.__ModuleLoader__\.load\(\{\s*id:\s*["']([^"']+)["']/)?.[1];
 assert.equal(loaderId, packageJson.name, "client loader must register the installed package name");
-assert.equal(packageJson.version, "0.5.4", "current host settings and account billing fixes release as the 0.5.4 line");
+assert.equal(packageJson.version, "0.6.0", "responsive reports, upgrades and provider pricing release as the 0.6.0 line");
 assert.equal(packageJson.dsh.manifestVersion, 1, "package uses the current public DSH manifest format");
 assert.equal(packageJson.engines?.dsh, ">=0.1.5-rc.1 <0.1.6-0 || 0.1.6-alpha.1 || >=0.1.7-rc.2 <0.1.8-0 || >=0.2.0-rc.2 <0.2.1-0 || >=0.2.1-alpha.1 <0.2.2-0", "package declares the tested DSH compatibility lines");
 assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-connection"), "client manifest injects the official Connection service");
@@ -21,6 +22,8 @@ assert.ok(packageJson.dsh.client.inject.includes("@deepseek-ai/dsh-client-ui-lay
 for (const dependency of ["@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-session-persistence"]) {
 	assert.ok(packageJson.peerDependencies?.[dependency], `package declares the required Harness peer ${dependency}`);
 }
+assert.ok(packageJson.peerDependencies?.["@deepseek-ai/dsh-plugin-manager"], "profile package query declares its optional runtime peer");
+assert.equal(packageJson.peerDependenciesMeta?.["@deepseek-ai/dsh-plugin-manager"]?.optional, true, "Hosts without the manager can still load usage reports");
 assert.equal(packageJson.devDependencies?.["@deepseek-ai/cordis"], packageJson.peerDependencies?.["@deepseek-ai/cordis"], "Cordis uses matching peer and development ranges");
 for (const dependency of ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-ui-primitives", "@deepseek-ai/dsh-host-webserver", "@deepseek-ai/dsh-settings"]) {
 	assert.equal(packageJson.devDependencies?.[dependency], "0.1.5-rc.2", `development keeps the earlier Harness regression package ${dependency}`);

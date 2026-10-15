@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -41,16 +43,141 @@ for (const name of usedPrimitives.filter(name => name.startsWith('Icon'))) {
 	assert.equal(typeof hostIcons[name], 'function', `current host icon ${name} is not a component`);
 }
 console.log(`Current host UI primitives: ${usedPrimitives.length} client imports exported`);
-const [{ Context }, { default: Jsonl }, { SESSION_FORMAT_VERSION }, { AssistantStreamAccumulator }, { loadOverlayPatches, composeEntries }] = await Promise.all([
+const [{ Context }, jsonlModule, { SESSION_FORMAT_VERSION }, { AssistantStreamAccumulator }, { loadOverlayPatches, composeEntries }] = await Promise.all([
 	fromHost('vendor/cordis/src/index.ts'),
 	fromHost('packages/session/session-persistence-jsonl/src/index.ts'),
 	fromHost('packages/core/session/src/index.ts'),
 	fromHost('packages/llm/llm/src/assistant-stream.ts'),
 	fromHost('packages/boot/app-boot/src/index.ts')
 ]);
+const Jsonl = jsonlModule.default ?? jsonlModule;
 const { rebuildEstimatedFromPersistence } = await import('../lib/rebuild.js');
 const { openUsageStatsStorage, usageStatsDomainSpec } = await import('../lib/storage.js');
 const { DomainImpl } = await fromHost('packages/storage/storage-domain/src/domain.ts');
+const [{ default: PluginManager }, { viewProfilePackage }, { registryPlan }] = await Promise.all([
+ fromHost('packages/boot/plugin-manager/src/index.ts'),
+ fromHost('packages/boot/plugin-manager/src/operations.ts'),
+ fromHost('packages/boot/plugin-manager/src/registry.ts')
+]);
+const { createUpgradeOperations, readLatestRelease, upgradeRegistryPlan, UPGRADE_PACKAGE } = await import('../lib/upgrade.js');
+
+async function testCurrentHostUpgradeContract() {
+ const dir = await mkdtemp(join(tmpdir(), 'usage-host-upgrade-'));
+ const registered = { registry: null, resolved: 'https://registry.npmjs.org/', fallbackRegistries: [] };
+ const bundle = { name: UPGRADE_PACKAGE, version: '0.5.4', source: UPGRADE_PACKAGE + '@0.5.4', installed: true, availability: 'profile', enabled: true };
+ const manifest = version => ({ name: UPGRADE_PACKAGE, version, dsh: { bundle: { patch: './cordis.patch.yml' } } });
+ let hmr = true, pnpmCalls = 0, lastResult;
+ const progress = [];
+ const profile = { name: 'test', dir, installAnchor: join(dir, 'installation.json'), startedBundles: [UPGRADE_PACKAGE] };
+ try {
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'review-profile', dependencies: { [UPGRADE_PACKAGE]: '0.5.4' }, dsh: { profile: { bundles: [UPGRADE_PACKAGE] } } }));
+  await writeFile(profile.installAnchor, JSON.stringify({ name: 'installation', dependencies: {} }));
+  const packageDir = join(dir, 'node_modules', UPGRADE_PACKAGE);
+  await mkdir(packageDir, { recursive: true });
+  await writeFile(join(packageDir, 'package.json'), JSON.stringify(manifest('0.5.4')));
+  await writeFile(join(packageDir, 'cordis.patch.yml'), '[]');
+  const actual = {
+   profile, abort: new AbortController(), ownerContext: { get: name => name === 'hmr' && hmr ? {} : undefined, emit: (event, value) => { if (event === 'plugin-manager/install-state') progress.push(value); } }, packageOperations: new Set(), installedFrom: new Map(), installs: new Map(),
+   registries: async () => registered, readRestoredFiles: async () => [], restoreFiles: async () => {}, configure: async fn => fn(), selectBundle: async () => {},
+   async runPnpm() { pnpmCalls++; await writeFile(join(packageDir, 'package.json'), JSON.stringify(manifest('0.5.5'))); await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'review-profile', dependencies: { [UPGRADE_PACKAGE]: '0.5.5' }, dsh: { profile: { bundles: [UPGRADE_PACKAGE] } } })); return { exitCode: 0, output: '', logPath: '/fixture.log', truncated: false }; },
+   async change(operation, request) { const result = { ...request, changed: false, application: hmr ? 'applied' : 'restart-required', ...hmr ? {} : { restartReason: 'no-hmr' } }; try { await operation(result); } catch (error) { result.application = 'failed'; result.error = { code: error.code ?? 'operation-error', diagnostic: error.message }; } return result; }
+  };
+  const manager = { listBundles: async () => [bundle], installBundle: async (...args) => (lastResult = await PluginManager.prototype.installBundle.apply(actual, args)) };
+  const refused = await manager.installBundle(UPGRADE_PACKAGE + '@0.5.5', { saveExact: true });
+  assert.equal(refused.error.code, 'already-installed'); assert.equal(pnpmCalls, 0);
+  const upgrade = createUpgradeOperations({ getManager: () => manager, getHotReload: () => hmr, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+  assert.equal((await upgrade['upgrade/check']()).canInstall, false);
+  await assert.rejects(() => upgrade['upgrade/start']({ body: { confirm: true, version: '0.5.5' } }), /HMR/);
+  assert.equal(pnpmCalls, 0);
+  hmr = false;
+  await upgrade['upgrade/start']({ body: { confirm: true, version: '0.5.5' } });
+  for (let count = 0; count < 100 && (await upgrade['upgrade/get']()).state === 'running'; count++) await new Promise(resolve => setTimeout(resolve, 10));
+  const installed = await upgrade['upgrade/get']();
+  assert.equal(installed.state, 'restart-required', JSON.stringify(lastResult ?? installed));
+  assert.equal(installed.restartReason, 'no-hmr'); assert.equal(pnpmCalls, 1);
+  assert.deepEqual(progress.map(item => item.phase), ['installing', 'applying']);
+  assert.ok(progress.every(item => item.requestId === installed.requestId));
+  for (const configuration of [registered, { ...registered, resolved: null }, { ...registered, resolved: 'https://private.example/' }, { registry: 'https://registry.npmjs.org', resolved: 'https://registry.npmjs.org/', fallbackRegistries: ['https://mirror.example', 'https://mirror.example/'] }]) assert.deepEqual(upgradeRegistryPlan(configuration), registryPlan(undefined, configuration));
+  console.log('Current Host upgrade contract: HMR refusal routed safely; startup-only installation and registry plans passed');
+ } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+async function testCurrentHostAuthenticatedLookup() {
+ const dir = await mkdtemp(join(tmpdir(), 'usage-host-registry-'));
+ const manifest = { name: UPGRADE_PACKAGE, version: '0.5.5', dsh: { bundle: { patch: './cordis.patch.yml' } } };
+ let authenticated = 0, unauthenticated = 0;
+ const server = createServer((request, response) => {
+  response.setHeader('content-type', 'application/json');
+  if (request.headers.authorization !== 'Bearer fixture-only') { unauthenticated++; response.writeHead(401); response.end('{}'); return; }
+  authenticated++;
+  response.end(JSON.stringify({ name: UPGRADE_PACKAGE, 'dist-tags': { latest: '0.5.5' }, versions: { '0.5.5': manifest } }));
+ });
+ try {
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(), registry = `http://127.0.0.1:${address.port}/`;
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'lookup-fixture', private: true }));
+  await writeFile(join(dir, '.npmrc'), `registry=${registry}\n//127.0.0.1:${address.port}/:_authToken=fixture-only\n`);
+  const profile = { name: 'test', dir, packageManager: {
+   command: process.env.DSH_TEST_PNPM_JS ? process.execPath : 'pnpm',
+   args: [...process.env.DSH_TEST_PNPM_JS ? [process.env.DSH_TEST_PNPM_JS] : [], '--config.manage-package-manager-versions=false', `--config.cache-dir=${join(dir, 'cache')}`, `--config.store-dir=${join(dir, 'store')}`],
+   env: { NPM_CONFIG_USERCONFIG: join(dir, '.npmrc'), COREPACK_ENABLE_PROJECT_SPEC: '0', COREPACK_ENABLE_AUTO_PIN: '0', XDG_CACHE_HOME: join(dir, 'cache') }
+  } };
+  const manager = { registries: async () => ({ registry: null, resolved: registry, fallbackRegistries: ['https://unreachable-public.example/'] }) };
+  assert.equal(await readLatestRelease(manager, { profile, viewPackage: viewProfilePackage }, 10000), '0.5.5');
+  assert.equal(await readLatestRelease(manager, { profile }, 10000), '0.5.5', 'the optional public Host operation resolves through the running Host');
+  assert.ok(authenticated >= 1); assert.equal(unauthenticated, 0);
+  console.log('Current Host profile lookup: real pnpm reads isolated .npmrc authentication; no install or public fallback');
+ } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); }
+}
+
+await testCurrentHostUpgradeContract();
+await testCurrentHostAuthenticatedLookup();
+
+async function testCurrentHostPricingCatalog() {
+	const [{ default: LlmRuntime, LlmAdapter }, { configuredProviders, pricingModelsOf, validateConfig }] = await Promise.all([
+		fromHost('packages/llm/llm/src/index.ts'),
+		import('../lib/index.js')
+	]);
+	const catalogContext = new Context();
+	const calls = [];
+	class PricingCatalogAdapter extends LlmAdapter {
+		async * stream() {}
+		providerInfo(provider) { return { id: provider, name: provider === 'custom-api' ? 'Custom API' : provider }; }
+		async listModels(provider) { calls.push(provider); return [{ provider, id: 'vendor/model-v2', name: 'Model v2', description: 'Configured model' }]; }
+	}
+	try {
+		await catalogContext.plugin(LlmRuntime);
+		catalogContext.llm.registerAdapter(['custom-api', 'unused-api', 'zai', 'deepseek-account'], new PricingCatalogAdapter());
+		catalogContext.llm.registerConfigurableProviders(['custom-api', 'unused-api', 'zai', 'deepseek-account'].map(provider => ({
+			provider, displayName: provider === 'custom-api' ? 'Custom API' : provider, settingsNs: 'catalog-fixture', settingsPath: ['providers', provider]
+		})));
+		const profile = { providers: {
+			'custom-api': { apiKeyEnv: 'CUSTOM_API_KEY', baseURL: 'https://gateway.example/v1', headers: { authorization: 'fixture-secret' } },
+			zai: { apiKeyEnv: 'ZAI_API_KEY' },
+			'deepseek-account': { account: 'fixture-secret' }
+		} };
+		const bridge = {
+			llm: catalogContext.llm,
+			settings: { get: ns => ns === 'catalog-fixture' ? profile : undefined },
+			credentials: { resolve: async () => ({ value: 'fixture-secret' }) },
+			get(name) { return this[name]; }
+		};
+		const providers = await configuredProviders(bridge, validateConfig({}));
+		const directory = await pricingModelsOf(bridge, providers);
+		assert.deepEqual(directory.providers, [{ id: 'deepseek-official', label: 'DeepSeek' }, { id: 'custom-api', label: 'Custom API' }]);
+		assert.deepEqual(calls, [], 'directory reads must not fetch every provider catalog');
+		const selected = await pricingModelsOf(bridge, providers, 'custom-api');
+		assert.deepEqual(calls, ['custom-api']);
+		assert.deepEqual(selected.models, [{ id: 'vendor/model-v2', name: 'Model v2' }]);
+		assert.equal(JSON.stringify(selected).includes('fixture-secret'), false);
+		assert.equal(JSON.stringify(selected).includes('apiKeyEnv'), false);
+		assert.equal(profile.providers['custom-api'].apiKeyEnv, 'CUSTOM_API_KEY', 'pricing discovery never edits Host model settings');
+		console.log('Current Host pricing catalog: configured direct routes, selected-only model lookup, and credential-free metadata passed');
+	} finally { await catalogContext.fiber.dispose(); }
+}
+
+await testCurrentHostPricingCatalog();
+
 
 const patches = ['packages/bundle/base/cordis.patch.yml', 'packages/bundle/web-app/cordis.patch.yml']
 	.map(path => loadOverlayPatches('usage-stats-test', join(harnessRoot, path)));
@@ -58,9 +185,13 @@ patches.push(loadOverlayPatches('usage-stats-test', fileURLToPath(new URL('../co
 const entries = composeEntries(patches);
 const connection = entries.find(entry => entry.id === 'connection');
 assert.equal(connection?.name, '@deepseek-ai/dsh-client-connection');
-assert.ok(connection.inject?.includes('webRuntime'));
+assert.ok(connection.inject?.includes('webStartup'));
 assert.ok(connection.inject?.includes('webServer'));
-assert.ok(connection.config?.trustedHosts, 'the plugin patch preserves the host Connection configuration');
+const trustedHosts = connection.config?.trustedHosts;
+assert.ok(trustedHosts, 'the plugin patch preserves the host Connection configuration');
+const trustedHostsExpr = typeof trustedHosts === 'string' ? trustedHosts : trustedHosts?.__jsExpr ?? '';
+assert.match(trustedHostsExpr, /webRuntime/, 'trustedHosts keeps the legacy bind/trust service readable');
+assert.match(trustedHostsExpr, /webStartup/, 'trustedHosts falls back to the current bind/trust service');
 assert.equal(entries.find(entry => entry.id === 'usage-stats')?.name, '@wannanbigpig/dsh-usage-stats');
 console.log('Current host Web bundle: usage-stats patch composes with Connection owner and preserves configuration');
 

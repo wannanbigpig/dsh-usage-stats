@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { recordLedgerState, renderLedgerState } from "../lib/ledger.js";
+import { createLedgerState, foldFrozenLedgerEntries, freezeLedgerEntry, recordLedgerState, renderLedgerState } from "../lib/ledger.js";
 import { migrateLegacyCacheToV3 } from "../lib/migration.js";
 import { openUsageStatsStorage } from "../lib/storage.js";
 
@@ -175,6 +175,54 @@ try {
 	} finally {
 		await rm(migrationRoot, { recursive: true, force: true });
 	}
+
+	// Optional pricedCount distinguishes explicit zero-priced models from old
+	// token-only archive rows, including after durable JSON restart.
+	const directRoot = await mkdtemp(join(tmpdir(), "usage-stats-direct-price-"));
+	const directBackend = new JsonStorageBackend(directRoot);
+	const directHost = {
+		storage: { backend: { get() { return directBackend; } } },
+		emit() {}, logger: { warn() {} }
+	};
+	const directFacility = () => new DomainFacility(directHost, { backend: "json", routes: {} });
+	try {
+		const directPricing = { providerModels: { direct: {
+			"vendor/model": { offPeak: { inputMiss: 2, inputHit: 0, output: 0 }, peak: { inputMiss: 2, inputHit: 0, output: 0 } },
+			"free/model": { offPeak: { inputMiss: 0, inputHit: 0, output: 0 }, peak: { inputMiss: 0, inputHit: 0, output: 0 } }
+		} } };
+		const legacyExternal = freezeLedgerEntry({ id: "old-direct", occurredAt: at, provider: "legacy-direct", model: "old/model", usage: { inputTokens: 7 } }, {});
+		const legacyArchive = foldFrozenLedgerEntries([legacyExternal]);
+		for (const day of Object.values(legacyArchive.days)) {
+			for (const bucket of Object.values(day.models)) delete bucket.pricedCount;
+			for (const hour of Object.values(day.hours)) for (const bucket of Object.values(hour.models)) delete bucket.pricedCount;
+		}
+		const direct = await openUsageStatsStorage({ storageDomain: directFacility() }, {
+			initialState: createLedgerState({ archive: { frozen: legacyArchive } })
+		});
+		for (const [index, model] of ["vendor/model", "free/model", "unconfigured/model"].entries()) {
+			await direct.update((state) => recordLedgerState(state, {
+				id: `direct-${index}`, occurredAt: at + index + 1, provider: "direct", model, usage: { inputTokens: 1e6 }
+			}, { pricing: directPricing, maxLedgerEntries: 1 }));
+		}
+		await direct.close();
+		const directReopened = await openUsageStatsStorage({ storageDomain: directFacility() }, {
+			initialState: () => { throw new Error("persisted direct-provider price state must win"); }
+		});
+		const directState = directReopened.get();
+		const renderedDirect = renderLedgerState(directState, at, {});
+		const costs = Object.fromEntries(renderedDirect.days.flatMap((day) => day.models.map((row) => [row.model, row.cost])));
+		assert.equal(costs["direct/vendor/model"], 2, "a removed price config cannot change an archived frozen charge");
+		assert.equal(costs["direct/free/model"], 0, "an explicit zero-priced model survives archive/restart");
+		assert.equal(costs["direct/unconfigured/model"], null, "unconfigured direct providers remain token-only");
+		assert.equal(costs["legacy-direct/old/model"], null, "old archive rows without pricedCount stay token-only");
+		assert.equal(renderedDirect.total.cost, 2);
+		assert.equal(directState.archive.frozen.days["2026-08-25"].models["direct/free/model"].pricedCount, 1, "the official JSON backend retains the new optional price marker");
+		await directReopened.close();
+	} finally {
+		await directBackend.close();
+		await rm(directRoot, { recursive: true, force: true });
+	}
+	console.log("direct-provider frozen prices and legacy archive JSON compatibility passed");
 
 	console.log("official JSON backend migration/restart/concurrency integration passed");
 } finally {

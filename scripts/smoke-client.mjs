@@ -106,7 +106,7 @@ if ((source.match(/\.\.\.sumRows\(rows\), models: rows/g) ?? []).length < 1 || !
 if (!source.includes('"data-usage-summary": isSummaryTab')) throw new Error("summary workbench must expose its all-provider mode");
 if (!source.includes('function ProviderUsageList') || !source.includes('translate("usage.modelUsage")')) throw new Error("summary rail must render a cross-provider model usage list");
 if (!source.includes('function ModelTrendChart') || !source.includes('"data-usage-model-trend": true')) throw new Error("summary activity stage must expose a dedicated multi-model trend chart");
-if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(ModelTrendChart') || !source.includes(': react_jsx_runtime.jsx(DayDetail')) throw new Error("summary must use model trends while overview keeps provider model details");
+if (!source.includes('isSummaryTab && summaryChart === "models" ? react_jsx_runtime.jsx(ModelTrendChart') || !source.includes('!isSummaryTab && focusedRangeDay !== null && react_jsx_runtime.jsx(DayDetail')) throw new Error("summary must use model trends while overview keeps provider model details");
 if (!source.includes('"data-usage-provider-summary": true')) throw new Error("summary provider list must expose a stable DOM contract");
 if (!source.includes('request request request') || !source.includes('.usg_providerUsageRequest{grid-area:request;white-space:nowrap}') || !source.includes('`${S.providerUsageMeta} ${S.providerUsageRequest}`')) throw new Error("summary request counts must use a dedicated non-wrapping row");
 if (source.includes('onDayHover: setRangeHoveredDay')) throw new Error("multi-day hover must not resize the parent model list");
@@ -124,7 +124,7 @@ if (!source.includes('(activeTab === "summary" || activeTab === "overview") ? re
 if (source.includes('"data-usage-overview-compact": true') || source.includes('"data-usage-quick-links": true')) throw new Error("summary and overview must not retain the compact jump-card layout");
 if (!source.includes('isSummaryTab && react_jsx_runtime.jsx(WorkspaceUsageView') || !source.includes('"data-usage-workspace-chart": true')) throw new Error("all-provider report must embed the workspace chart");
 if (!source.includes("/api/usage-stats/workspaces") || !source.includes("workspaceRangeWindow(range, serverToday, customFrom, customTo)")) throw new Error("workspace report must fetch a date-filtered aggregate");
-if (!source.includes('.usg_workspaceDonut{') || !source.includes('.usg_workspaceChartRow{') || !source.includes('.usg_sessionRow{')) throw new Error("workspace report must use a donut chart and retain session drill-down styles");
+if (!source.includes('.usg_workspaceTrack{') || !source.includes('.usg_workspaceChartRow{') || !source.includes('.usg_sessionRow{')) throw new Error("workspace report must use rounded proportion bars and retain session drill-down styles");
 if (!source.includes('.usg_overviewWorkbench{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-areas:\\\"activity rail\\\" \\\"heat heat\\\" \\\"workspace workspace\\\"')) throw new Error("overview must use an asymmetric chart-report composition");
 if (!source.includes('.usg_detailsWorkbench{') || !source.includes('.usg_detailsHero{') || !source.includes('.usg_detailsCard{')) throw new Error("details tab must use a dedicated visual hierarchy instead of a plain filter and list");
 if (!source.includes('@media(max-width:700px){.usg_overviewWorkbench{grid-template-columns:1fr;grid-template-areas:\\\"activity\\\" \\\"rail\\\" \\\"heat\\\" \\\"workspace\\\"}')) throw new Error("overview workbench must preserve two columns until the viewport is genuinely narrow");
@@ -190,7 +190,7 @@ if (!source.includes('function animateNumberValue(from, to, progress)') || !sour
 if (!source.includes('function animationStartValue(current, target, replay)') || !source.includes('animationKey')) throw new Error("manual refresh must be able to replay numeric animation even when values are unchanged");
 if (!source.includes('window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches')) throw new Error("numeric animation must respect reduced-motion preferences");
 if (!source.includes('"data-usage-animated-number": true') || !source.includes('.usg_animatedNumber{display:inline-block;font-variant-numeric:tabular-nums}')) throw new Error("animated numeric values must expose a stable DOM marker and tabular digits");
-if (!source.includes('className: S.activityValue, value: rangeSummary.tokens') || !source.includes('className: S.dayTokens, value: day.tokens') || !source.includes('className: S.statValue, value: stats.monthTokens') || !source.includes('className: S.balanceAmount, value: balancePrimaryValue') || !source.includes('value: summary.balanceValue') || !source.includes('value: summary.todayValue')) throw new Error("token and balance surfaces must use the shared numeric animation");
+if (!source.includes('className: "usg_reportMetricValue"') || !source.includes('className: S.dayTokens, value: day.tokens') || !source.includes('className: S.statValue, value: stats.monthTokens') || !source.includes('className: S.balanceAmount, value: balancePrimaryValue') || !source.includes('value: summary.balanceValue') || !source.includes('value: summary.todayValue')) throw new Error("token and balance surfaces must use the shared numeric animation");
 if (!source.includes('className: S.providerTokens, value: group.tokens, animationKey') || !source.includes('className: S.modelTokens, value: model.tokens, animationKey')) throw new Error("provider and model token rows must replay numeric animation after manual refresh");
 if ((source.match(/animationKey: refreshTick/g) ?? []).length < 6) throw new Error("manual refresh tick must reach the overview numeric surfaces");
 const providerLogoSource = source.slice(source.indexOf("function providerLogoOf"), source.indexOf("function pricingOf"));
@@ -211,7 +211,7 @@ if (!source.includes('selectedProviderKind === "balance" && selectedProviderId =
 if (!source.includes('"data-usage-limit-provider": selectedLimitProvider?.id ?? providerId')) throw new Error("limit settings must expose their provider scope");
 if (source.includes('"data-usage-limit-provider-selector": true')) throw new Error("limit settings must not duplicate the accounts provider selector");
 if (!source.includes('const [billingProviderId, setBillingProviderId]')) throw new Error("billing settings must keep a local editing provider");
-if (!source.includes('providers.some((provider) => provider.id === requestedBillingProviderId)')) throw new Error("billing settings must validate the local editing provider");
+if (!source.includes('billingProviders.some((provider) => provider.id === requestedBillingProviderId)')) throw new Error("billing settings must validate the local editing provider");
 if (!source.includes('summary.kind === "plan_quota"')) throw new Error("sidebar must switch its compact value for plan providers");
 if (!source.includes('summary.planWindows ?? []')) throw new Error("sidebar must summarize all plan windows");
 if (!source.includes('function planQuotaToneOf')) throw new Error("plan quota dots must derive color from configured remaining thresholds");
@@ -489,10 +489,11 @@ if (!source.includes('.usg_section[data-usage-billing-settings] .usg_tab[data-ac
 const dayBarSource = source.slice(source.indexOf("function DayBarsChart"), source.indexOf("function DayList"));
 if (dayBarSource.includes("onMouseLeave: () => setHoveredDay")) throw new Error("multi-day tooltip must not close when the pointer leaves its trigger bar");
 if (!dayBarSource.includes("onDayHover") || !dayBarSource.includes("onDaySelect")) throw new Error("multi-day chart must expose date hover and selection callbacks");
-if (!source.includes('const providerUsageDay = singleRange ? filteredActiveDay : focusedRangeDay') || !source.includes('reservedModelCount: providerUsageCapacity')) throw new Error("summary model list must follow the clicked multi-day date with a stable reserved height");
+if (!source.includes('const providerUsageDay = singleRange ? filteredActiveDay : rangeSummary') || !source.includes('reservedModelCount: providerUsageCapacity')) throw new Error("summary model ranking must use the whole selected interval and retain stable row capacity");
 if (typeof exports_.chartUsesTokens !== "function") throw new Error("missing hourly chart token-mode policy export");
 if (exports_.chartUsesTokens(false, "deepseek-official") !== false) throw new Error("official DeepSeek overview must retain cost-scaled charts");
 if (exports_.chartUsesTokens(false, "zai-coding-cn") !== true) throw new Error("non-official provider overview must use token-scaled charts");
+if (exports_.chartUsesTokens(false, "custom-api", true) !== false || exports_.chartUsesTokens(false, "custom-api", false) !== true || exports_.chartUsesTokens(false, "zai-coding-cn", true, "plan_quota") !== true) throw new Error("custom-priced direct providers may use cost charts while plans stay Token-only");
 if (exports_.chartUsesTokens(true, "deepseek-official") !== true) throw new Error("all-provider summary must use token-scaled charts");
 if (typeof exports_.isTruncatedTextNode !== "function") throw new Error("missing model-name overflow helper export");
 if (typeof exports_.TruncatedModelName !== "function") throw new Error("missing overflow-aware model-name component export");
@@ -523,7 +524,7 @@ if (source.includes('button[aria-label*="设置"') || source.includes('button[ti
 	throw new Error("client must not use broad Settings substring selectors");
 }
 if (!source.includes("@keyframes usg_spin")) throw new Error("refresh button must define a spin animation");
-if (!source.includes(".usg_refreshButton{width:28px;height:28px;color:var(--dsw-alias-label-secondary);border:0;background:transparent")) throw new Error("global refresh button must be a compact borderless glyph");
+if (!source.includes('"data-usage-refresh": true') || !source.includes("className: S.iconButton")) throw new Error("global refresh button must reuse the compact borderless icon button");
 if (!source.includes(".usg_refreshGlyph")) throw new Error("refresh glyph must receive the spin animation");
 if (source.includes("conversation.session.header.actions") || source.includes("usc-fold") || source.includes("data-usc-")) throw new Error("client must leave conversation folding to Harness");
 if (!source.includes('react_jsx_runtime.jsxs("svg"')) throw new Error("refresh button must use SVG icon for reliable rotation");
@@ -563,7 +564,7 @@ if (!source.includes('"data-peak-region"')) throw new Error("peak regions must b
 if (source.includes("min-height:3px")) throw new Error("zero-token hours must not fake a bar with min-height");
 if (!source.includes('onMouseLeave: () => setHoveredHour(null)')) throw new Error("hourly chart tooltip must clear when the pointer leaves");
 if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly tooltip must not persist after a click");
-if (!source.includes(': react_jsx_runtime.jsx(DayDetail, { day: filteredActiveDay')) throw new Error("single-day overview must retain the provider model detail summary");
+if (!source.includes('!isSummaryTab && react_jsx_runtime.jsx(DayDetail, { day: filteredActiveDay')) throw new Error("single-day overview must retain the provider model detail summary");
 if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
 if ((source.match(/translate\("usage.requestCount"\), fmtRequestCount\(/g) ?? []).length < 3) throw new Error("all usage tooltips must show request counts");
 if (!source.includes("Number(tokenMode ? hour.tokens : hour.cost)")) throw new Error("hourly bars must scale by cost or token count according to provider kind");
@@ -709,7 +710,7 @@ if (!source.includes('S.limitSub')) throw new Error("limits card must render gro
 if (!source.includes('toNumericModels')) throw new Error("pricing card must convert draft strings to numbers on save");
 if (!source.includes('value: row?.[period]?.[field] ?? ""')) throw new Error("pricing edit inputs must render the raw draft string");
 if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) throw new Error("pricing card must reject blank, invalid, and negative values");
-if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : editableModels')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
+if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : Object.entries(editableModels)')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
 if (!source.includes('.usg_hourInput{background:var(--dsw-alias-state-business-primary,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-alias-state-success-primary,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
 if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-layer-2);border-radius:999px;height:7px;min-width:70px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:linear-gradient(')) throw new Error("recent-day detail cards must retain a fixed track with a proportional fill");
@@ -1264,6 +1265,7 @@ const ctx = {
 	inject: (deps, callback) => {
 		if (deps.join(",") === "sidebarRight,sidebarRightTabs") callback(currentSidebarScope);
 		else if (deps.join(",") === "layout") callback(currentLayoutScope);
+		else if (deps.join(",") === "remote") {} // Optional on older Hosts.
 		else throw new Error(`unexpected optional services ${deps.join(",")}`);
 		return {};
 	},
@@ -1405,8 +1407,7 @@ if (animationStartValue(678350, 678350, false) !== 678350 || animationStartValue
 
 const earlyTooltipAnchor = exports_.chartTooltipAnchorStyle(6, 24);
 const lateTooltipAnchor = exports_.chartTooltipAnchorStyle(17, 24);
-if (earlyTooltipAnchor.left !== `${100 * 6.5 / 24}%` || Object.hasOwn(earlyTooltipAnchor, "right")) throw new Error("early chart tooltips must anchor from the left");
-if (Math.abs(Number.parseFloat(lateTooltipAnchor.right) - 100 * 6.5 / 24) > 1e-12 || Object.hasOwn(lateTooltipAnchor, "left")) throw new Error("late chart tooltips must anchor from the right");
+if (!earlyTooltipAnchor.left?.startsWith("clamp(0px, calc(") || !lateTooltipAnchor.left?.includes("max(0px, calc(100% - 210px))")) throw new Error("hourly tooltips must clamp to the chart edges at every hour");
 
 const alertSeen = new Set();
 const providerBAlert = { at: 200, type: "alert", event: "warning", keyRef: "K", status: "warning", providerIds: ["provider-b"], message: "B" };
@@ -1845,7 +1846,7 @@ await clientRegression("model filtering stays consistent across overview charts"
 			: endpoint === "keys/list" ? { ok: true, keys: [] } : { ok: true, status: {}, account: { status: "ok" } } }));
 	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
 	await step(() => button("panel.tabDetails").click());
-	if (!document.querySelector("[data-usage-details]") || !document.querySelector("[data-usage-details-hero]") || !document.querySelector("[data-usage-day-detail]")) throw new Error("details tab must render its redesigned report surface and day cards");
+	if (!document.querySelector("[data-usage-details]") || !document.querySelector("[data-usage-report-metrics]") || !document.querySelector("[data-usage-day-detail]")) throw new Error("details tab must render its redesigned report surface and day cards");
 	await step(() => change(document.querySelector('select[aria-label="usage.model"]'), "model-a"));
 	await step(() => button("panel.tabOverview").click());
 	const modelFilterChip = document.querySelector("[data-usage-model-filter]");
@@ -1856,9 +1857,9 @@ await clientRegression("model filtering stays consistent across overview charts"
 	await step(() => document.querySelector('[data-day="2026-09-05"]').dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true })));
 	const tooltip = document.querySelector('[data-usage-day-tooltip]').textContent;
 	const heatLabel = document.querySelector('[aria-label^="2026-09-05 ·"]').getAttribute("aria-label");
-	if (document.querySelector(".usg_activityValue").textContent !== "100" || tooltip.includes("model-b") || !heatLabel.includes("· 100 tokens")) throw new Error(`inconsistent filtered data: ${tooltip}; ${heatLabel}`);
+	if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue').textContent !== "100" || tooltip.includes("model-b") || !heatLabel.includes("· 100 tokens")) throw new Error(`inconsistent filtered data: ${tooltip}; ${heatLabel}`);
 	await step(() => modelFilterChip.click());
-	if (document.querySelector("[data-usage-model-filter]") !== null || document.querySelector(".usg_activityValue").textContent !== "1,000") throw new Error("clearing the overview model filter must restore the range total");
+	if (document.querySelector("[data-usage-model-filter]") !== null || document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue').textContent !== "1K") throw new Error("clearing the overview model filter must restore the range total");
 });
 
 await clientRegression("pricing inputs prevent unsaved edits during a pending save", async ({ root, step, button, setResponder }) => {
@@ -1965,8 +1966,10 @@ await clientRegression("workspace view filters by date and drills into sessions"
 	const first = requests.find(request => request.endpoint === "usage/workspaces");
 	if (first?.payload.query.from === undefined || first?.payload.query.to !== "2026-09-05") throw new Error(`workspace default window wrong: ${JSON.stringify(first?.payload.query)}`);
 	if (!document.querySelector("[data-usage-workspace]")) throw new Error("workspace view must expose its DOM marker");
-	if (!document.querySelector("[data-usage-workspace-donut]")) throw new Error("workspace distribution must render as a donut chart");
-	if (document.querySelectorAll("[data-usage-workspace-segment]").length !== 2) throw new Error("workspace donut must contain one segment per workspace");
+	if (!document.querySelector(".usg_workspaceTrack")) throw new Error("workspace distribution must render as proportion bars");
+	if (document.querySelectorAll(".usg_workspaceTrack > span").length !== 2) throw new Error("workspace report must contain one proportion bar per workspace");
+	const proportions = [...document.querySelectorAll(".usg_workspaceTrack > span")].map(node => parseFloat(node.style.width));
+	if (Math.abs(proportions.reduce((sum, value) => sum + value, 0) - 100) > 1e-6) throw new Error("workspace proportion bars must cover 100 percent of the selected range");
 	if (!document.querySelector(".usg_workspaceList")?.textContent?.includes("alpha")) throw new Error("workspace rows must use the directory name as label");
 	if (!document.querySelector('[title="/work/alpha"]') || !document.querySelector('[title="/work/beta"]')) throw new Error("workspace rows must keep the full path in the tooltip");
 	if (!document.querySelector(".usg_workspaceWorkbench")?.textContent?.includes("workspace.estimatedNote")) throw new Error("estimated workspace history must be explained");
@@ -2059,7 +2062,158 @@ await clientRegression("switching report scopes hides old totals and ignores lat
 	if (document.querySelector("[data-usage-overview-workbench]")) throw new Error("new scope must wait for its own data");
 	await step(() => button("panel.tabOverview").click());
 	await step(() => pending[0]({ ok: true, value: { ok: true, today: "2026-09-15", days: [{ date: "2026-09-15", tokens: 999, models: [], hours: [] }] } }));
-	if (document.querySelector(".usg_activityValue")?.textContent !== "0") throw new Error("late global data must not overwrite the provider overview");
+	if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== "0") throw new Error("late global data must not overwrite the provider overview");
+});
+await clientRegression("hourly chart skips empty hover targets and supports keyboard details", async ({ root, step }) => {
+ const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, tokens: hour === 11 ? 100 : 0, inputTokens: hour === 11 ? 100 : 0, outputTokens: 0, cost: 0, models: [] }));
+ await step(() => root.render(react.createElement(exports_.HourlyChart, { day: { date: "2026-10-15", tokens: 100, hours }, tokenMode: true, money: String, translate: key => key })));
+ if (!document.querySelector('[data-hour="23"]').disabled) throw new Error("empty hour must not create a full-height hover highlight");
+ await step(() => document.querySelector('[data-hour="11"]').focus());
+ if (!document.querySelector('.usg_hourTooltip')?.textContent.includes("11:00")) throw new Error("keyboard focus must expose the active hour details");
+});
+await clientRegression("pricing model names add rename delete and persist exact rows", async ({ root, step, button, change, setResponder }) => {
+ let current = { mode: "official", models: { "deepseek-flash": { offPeak: { inputMiss: 1, inputHit: .02, output: 4 }, peak: { inputMiss: 2, inputHit: .04, output: 8 } } }, routes: [] }, saved;
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "pricing/get") return { ok: true, value: { ok: true, current, official: current, usingCustom: current.mode === "custom" } };
+  saved = payload.body.pricing; current = { ...saved, mode: "custom" }; return { ok: true, value: { ok: true, current, usingCustom: true } };
+ });
+ await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+ await step(() => button("pricing.fork").click());
+ await step(() => change(document.querySelector('[data-usage-model-name]'), "renamed-flash"));
+ await step(() => button("pricing.addModel").click());
+ await step(() => button("pricing.saveCustom").click());
+ if (saved || !document.body.textContent.includes("pricing.invalidModel")) throw new Error("blank model name must block save");
+ const names = document.querySelectorAll('[data-usage-model-name]');
+ await step(() => change(names[1], "renamed-flash"));
+ await step(() => button("pricing.saveCustom").click());
+ if (saved || !document.body.textContent.includes("pricing.duplicateModel")) throw new Error("duplicate model names must block save");
+ await step(() => change(names[1], "new-model"));
+ const inputs = [...document.querySelectorAll("input.usg_priceInput")];
+ await step(() => inputs.slice(6).forEach(input => change(input, "1")));
+ await step(() => document.querySelector('[data-usage-remove-model]').click());
+ await step(() => button("pricing.saveCustom").click());
+ if (!saved?.replaceModels || Object.keys(saved.models).join() !== "new-model") throw new Error("save must preserve only the remaining named model");
+});
+await clientRegression("provider model prices preserve other providers and unsaved drafts", async ({ root, step, button, change, setResponder }) => {
+ const rate = { offPeak: { inputMiss: 1, inputHit: .2, output: 3 }, peak: { inputMiss: 2, inputHit: .4, output: 6 } };
+ let current = { mode: "official", models: { "deepseek-flash": rate }, routes: [], providerModels: { openai: { "gpt-existing": rate } } };
+ const writes = [], catalogQueries = [];
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "pricing/models") { catalogQueries.push(payload.query.provider); return { ok: true, value: { ok: true, providerId: payload.query.provider, providers: [{ id: "openai", label: "OpenAI" }, { id: "custom", label: "Custom" }], models: [{ id: "org/model", name: "Custom model" }] } }; }
+  if (endpoint === "pricing/update") { writes.push(payload.body); current = payload.body.pricing; }
+  return { ok: true, value: { ok: true, current, official: { mode: "official", models: { "deepseek-flash": rate } }, usingCustomOfficial: false } };
+ });
+ const render = providerId => root.render(react.createElement(exports_.PricingCard, { translate: key => key, providerId }));
+ await step(() => render("openai"));
+ await step(() => button("pricing.edit").click());
+ await step(() => change(document.querySelector("[data-usage-model-name]"), "openai-unsaved"));
+ await step(() => render("custom"));
+ if (!document.body.textContent.includes("pricing.tokenOnly") || button("pricing.restore") || button("pricing.fetchOfficial")) throw new Error("unconfigured direct providers must be token-only without DeepSeek actions");
+ await step(() => button("pricing.fork").click());
+ await step(() => button("pricing.addModel").click());
+ if (!document.querySelector('datalist option[value="org/model"]')) throw new Error("price editor must expose models from the selected Host provider");
+ await step(() => change(document.querySelector("[data-usage-model-name]"), "org/model"));
+ const inputs = [...document.querySelectorAll("input.usg_priceInput")];
+ if (inputs.length !== 3) throw new Error("direct provider prices must have one all-hours rate");
+ await step(() => inputs.forEach((input, index) => change(input, String(index + 1))));
+ await step(() => button("pricing.saveCustom").click());
+ const saved = writes[0];
+ if (saved.officialMode !== "official" || saved.pricing.models["deepseek-flash"].offPeak.inputMiss !== 1 || !saved.pricing.providerModels.openai["gpt-existing"] || saved.pricing.providerModels.openai["openai-unsaved"]) throw new Error("saving a provider must preserve official mode and other saved providers without committing their drafts");
+ if (JSON.stringify(saved.pricing.providerModels.custom["org/model"].offPeak) !== JSON.stringify(saved.pricing.providerModels.custom["org/model"].peak)) throw new Error("direct provider rates must apply equally at all hours");
+ await step(() => render("openai"));
+ if (document.querySelector("[data-usage-model-name]")?.value !== "openai-unsaved") throw new Error("provider switching must preserve unsaved price drafts");
+ await step(() => button("data.cancel").click());
+ if (!document.body.textContent.includes("gpt-existing") || document.querySelector("[data-usage-model-name]")) throw new Error("cancel must discard only the active provider draft");
+ if (catalogQueries.join(",") !== "openai,custom,openai") throw new Error("model requests must query only the selected provider");
+});
+await clientRegression("default prices hide historical routes while custom prices retain exact rows", async ({ root, step, setResponder }) => {
+ const rate = { offPeak: { inputMiss: 1, inputHit: .02, output: 4 }, peak: { inputMiss: 2, inputHit: .04, output: 8 } };
+ let custom = false;
+ const models = { "deepseek-flash": rate, "deepseek-v4-pro": rate, "deepseek-v4-flash": rate };
+ const routes = [{ model: "deepseek-v4-flash", priceModel: "deepseek-flash", effectiveFrom: "2026-01-01T00:00:00+08:00" }];
+ setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "pricing/models" ? { ok: true, models: [] } : { ok: true, current: { models, routes }, official: { models, routes }, usingCustomOfficial: custom } }));
+ await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+ if (document.querySelector("tbody").textContent.includes("deepseek-v4-flash")) throw new Error("default table must omit routed historical model rows");
+ await step(() => root.render(null)); custom = true;
+ await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+ if (!document.querySelector("tbody").textContent.includes("deepseek-v4-flash")) throw new Error("custom schemes must keep their explicit historical model rows");
+});
+await clientRegression("custom-priced direct provider charts show costs and unconfigured models stay Token-only", async ({ root, step, button, setResponder }) => {
+ let cost = .4;
+ const model = () => ({ model: "custom-api/org/model", tokens: 100, inputTokens: 80, outputTokens: 20, cost });
+ setResponder(async (_channel, endpoint) => {
+  let value = { ok: true, keys: [], status: {}, account: { status: "local" } };
+  if (endpoint === "providers/list") value = { ok: true, defaultProviderId: "custom-api", providers: [{ id: "custom-api", label: "Custom API", capabilities: [] }] };
+  if (endpoint === "usage/get") value = { ok: true, today: "2026-10-15", pricing: { currency: "CNY", peakHours: [[9, 12]] }, days: [{ date: "2026-10-15", tokens: 100, inputTokens: 80, outputTokens: 20, cost, models: [model()], hours: [{ hour: 11, tokens: 100, inputTokens: 80, outputTokens: 20, cost, models: [model()] }] }] };
+  return { ok: true, value };
+ });
+ await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ if (!document.querySelector('[data-usage-chart-mode="cost"]')) throw new Error("priced direct provider must allow its cost chart");
+ await step(() => document.querySelector('[data-usage-chart-mode="cost"]').click());
+ if (document.querySelector("[data-peak-region]") || document.body.textContent.includes("chart.peakNote")) throw new Error("all-hours direct prices must not show DeepSeek peak schedules");
+ if (!document.querySelector(".usg_providerCost")?.textContent.includes("0.40") || document.body.textContent.includes("usage.notBilled")) throw new Error("priced direct provider details must use their actual cost");
+ cost = null;
+ await step(() => document.querySelector("[data-usage-refresh]").click());
+ if (document.querySelector('[data-usage-chart-mode="cost"]') || document.querySelector("[data-usage-metric='cost'] .usg_reportMetricValue")?.textContent !== "—") throw new Error("unpriced direct models must not fabricate a cost or expose a cost-only chart");
+});
+await clientRegression("pricing read failure cannot overwrite stored model prices", async ({ root, step, button, setResponder }) => {
+ let fail = true, writes = 0;
+ setResponder(async (_channel, endpoint) => {
+  if (endpoint === "pricing/update") writes++;
+  if (endpoint === "pricing/models") return { ok: true, value: { ok: true, models: [] } };
+  return fail ? { ok: false, error: { code: "internal", message: "offline" } } : { ok: true, value: { ok: true, current: { models: {} }, official: { models: {} } } };
+ });
+ await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+ if (!button("pricing.fork").disabled || !button("pricing.fetchOfficial").disabled || !document.querySelector("[role=alert]")) throw new Error("failed price reads must prevent replacing unknown stored prices");
+ fail = false;
+ await step(() => button("action.retry").click());
+ if (button("pricing.fork").disabled || writes) throw new Error("retry must restore editable prices without writing");
+});
+await clientRegression("editing active prices preserves compatible routes and explicit source prices detach only their own route", async ({ root, step, button, change, setResponder }) => {
+ const { priceOf } = await import("../lib/usage.js");
+ const rate = { offPeak: { inputMiss: 1, inputHit: .02, output: 4 }, peak: { inputMiss: 2, inputHit: .04, output: 8 } };
+ const original = { models: { "deepseek-flash": rate, "deepseek-v4-pro": rate, "legacy-flash": rate, "legacy-vision": rate }, routes: [
+  { model: "legacy-flash", priceModel: "deepseek-flash", effectiveFrom: "2026-01-01T00:00:00+08:00" },
+  { model: "legacy-vision", priceModel: "deepseek-flash", effectiveFrom: "2026-01-01T00:00:00+08:00" }
+ ] };
+ let current = original, saved, custom = false;
+ setResponder(async (_channel, endpoint, payload) => {
+  if (endpoint === "pricing/models") return { ok: true, value: { ok: true, models: [] } };
+  if (endpoint === "pricing/update") saved = payload.body.pricing;
+  return { ok: true, value: { ok: true, current, official: original, usingCustomOfficial: custom } };
+ });
+ const open = async () => {
+  await step(() => root.render(null)); saved = undefined;
+  await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+  await step(() => button(custom ? "pricing.edit" : "pricing.fork").click());
+ };
+ await open();
+ await step(() => change(document.querySelector("input.usg_priceInput"), "3"));
+ await step(() => button("pricing.saveCustom").click());
+ if (saved.routes.length !== 2 || priceOf("deepseek-official/legacy-flash", saved, Date.parse("2026-10-15T00:00:00Z"))?.inputMiss !== 3) throw new Error("editing an active price must keep legacy aliases priced through their target");
+ await open();
+ await step(() => change(document.querySelector("[data-usage-model-name]"), "renamed-flash"));
+ await step(() => button("pricing.saveCustom").click());
+ if (saved.routes.length !== 0) throw new Error("renaming a route target must remove routes with no remaining price target");
+ await open();
+ await step(() => button("pricing.addModel").click());
+ await step(() => change([...document.querySelectorAll("[data-usage-model-name]")].at(-1), "legacy-flash"));
+ await step(() => [...document.querySelectorAll("input.usg_priceInput")].slice(-6).forEach(input => change(input, "5")));
+ await step(() => button("pricing.saveCustom").click());
+ if (saved.routes.map(route => route.model).join() !== "legacy-vision" || priceOf("deepseek-official/legacy-flash", saved, Date.parse("2026-10-15T00:00:00Z"))?.inputMiss !== 5) throw new Error("adding an independent routed source price must detach only that source");
+ custom = true;
+ await open();
+ const sourceRow = [...document.querySelectorAll("[data-usage-model-name]")].find(input => input.value === "legacy-flash").closest("tr");
+ await step(() => change(sourceRow.querySelector("input.usg_priceInput"), "7"));
+ await step(() => button("pricing.saveCustom").click());
+ if (saved.routes.map(route => route.model).join() !== "legacy-vision" || priceOf("deepseek-official/legacy-flash", saved, Date.parse("2026-10-15T00:00:00Z"))?.inputMiss !== 7) throw new Error("editing a source's explicit rate must stop routing only that source");
+});
+await clientRegression("expired pricing routes leave their source model visible", async ({ root, step, setResponder }) => {
+ const rate = { offPeak: { inputMiss: 1, inputHit: .02, output: 4 }, peak: { inputMiss: 2, inputHit: .04, output: 8 } };
+ const current = { models: { "deepseek-flash": rate, "expired-flash": rate }, routes: [{ model: "expired-flash", priceModel: "deepseek-flash", effectiveFrom: "2026-01-01T00:00:00+08:00", effectiveUntil: "2026-02-01T00:00:00+08:00" }] };
+ setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "pricing/models" ? { ok: true, models: [] } : { ok: true, current, official: current, usingCustomOfficial: false } }));
+ await step(() => root.render(react.createElement(exports_.PricingCard, { translate: key => key })));
+ if (!document.querySelector("tbody").textContent.includes("expired-flash")) throw new Error("expired routes must not hide the currently independent model price");
 });
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 

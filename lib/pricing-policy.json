@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "deepseek-cn-routing-2026-09-10",
-  "checkedAt": "2026-09-10T00:00:00+08:00",
+  "id": "deepseek-cn-routing-2026-10-15",
+  "checkedAt": "2026-10-15T00:00:00+08:00",
   "sourceUrl": "https://api-docs.deepseek.com/zh-cn/updates/",
   "models": {
     "deepseek-flash": {
@@ -23,11 +23,6 @@
       "model": "deepseek-v4-flash-vision-exp",
       "priceModel": "deepseek-flash",
       "effectiveFrom": "2026-09-10T00:00:00+08:00"
-    },
-    {
-      "model": "deepseek-v4-pro",
-      "priceModel": "deepseek-flash",
-      "effectiveFrom": "2026-09-14T12:00:00+08:00"
     }
   ]
 }

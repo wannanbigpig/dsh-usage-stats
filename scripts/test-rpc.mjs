@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { createUsageRpcDispatcher, registerUsageRpc, UsageRpcBadRequestError, USAGE_RPC_CHANNEL } from "../lib/rpc.js";
+import { createUsageRpcDispatcher, registerUsageRpc, UsageRpcBadRequestError, USAGE_RPC_CHANNEL, USAGE_RPC_ENDPOINTS } from "../lib/rpc.js";
+
+assert.ok(USAGE_RPC_ENDPOINTS.includes("pricing/models"), "the pricing model catalog is available through the official RPC bridge");
 
 const calls = [];
 const operations = {

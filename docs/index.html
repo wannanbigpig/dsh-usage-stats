@@ -32,7 +32,7 @@
             <h1>每一次调用，<br /><em>都有迹可循。</em></h1>
             <p class="intro">统一查看 Token、账户余额、套餐额度与费用趋势。统计账本、设置与告警全部留在本机，面板仅经宿主本机认证围栏访问。</p>
             <div class="actions"><a class="button primary" href="#install">开始安装 <span aria-hidden="true">↓</span></a><a class="button ghost" href="https://github.com/wannanbigpig/dsh-usage-stats">查看 GitHub <span aria-hidden="true">↗</span></a></div>
-            <p class="hint"><b>v0.5.3</b><i aria-hidden="true"></i>适配 <code>dsh-v0.1.7-rc.2</code><i aria-hidden="true"></i>Node.js 18+</p>
+            <p class="hint"><b>v0.6.0</b><i aria-hidden="true"></i>适配 <code>dsh-v0.2.1-alpha.3</code><i aria-hidden="true"></i>Node.js 18+</p>
           </div>
           <div class="hero-shot reveal" role="presentation">
             <div class="shot-glow" aria-hidden="true"></div>
@@ -55,7 +55,7 @@
         <div class="shell">
           <div class="section-title reveal"><p>WHY DSH USAGE STATS</p><h2>Harness 让调用产生账本，<br />插件让账本变得可读。</h2></div>
           <div class="feature-grid">
-            <article class="feature lead reveal"><b>01</b><h3>调用、成本与趋势</h3><p>今日、本月、累计 Token、请求次数、模型拆分、24 小时趋势与年度热图。DeepSeek 调用按完成时间冻结费用，历史成本不随后续价格漂移。</p><div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+            <article class="feature lead reveal"><b>01</b><h3>调用、成本与趋势</h3><p>区间 Token、请求次数、圆润图表与年度热图。DeepSeek 默认计价，其他直连供应商可为模型自定义价格；未定价只统计 Token，冻结费用不随后续价格漂移。</p><div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
             <article class="feature reveal"><b>02</b><h3>多供应商账户</h3><p>DeepSeek、Moonshot、OpenRouter、Kimi、MiniMax、Z.ai 等已配置 provider 的余额、套餐窗口与 Token 数据统一呈现。</p></article>
             <article class="feature reveal"><b>03</b><h3>有分寸的限制</h3><p>配置消费限额、余额提醒与预警比例。仅在你显式开启时才会拦截新的模型调用，其余时刻只做安静的记录者。</p></article>
             <article class="feature reveal"><b>04</b><h3>数据留在本机</h3><p>统计账本按宿主 per-record 存储按日落盘，单个文件损坏不再影响整个状态；凭据只通过 Harness 服务端解析。</p></article>
@@ -78,7 +78,7 @@
           <div class="install-copy reveal">
             <p class="eyebrow">GET STARTED</p>
             <h2>快速体验，<br />或从 npm 安装。</h2>
-            <p class="install-note">插件 0.5.3；支持 DeepSeek Harness <code>&gt;=0.1.5-rc.1 &lt;0.1.6-0 || 0.1.6-alpha.1 || &gt;=0.1.7-rc.2 &lt;0.1.8-0</code>，以及 Node.js 18+。</p>
+            <p class="install-note">插件 0.6.0；支持 DeepSeek Harness <code>&gt;=0.1.5-rc.1 &lt;0.1.6-0 || 0.1.6-alpha.1 || &gt;=0.1.7-rc.2 &lt;0.1.8-0 || &gt;=0.2.0-rc.2 &lt;0.2.1-0 || &gt;=0.2.1-alpha.1 &lt;0.2.2-0</code>，以及 Node.js 18+。</p>
           </div>
           <div class="install-panel reveal" role="group" aria-label="安装命令">
             <div class="cmd-row"><div><b>01</b><span>在插件目录的父目录执行</span></div><code>dsh plugin --profile web add ./dsh-usage-stats</code><button type="button" class="copy" data-copy="dsh plugin --profile web add ./dsh-usage-stats">复制</button></div>
