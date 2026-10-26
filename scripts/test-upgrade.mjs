@@ -19,6 +19,7 @@ assert.equal(lookedUp[0], profile.dir);
 assert.equal(lookedUp[1], UPGRADE_PACKAGE + '@latest');
 assert.equal(lookedUp[2].command, profile.packageManager.command);
 assert.deepEqual(lookedUp[2].env, profile.packageManager.env, 'queries use the profile package-manager environment');
+assert.deepEqual(lookedUp[2].fields, ['name', 'version', 'description', 'dsh'], 'the Host profile lookup names the printed fields');
 await assert.rejects(() => readLatestRelease(registryManager, { viewPackage: async () => answer(manifest) }), /profile/i);
 for (const metadata of [{ name: 'other-package', version: '0.5.5' }, { name: UPGRADE_PACKAGE, version: '0.5.5; shell' }]) {
  await assert.rejects(() => readLatestRelease(registryManager, { profile, viewPackage: async () => answer(metadata) }), /Invalid/);
@@ -188,3 +189,96 @@ await recovering['upgrade/check'](); await recovering['upgrade/start']({ body: {
 await recovering['upgrade/get'](); await new Promise(resolve => setImmediate(resolve));
 assert.equal((await recovering['upgrade/get']()).state, 'restart-required'); assert.equal((await recovering['upgrade/get']()).restartReason, 'no-hmr'); assert.equal(recoveredCalls, 1);
 console.log('HMR routing, profile environment, install progress, safe diagnostics and request recovery ok');
+
+// Hosts after 0.2.1-rc.3 own the registry update flow: listVersions and
+// updateBundle replace the plugin's own pnpm/query/install orchestration.
+{
+ const nativeBundle = { ...bundle, updatable: true };
+ let listingCalls = 0, releaseUpdate, sentUpdate;
+ const nativeManager = {
+  listBundles: async () => [nativeBundle],
+  installBundle: async () => { throw new Error('the native update must not fall back to a manual install'); },
+  listVersions: async (name, options) => {
+   listingCalls++;
+   assert.equal(name, UPGRADE_PACKAGE);
+   assert.deepEqual(options, {});
+   return { status: 'listed', installed: '0.5.4', registry: 'https://registry.npmjs.org/', attempts: [], omitted: 0, versions: [
+    { version: '0.5.6', tags: [], prerelease: false, bundle: true, deprecated: 'old' },
+    { version: '0.5.7', tags: ['latest'], prerelease: false, bundle: true },
+    { version: '0.5.9', tags: [], prerelease: true, bundle: true }
+   ] };
+  },
+  updateBundle: async (name, version, options) => {
+   sentUpdate = { name, version, options };
+   return new Promise(resolve => { releaseUpdate = resolve; });
+  }
+ };
+ const nativeOps = createUpgradeOperations({ getManager: () => nativeManager, getHotReload: () => true, currentVersion: '0.5.4', readLatest: async () => { throw new Error('native path must not query pnpm'); } });
+ const nativeChecked = await nativeOps['upgrade/check']();
+ assert.equal(nativeChecked.native, true);
+ assert.equal(nativeChecked.latestVersion, '0.5.7', 'newest compatible non-prerelease non-deprecated version wins');
+ assert.equal(nativeChecked.available, true);
+ assert.equal(nativeChecked.canInstall, true, 'the Host owns the HMR removal and reinstallation');
+ assert.equal(listingCalls, 1);
+ await nativeOps['upgrade/start']({ body: { confirm: true, version: '0.5.7' } });
+ assert.equal(sentUpdate.name, UPGRADE_PACKAGE);
+ assert.equal(sentUpdate.version, '0.5.7');
+ assert.match(sentUpdate.options.requestId, /^[0-9a-f-]{36}$/);
+ assert.equal(sentUpdate.options.registry, 'https://registry.npmjs.org/');
+ releaseUpdate({ from: '0.5.4', to: '0.5.7', step: 'install', result: { changed: true, application: 'applied', stage: 'enable', target: UPGRADE_PACKAGE + '@0.5.7' } });
+ await new Promise(resolve => setImmediate(resolve));
+ const settledNative = await nativeOps['upgrade/get']();
+ assert.equal(settledNative.state, 'complete');
+ assert.equal(settledNative.installedVersion, '0.5.7');
+
+ const restoreManager = { ...nativeManager, updateBundle: async () => ({ from: '0.5.4', to: '0.5.7', step: 'install', result: { changed: false, application: 'failed', error: { code: 'operation-error' } }, restore: { changed: true, application: 'applied', stage: 'enable' } }) };
+ const restoreOps = createUpgradeOperations({ getManager: () => restoreManager, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ await restoreOps['upgrade/check']();
+ await restoreOps['upgrade/start']({ body: { confirm: true, version: '0.5.7' } });
+ await new Promise(resolve => setImmediate(resolve));
+ const restored = await restoreOps['upgrade/get']();
+ assert.equal(restored.state, 'failed');
+ assert.equal(restored.errorCode, 'operation-error', 'the Host failure code is preserved');
+
+ let updated = false, updateCalls = 0;
+ const lostManager = {
+  ...nativeManager,
+  listBundles: async () => [{ ...nativeBundle, version: updated ? '0.5.7' : '0.5.4' }],
+  updateBundle: async () => { updateCalls++; updated = true; throw new Error('connection lost'); }
+ };
+ const lostOps = createUpgradeOperations({ getManager: () => lostManager, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ await lostOps['upgrade/check']();
+ await lostOps['upgrade/start']({ body: { confirm: true, version: '0.5.7' } });
+ await new Promise(resolve => setImmediate(resolve));
+ await lostOps['upgrade/get']();
+ await new Promise(resolve => setImmediate(resolve));
+ const recoveredNative = await lostOps['upgrade/get']();
+ assert.equal(updateCalls, 1, 'a lost reply must never trigger a second update');
+ assert.equal(recoveredNative.state, 'complete', 'a lost reply is verified against the installed version instead of retrying');
+
+ const ineligible = createUpgradeOperations({ getManager: () => ({ ...nativeManager, listBundles: async () => [{ ...nativeBundle, updatable: false, source: UPGRADE_PACKAGE + '@^0.5.4' }] }), currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ assert.equal((await ineligible['upgrade/get']()).reason, 'source-managed');
+ const refused = createUpgradeOperations({ getManager: () => ({ ...nativeManager, listVersions: async () => ({ status: 'refused', problem: 'network', reason: 'offline', attempts: [] }) }), currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ await assert.rejects(() => refused['upgrade/check'](), /Version listing failed/);
+}
+console.log('native registry updater delegation, rollback reporting and lost-reply recovery ok');
+
+// pnpm supply-chain policy can install an older release than the requested
+// target; the state machine must report the version that actually landed.
+{
+ const installedBundle = { name: UPGRADE_PACKAGE, version: '0.5.4', updatable: true, installed: true, availability: 'profile', enabled: true };
+ const installedManager = {
+  listBundles: async () => [installedBundle],
+  installBundle: async () => { throw new Error('the native update must not fall back to a manual install'); },
+  listVersions: async () => ({ status: 'listed', installed: '0.5.4', registry: null, attempts: [], omitted: 0, versions: [
+   { version: '0.5.7', tags: ['latest'], prerelease: false, bundle: true }
+  ] }),
+  updateBundle: async () => ({ from: '0.5.4', to: '0.5.7', step: 'install', result: { changed: true, application: 'applied', stage: 'enable', version: '0.5.6' } })
+ };
+ const installedOps = createUpgradeOperations({ getManager: () => installedManager, currentVersion: '0.5.4', readLatest: async () => '0.5.7' });
+ await installedOps['upgrade/check']();
+ await installedOps['upgrade/start']({ body: { confirm: true, version: '0.5.7' } });
+ await new Promise(resolve => setImmediate(resolve));
+ assert.equal((await installedOps['upgrade/get']()).installedVersion, '0.5.6', 'the installed manifest version wins over the requested target');
+}
+console.log('native installed-version reporting ok');

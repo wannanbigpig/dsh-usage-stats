@@ -66,14 +66,14 @@ globalThis.document = { querySelector: () => null, createElement: () => ({ datas
 const source = readFileSync(join(projectRoot, "lib", "client.js"), "utf8");
 // Endpoint contract: existing component call sites retain their logical paths,
 // while fetchJson transports every request through the official Connection RPC.
-if (!source.includes('fetchJson("/api/usage-stats/usage")')) throw new Error("client must fetch the usage endpoint");
-if (!source.includes('fetchJson("/api/usage-stats/keys")')) throw new Error("client must fetch the keys endpoint");
-if (!source.includes('fetchJson("/api/usage-stats/providers")')) throw new Error("client must fetch the providers endpoint");
-if (!source.includes('fetchJson(`/api/usage-stats/balance${query}`)')) throw new Error("client must fetch the balance endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/usage"')) throw new Error("client must fetch the usage endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/keys"')) throw new Error("client must fetch the keys endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/providers"')) throw new Error("client must fetch the providers endpoint");
+if (!source.includes('fetchJson(`/api/usage-stats/balance${query}`')) throw new Error("client must fetch the balance endpoint");
 if (!source.includes('const balanceLoader = react.useRef(createLoader())')) throw new Error("balance requests must have a stale-response guard");
 if (!source.includes('setBalance({ ok: false, message: error instanceof Error ? error.message : String(error) })')) throw new Error("balance failures must preserve an error payload");
 if (source.includes("legacyParams")) throw new Error("non-official balance failures must not fall back to a DeepSeek-only balance request");
-if (!source.includes('fetchJson("/api/usage-stats/limits")')) throw new Error("client must fetch the limits endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/limits"')) throw new Error("client must fetch the limits endpoint");
 if (!source.includes('connectionRpc.call("/usage-stats", request.endpoint, request.payload, signal)')) throw new Error("client must transport usage requests through Connection RPC");
 if (source.includes("await fetch(path, init)")) throw new Error("client must not keep the native fetch transport fallback");
 if (!source.includes('name: "settings.section"')) throw new Error("client must register the settings.section slot");
@@ -99,8 +99,8 @@ if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview"
 if (source.includes("panel.tabCharts") || source.includes("panel.tabWorkspace")) throw new Error("charts and workspaces must not remain separate top-level tabs");
 if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the selected provider overview tab");
 if (!source.includes('const usageProviderId = activeTab === "overview" ? selectedProviderId : null')) throw new Error("only overview may request the selected provider; summary and details must request all providers");
-if (!source.includes('if (activeTab === "overview" && !selectedProviderId) { setUsageLoading(false); return Promise.resolve(); }')) throw new Error("the provider overview must wait for the default provider and clear loading state");
-if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('setLoaded(true);\n\t\t\t\t});')) throw new Error("settings usage failures must release the limits loading gate");
+if (!source.includes('if (activeTab === "overview" && !selectedProviderId) { setUsageLoading(false); requests.finish("usage", controller); return Promise.resolve(); }')) throw new Error("the provider overview must wait for the default provider and clear loading state");
+if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('}).finally(() => requests.finish("usage", controller));')) throw new Error("settings usage failures must release the limits loading gate");
 if (!source.includes('"panel.tabSummary": "全部"') || !source.includes('"panel.tabOverview": "概览"') || !source.includes('"panel.tabDetails": "明细"') || !source.includes('"panel.tabSummary": "All"') || !source.includes('"panel.tabOverview": "Overview"') || !source.includes('"panel.tabDetails": "Details"')) throw new Error("panel tabs must use concise localized labels");
 if ((source.match(/\.\.\.sumRows\(rows\), models: rows/g) ?? []).length < 1 || !source.includes('...summed, models: rows')) throw new Error("client-side provider/model fallback filters must preserve hourly model rows for tooltips");
 if (!source.includes('"data-usage-summary": isSummaryTab')) throw new Error("summary workbench must expose its all-provider mode");
@@ -230,8 +230,8 @@ if (!source.includes('.usg_planWindowDotSlot{width:12px;display:inline-flex;alig
 if (!source.includes('.usg_planWindowSeparator{display:inline-block;margin-inline:6px}')) throw new Error("plan window separators must have stable spacing");
 if (!source.includes('"data-usage-plan-quota-settings": true')) throw new Error("billing settings must expose plan quota thresholds");
 if (source.includes('? `${summary.providerLabel} ${planWindowText')) throw new Error("plan sidebar summary must not repeat the provider label");
-if (!source.includes("const providerQuery = providerId ? `?provider=${encodeURIComponent(providerId)}` : \"\";")) throw new Error("sidebar must derive provider queries from the settings default");
-if (!source.includes('fetchJson(`/api/usage-stats/balance${providerQuery}${providerQuery ? "&" : "?"}auto=1`)')) throw new Error("sidebar must automatically query the selected provider balance under the refresh policy");
+if (!source.includes("const providerQuery = providerId ? \"?provider=\" + encodeURIComponent(providerId) : \"\";")) throw new Error("sidebar must derive provider queries from the settings default");
+if (!source.includes('fetchJson("/api/usage-stats/balance" + providerQuery + (providerQuery ? "&" : "?") + "auto=1"')) throw new Error("sidebar must automatically query the selected provider balance under the refresh policy");
 if (!source.includes("const usagePayload = usageResult.status === \"fulfilled\" ? filterUsageByProvider(usageResult.value, providerId) : null;")) throw new Error("sidebar must filter usage to the settings-selected provider");
 if (/api[_-]?key\s*[:=]\s*["']sk-/i.test(source)) throw new Error("client must not embed credentials");
 new Function(source)(); // executes the window.__ModuleLoader__.load call
@@ -552,7 +552,7 @@ if (!source.includes("width:10px;height:10px")) throw new Error("heatmap must us
 if (!source.includes(".usg_contribGrid{grid-template-rows:16px repeat(7,10px);gap:3px;min-width:max-content;width:100%;justify-content:center;display:grid}")) throw new Error("heatmap must use the current compact 3px gaps while centering the year grid");
 if (!source.includes("onMouseEnter: (event) => setHoveredCell") || !source.includes("day.inputTokens") || !source.includes("day: entry?.day ?? entry ?? null")) throw new Error("heatmap cells must show full-day hover details");
 if (!source.includes("function pointerTooltipStyle") || !source.includes("pointerTooltipStyle(hoveredCell.x, hoveredCell.y)") || !source.includes('"data-usage-heat-tooltip": true') || !source.includes("react_dom.createPortal")) throw new Error("heatmap tooltip must flip and escape pane clipping near viewport edges");
-if (!source.includes('"aria-label": title')) throw new Error("heatmap cells must retain an accessible label");
+if (!source.includes('"aria-label": cell.label')) throw new Error("heatmap cells must retain an accessible label");
 if (!source.includes(".usg_hourTooltip{")) throw new Error("hourly chart must define an interactive tooltip");
 if (!source.includes('style: chartTooltipAnchorStyle(hovered.hour, 24)') || !source.includes('.usg_dayTooltip{box-sizing:border-box;position:fixed')) throw new Error("hourly tooltip must retain its chart anchor and multi-day tooltip must escape chart clipping");
 if (source.includes('Math.min(72, 100 *')) throw new Error("chart tooltips must not use a fixed left clamp that can overflow their scroll viewport");
@@ -573,8 +573,10 @@ if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entr
 if (!source.includes("className: S.sidebarSummary")) throw new Error("wide sidebar entry must render its summary");
 if (!source.includes("SIDEBAR_POLL_MS_OPEN = 60000") || !source.includes("SIDEBAR_POLL_MS_CLOSED = 300000")) throw new Error("sidebar summary must poll at 60s open / 300s closed");
 if (!source.includes("window.setInterval(loadSummary, pollMs)")) throw new Error("sidebar summary must refresh in the background on an open/closed-aware interval");
-if (!source.includes("SIDEBAR_USAGE_REVISION_POLL_MS = 1000")) throw new Error("sidebar today usage must detect committed ledger changes within one second");
-if (!source.includes('fetchJson("/api/usage-stats/usage-revision")')) throw new Error("sidebar realtime polling must use the lightweight ledger revision endpoint");
+if (!source.includes("SIDEBAR_USAGE_REVISION_POLL_MS = 3000")) throw new Error("sidebar today usage must detect committed ledger changes within a few seconds without a 1Hz loop");
+if (!source.includes("if (document.visibilityState === \"hidden\" || revisionRequestPendingRef.current || summaryBusyRef.current) return;")) throw new Error("revision polling must pause while hidden and collapse into an in-flight summary read");
+if (!source.includes("if (wide === true) {") || !source.includes("jobs.push({ kind: \"alerts\"")) throw new Error("revision refreshes must scope requests to the visible surface and the toast channel");
+if (!source.includes('fetchJson("/api/usage-stats/usage-revision"')) throw new Error("sidebar realtime polling must use the lightweight ledger revision endpoint");
 if (!source.includes("window.setInterval(checkUsageRevision, SIDEBAR_USAGE_REVISION_POLL_MS)")) throw new Error("sidebar realtime usage revision polling must remain active while mounted");
 if (!source.includes('document.addEventListener("visibilitychange", onVisibilityChange)')) throw new Error("sidebar realtime polling must refresh on foreground and pause while hidden");
 if (!source.includes("summaryContextRef.current !== context")) throw new Error("a realtime usage response must not overwrite a newer provider or balance summary");
@@ -650,14 +652,14 @@ if (!limitsSaveBlock.includes("committedLimitsRef.current = payload.limits") || 
 if (!source.includes("const rollbackToCommittedLimits = () =>") || !source.includes("setLimits(committed)")) throw new Error("limit rollback helper must restore the last server-confirmed configuration");
 if (!source.includes("limitsRef.current ?? limits")) throw new Error("visible limit rules must derive from the saved cache so key switches show post-save values");
 if (source.includes("if (!open) loadSummary();\n\t\t\t\t\t\t\t\tsetOpen")) throw new Error("opening the usage panel must not request its summary twice");
-if (!source.includes('fetchJson("/api/usage-stats/accounts")')) throw new Error("client must fetch the accounts endpoint");
-if (!source.includes('fetchJson("/api/usage-stats/pricing")')) throw new Error("client must fetch the pricing endpoint");
-if (!source.includes('fetchJson("/api/usage-stats/alerts")')) throw new Error("client must fetch the alerts endpoint");
-if (!source.includes('fetchJson("/api/usage-stats/data")')) throw new Error("client must fetch the data endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/accounts"')) throw new Error("client must fetch the accounts endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/pricing"')) throw new Error("client must fetch the pricing endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/alerts"')) throw new Error("client must fetch the alerts endpoint");
+if (!source.includes('fetchJson("/api/usage-stats/data"')) throw new Error("client must fetch the data endpoint");
 if (!source.includes("SETTINGS_TABS")) throw new Error("settings page must declare its tab list");
 if (!source.includes('"data-usage-billing-tab": tab.id')) throw new Error("settings tabs must be identifiable per tab");
 if (!source.includes('"data-usage-accounts-card"')) throw new Error("accounts card must be identifiable");
-for (const key of ["accounts.desc", "accounts.defaultProviderDesc", "accounts.refreshDesc", "accounts.showBalanceDesc", "accounts.showTodayDesc", "accounts.showStatusDesc"]) {
+for (const key of ["accounts.desc", "accounts.defaultProviderDesc", "accounts.refreshDesc", "accounts.showBalanceDesc", "accounts.showTodayDesc"]) {
 	if (!source.includes(`\"${key}\"`)) throw new Error(`accounts settings must explain ${key}`);
 }
 if (!source.includes('accounts.defaultAccount')) throw new Error("single-key account row must use a friendly label, not the raw credential ref");
@@ -1305,6 +1307,12 @@ const currentLayoutScope = {
 };
 exports_.apply(ctx);
 if (!exports_.inject.includes("connection")) throw new Error("client must require the official connection service");
+// The host invokes each registered seat callback once its declaration is live.
+for (const slot of ["sidebar.right.pane.tab.title", "sidebar.right.tab.menu.item", "sidebar.panellist"]) {
+	const seat = registrations.find(([name]) => name === slot);
+	if (seat === void 0) throw new Error(`missing ${slot} injection`);
+	if (typeof seat[1]() !== "function") throw new Error(`${slot} registration must return a disposer`);
+}
 
 const usageResult = await exports_.fetchJson("/api/usage-stats/usage?provider=deepseek");
 if (usageResult.endpoint !== "usage/get") throw new Error("usage RPC success payload must be unwrapped");
@@ -1339,9 +1347,9 @@ await pending.then(
 	() => { throw new Error("aborted RPC call must reject"); },
 	(error) => { if (error.name !== "AbortError") throw error; }
 );
-if (registrations.length !== 4) throw new Error(`expected four slot injections, got ${registrations.length}`);
+if (registrations.length !== 7) throw new Error(`expected seven slot injections, got ${registrations.length}`);
 const slotNames = registrations.map(([slot]) => slot).sort();
-if (slotNames.join(",") !== "main,settings.section,sidebar.footer.action,sidebar.right.pane.tab") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
+if (slotNames.join(",") !== "main,settings.section,sidebar.footer.action,sidebar.panellist,sidebar.right.pane.tab,sidebar.right.pane.tab.title,sidebar.right.tab.menu.item") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
 const footerEntry = registrations.find(([slot]) => slot === "sidebar.footer.action");
 const footerDisposer = footerEntry[1]();
 if (typeof footerDisposer !== "function") throw new Error("footer slot registration must return a disposer");
@@ -1353,6 +1361,9 @@ currentSidebarScope.sidebarRight.openTab = () => { throw new Error("no session s
 if (footerFace?.openInHostSurface?.() !== true) throw new Error("footer action must fall back to the native global main panel without a session surface");
 if (mainPanelSelections.at(-1) !== "@wannanbigpig/dsh-usage-stats/main") throw new Error("global panel fallback must select the usage-stats main panel id");
 if (sidebarDefinitions[0]?.id !== "@wannanbigpig/dsh-usage-stats/sidebar" || sidebarDefinitions[0]?.kind !== "usage-stats" || sidebarDefinitions[0]?.guide?.length !== 1) throw new Error("right-Sidebar type must expose one discoverable guide entry");
+if (sidebarDefinitions[0]?.keepMounted !== true) throw new Error("right-Sidebar type must retain its panel across hiding");
+const guideEntry = sidebarDefinitions[0]?.guide?.[0];
+if (guideEntry?.id !== "usage-stats" || typeof guideEntry?.title !== "function" || typeof guideEntry?.icon !== "function" || guideEntry?.order !== 60) throw new Error("right-Sidebar guide entry must carry the host-required id and icon");
 const rightbarEntry = registrations.find(([slot]) => slot === "sidebar.right.pane.tab");
 const rightbarDisposer = rightbarEntry[1]();
 if (typeof rightbarDisposer !== "function") throw new Error("right-Sidebar body registration must return a disposer");
@@ -1363,6 +1374,28 @@ const mainDisposer = mainEntry[1]();
 if (typeof mainDisposer !== "function") throw new Error("global main panel registration must return a disposer");
 const mainReg = registeredOptions.find((entry) => entry.options?.name === "main");
 if (mainReg?.options?.key !== "@wannanbigpig/dsh-usage-stats/main" || typeof mainReg.component !== "function") throw new Error("global main panel must use the selected panel id");
+// D1-D4: rc.3 host seats — live tab title, tab menu rows, native panel list entry.
+const titleReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.right.pane.tab.title");
+if (titleReg?.options?.key !== "@wannanbigpig/dsh-usage-stats/sidebar" || typeof titleReg.component !== "function") throw new Error("right-Sidebar tab title must register under the tab definition id");
+const titleMarkup = renderToStaticMarkup(react.createElement(titleReg.component, { t: (key) => key }));
+if (!titleMarkup.includes("usg_tabTitle") || !titleMarkup.includes("panel.title") || !titleMarkup.includes("<svg")) throw new Error("right-Sidebar tab title must render the product glyph plus the localized name");
+const menuReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.right.tab.menu.item");
+if (menuReg?.options?.id !== "usage-stats-actions" || typeof menuReg.component !== "function") throw new Error("right-Sidebar tab menu rows must register once");
+const menuMarkup = renderToStaticMarkup(react.createElement(menuReg.component, { tab: { id: "tab-1", kind: "usage-stats" }, dismiss: () => {}, t: (key) => key }));
+if (!menuMarkup.includes("data-usage-tab-refresh") || !menuMarkup.includes("data-usage-tab-settings") || !menuMarkup.includes("action.refresh") || !menuMarkup.includes("panel.gotoSettings")) throw new Error("usage tab menu must offer refresh and go-to-settings rows");
+let menuDismissed = 0;
+let menuRefreshed = 0;
+const releaseTabRefresh = exports_.registerSidebarTabRefresh("tab-1", () => { menuRefreshed++; });
+const menuBody = renderToStaticMarkup(react.createElement(menuReg.component, { tab: { id: "tab-1", kind: "usage-stats" }, dismiss: () => { menuDismissed++; }, t: (key) => key }));
+exports_.refreshSidebarTab("tab-1");
+releaseTabRefresh();
+exports_.refreshSidebarTab("tab-1");
+if (menuRefreshed !== 1) throw new Error("menu refresh must drive the mounted tab once and release cleanly");
+const otherMenu = renderToStaticMarkup(react.createElement(menuReg.component, { tab: { id: "tab-2", kind: "files" }, dismiss: () => {}, t: (key) => key }));
+if (otherMenu !== "") throw new Error("usage tab menu rows must not leak into another tab kind");
+const panellistReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.panellist");
+if (panellistReg?.options?.id !== "@wannanbigpig/dsh-usage-stats/main" || typeof panellistReg.options.label !== "function" || panellistReg.options.label() !== "panel.title" || typeof panellistReg.component !== "function") throw new Error("native panel list entry must open the usage-stats main panel by id");
+if (typeof exports_.UsageStatsErrorBoundary !== "function" || !source.includes("static getDerivedStateFromError")) throw new Error("panel render failures must be contained by a top-level error boundary");
 const openedSections = [];
 ctx.slots.entries = (name) => name === "sidebar.settings"
 	? [{ store: { create: () => ({ actions: { openSection: (id) => openedSections.push(id) } }) } }]
@@ -1373,6 +1406,9 @@ if (footerFace.openSettings(null) !== true
 	|| openedSections.join(",") !== "usage-stats,usage-stats,usage-stats") {
 	throw new Error("each query surface must open the native settings store directly at usage-stats");
 }
+ctx.slots.entries = (name) => name === "sidebar.settings" ? [{ store: {} }] : [];
+if (footerFace.openSettings(null) !== false) throw new Error("a host settings store without section navigation must report the settings page unreachable");
+ctx.slots.entries = () => [];
 mainReg.options.inject().closePanel();
 if (mainPanelSelections.at(-1) !== null) throw new Error("global main panel close action must return to the Conversation");
 const sectionEntry = registrations.find(([slot]) => slot === "settings.section");
@@ -1719,7 +1755,12 @@ console.log("data helpers ok");
 	}));
 	if (!todayHeatMarkup.includes("usg_heatCellToday")) throw new Error("heatmap must highlight the server-provided today cell");
 	if (todayHeatMarkup.includes("usg_heatCellSelected")) throw new Error("heatmap today highlight must not imply a selected day");
-	if (!todayHeatMarkup.includes('aria-label="2026-08-15 · 0 tokens" disabled=""')) throw new Error("future heatmap days must be visible but disabled");
+	const futureCellTag = todayHeatMarkup.match(/<button[^>]*aria-label="2026-08-15 · 0 tokens"[^>]*>/)?.[0] ?? "";
+	if (!futureCellTag.includes('disabled=""')) throw new Error("future heatmap days must be visible but disabled");
+	const heatCellTags = todayHeatMarkup.match(/<button[^>]*class="usg_heatCell[^"]*"[^>]*>/g) ?? [];
+	const tabbableHeatCells = heatCellTags.filter((tag) => tag.includes('tabindex="0"'));
+	if (tabbableHeatCells.length !== 1 || !tabbableHeatCells[0].includes('aria-label="2026-08-14 · 1 tokens"')) throw new Error(`heatmap must expose exactly one roving tab stop, at the selected/today cell: ${tabbableHeatCells.length}`);
+	if (heatCellTags.some((tag) => !tag.includes("tabindex="))) throw new Error("every heatmap cell must declare its roving tabindex");
 	console.log("contribution heatmap helpers ok");
 }
 
@@ -1728,7 +1769,6 @@ console.log("data helpers ok");
 	const { providerOf, groupModelsByProvider } = exports_;
 	if (!source.includes('S.providerGroup')) throw new Error("DayDetail must group models by provider");
 	if (!source.includes('usage.providerDeepseek')) throw new Error("DayDetail must label the official DeepSeek provider");
-	if (!source.includes('usage.notBilled')) throw new Error("DayDetail must mark non-billed providers");
 	if (!source.includes('usage.requestCount') || !source.includes('model.requestCount')) throw new Error("model usage rows must expose provider/model request counts");
 	const grouped = groupModelsByProvider([
 		{ model: "deepseek-official/deepseek-v4-flash", tokens: 100, cost: 4.0 },
@@ -2424,6 +2464,158 @@ await clientRegression("report retry cannot reload a previously selected provide
  if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account" || document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== "400") throw new Error("a pending retry must never replace the newly selected account's usage");
  if (usageQueries.slice(before).some(id => id === "deepseek-official")) throw new Error("finishing a retry must not issue a stale provider usage read");
 });
+// E4 / C3 contract: years follow recorded usage; date copy follows the host language.
+if (source.includes("YEAR_START")) throw new Error("the heatmap year range must not depend on a hard-coded start year");
+if (exports_.earliestUsageYearOf([{ date: "2024-03-01" }, { date: "2022-12-31" }], 2026) !== 2022) throw new Error("the earliest usage year must come from the recorded days");
+if (exports_.yearChoicesOf([], 2026).join(",") !== "2026") throw new Error("an empty ledger must offer only the current year");
+if (exports_.yearChoicesOf([{ date: "2024-01-01" }], 2026).join(",") !== "2024,2025,2026") throw new Error("year choices must span the earliest recorded year through the current one");
+if (!source.includes("function activeLocaleTag") || !source.includes("hostLocale?.getLocale")) throw new Error("date copy must read the host active language with a navigator fallback");
+if (source.includes("new Date().toLocaleTimeString()") || source.includes("new Date(value).toLocaleString()")) throw new Error("date copy must route through the host-language helpers");
+
+await clientRegression("render failures stay inside a recoverable boundary", async ({ root, step, button }) => {
+	let shouldThrow = true;
+	const previousError = console.error;
+	console.error = () => {};
+	try {
+		function ThrowingPanel() {
+			if (shouldThrow) throw new Error("simulated render failure");
+			return react.createElement("p", { "data-recovered": true }, "ok");
+		}
+		await step(() => root.render(react.createElement(exports_.UsageStatsErrorBoundary, { translate: key => key }, react.createElement(ThrowingPanel))));
+		const boundary = document.querySelector("[data-usage-error-boundary]");
+		if (!boundary || boundary.getAttribute("role") !== "alert" || !boundary.textContent.includes("usage.renderError")) throw new Error("a render failure must show a visible recoverable error instead of a blank surface");
+		shouldThrow = false;
+		await step(() => button("action.retry").click());
+		if (!document.querySelector("[data-recovered]") || document.querySelector("[data-usage-error-boundary]")) throw new Error("retry must recover the panel after a render failure");
+	} finally {
+		console.error = previousError;
+	}
+});
+
+await clientRegression("contribution heatmap exposes one roving tab stop and arrow navigation", async ({ root, step }) => {
+	const dayMap = new Map([["2026-08-13", { tokens: 5 }], ["2026-08-14", { tokens: 6 }]]);
+	await step(() => root.render(react.createElement(exports_.ContributionHeatmap, {
+		heat: exports_.buildYearContributionHeatmap(dayMap, 2026),
+		translate: key => key,
+		selectedKey: "2026-08-14",
+		onSelect: () => {},
+		today: "2026-08-14",
+		money: String
+	})));
+	const cells = [...document.querySelectorAll("[data-heat-day]")];
+	const tabbable = cells.filter(node => node.tabIndex === 0);
+	if (tabbable.length !== 1 || tabbable[0].dataset.heatDay !== "2026-08-14") throw new Error("the heatmap must expose exactly one roving tab stop at the selected day");
+	await step(() => tabbable[0].focus());
+	await step(() => tabbable[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+	if (document.activeElement?.dataset.heatDay !== "2026-08-13") throw new Error("ArrowLeft must move focus to the previous day");
+	if (!document.querySelector("[data-usage-heat-tooltip]")?.textContent.includes("2026-08-13")) throw new Error("keyboard focus must surface the same day tooltip as hover");
+	await step(() => document.activeElement.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+	if (document.activeElement?.dataset.heatDay !== "2026-08-06") throw new Error("ArrowUp must move focus one week back");
+	if ([...document.querySelectorAll("[data-heat-day]")].find(node => node.tabIndex === 0) !== document.activeElement) throw new Error("a roving grid must move its single tab stop with focus");
+});
+
+await clientRegression("unreachable host settings shows a visible error", async ({ root, step, setResponder }) => {
+	setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "providers/list" ? { ok: true, providers: [{ id: "deepseek-official", label: "DeepSeek", capabilities: ["balance"] }], defaultProviderId: "deepseek-official" }
+		: endpoint === "keys/list" ? { ok: true, keys: [] }
+			: endpoint === "usage/get" ? { ok: true, today: "2026-09-05", days: [] }
+				: { ok: true, status: {}, account: { status: "ok" }, notifications: {}, limits: {}, alerts: [] } }));
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key, onOpenSettings: () => false })));
+	await step(() => document.querySelector("[data-usage-stats-settings-link]").click());
+	const row = document.querySelector("[data-usage-settings-error]");
+	if (!row || row.getAttribute("role") !== "alert" || !row.textContent.includes("panel.settingsUnavailable")) throw new Error("an unreachable settings page must render a visible prompt instead of silence");
+	await step(() => row.querySelector("button").click());
+	if (document.querySelector("[data-usage-settings-error]")) throw new Error("the settings prompt must be dismissible");
+});
+
+await clientRegression("limits read failures are visible and retryable", async ({ root, step, button, setResponder }) => {
+	let fail = true;
+	const limits = { global: { enabled: true, dailyCostLimit: 10 } };
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === "limits/get" && fail) throw new Error("limits offline");
+		return { ok: true, value: { ok: true, limits, status: {} } };
+	});
+	await step(() => root.render(react.createElement(exports_.LimitsCard, { keys: [], translate: key => key })));
+	const row = document.querySelector('[role="alert"]');
+	if (!row || !row.textContent.includes("limits.loadError")) throw new Error("a failed limits read must explain itself instead of leaving silent disabled controls");
+	if (document.querySelector('input[inputmode="decimal"]')?.disabled !== true) throw new Error("failed limits reads must not enable controls with fabricated defaults");
+	fail = false;
+	await step(() => button("action.retry").click());
+	if (document.querySelector('[role="alert"]') || document.querySelector('input[inputmode="decimal"]')?.disabled !== false) throw new Error("retrying the limits read must restore the editable form");
+});
+
+await clientRegression("plan quota read failures are visible and retryable", async ({ root, step, setResponder }) => {
+	let fail = true;
+	const notifications = { planQuota: { windows: { five_hour: { warningRemainingPercent: 30, criticalRemainingPercent: 10 }, weekly: { warningRemainingPercent: 30, criticalRemainingPercent: 10 } } } };
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === "alerts/get" && fail) throw new Error("alerts offline");
+		if (endpoint === "alerts/get") return { ok: true, value: { ok: true, notifications, alerts: [] } };
+		return { ok: true, value: { ok: true, limits: { global: {} }, status: {} } };
+	});
+	const props = { keys: [], translate: key => key, providerId: "zai-coding-cn", providerKind: "plan_quota", providers: [{ id: "zai-coding-cn", capabilities: ["plan_quota"], planQuota: { windows: ["five_hour", "weekly"] } }] };
+	await step(() => root.render(react.createElement(exports_.LimitsCard, props)));
+	const row = document.querySelector('[role="alert"]');
+	if (!row || !row.textContent.includes("limits.planQuotaLoadError")) throw new Error("a failed plan-quota read must explain itself instead of showing editable defaults");
+	if (!document.querySelector('[data-usage-plan-quota-window="five_hour"] input')?.disabled) throw new Error("failed plan-quota reads must not allow saving fabricated thresholds");
+	fail = false;
+	await step(() => row.querySelector("button").click());
+	if (document.querySelector('[role="alert"]') || document.querySelector('[data-usage-plan-quota-window="five_hour"] input')?.disabled) throw new Error("retrying the plan-quota read must restore the sliders");
+});
+
+await clientRegression("closing a surface aborts its in-flight reads", async ({ root, step, setResponder }) => {
+	const signals = [];
+	setResponder(async (_channel, _endpoint, _payload, signal) => {
+		signals.push(signal);
+		return new Promise(() => {});
+	});
+	await step(() => root.render(react.createElement(exports_.LimitsCard, { keys: [], translate: key => key })));
+	if (signals.length === 0) throw new Error("the limits read must start before unmount");
+	await step(() => root.render(null));
+	if (!signals.every(signal => signal.aborted)) throw new Error("unmounting must abort every in-flight request");
+});
+
+await clientRegression("sidebar summary failures are visible and retryable", async ({ root, step, setResponder }) => {
+	let fail = true;
+	const replies = {
+		"providers/list": { ok: true, defaultProviderId: "deepseek-official", providers: [{ id: "deepseek-official", label: "DeepSeek", capabilities: ["balance"] }] },
+		"keys/list": { ok: true, keys: [] },
+		"accounts/get": { ok: true, defaultProviderId: "deepseek-official", settings: { defaultProviderId: "deepseek-official", display: {} }, providers: [{ id: "deepseek-official", label: "DeepSeek", capabilities: ["balance"] }], accounts: {} },
+		"alerts/get": { ok: true, notifications: { channels: { sidebar: true } }, alerts: [] },
+		"limits/get": { ok: true, limits: {}, status: {} },
+		"usage/get": { ok: true, today: "2026-09-05", days: [{ date: "2026-09-05", tokens: 10, cost: 1, models: [] }] },
+		"balance/get": { ok: true, account: { status: "ok", balance: { total: 5, currency: "CNY" } } }
+	};
+	setResponder(async (_channel, endpoint) => {
+		if (fail) throw new Error("summary offline");
+		return { ok: true, value: { ok: true, ...(replies[endpoint] ?? {}) } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsPanel, { wide: true, t: key => key })));
+	const retry = document.querySelector("[data-usage-summary-retry]");
+	if (!retry || !document.querySelector("[data-usage-stats-trigger]")?.hasAttribute("data-summary-error")) throw new Error("a failed sidebar summary must show a visible error and retry control");
+	fail = false;
+	await step(() => retry.click());
+	if (document.querySelector("[data-usage-summary-retry]") || document.querySelector("[data-usage-stats-trigger]")?.hasAttribute("data-summary-error")) throw new Error("retrying the sidebar summary must clear the error state");
+});
+
+await clientRegression("upgrade self-check is shared across mounted surfaces", async ({ root, step, setResponder }) => {
+	let checks = 0;
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === "upgrade/check") checks++;
+		return { ok: true, value: endpoint.startsWith("upgrade/") ? { ok: true, currentVersion: "0.6.3", supported: true, sourceType: "registry", available: false, state: "idle" } : { ok: true } };
+	});
+	function Surface() {
+		const upgrade = exports_.useUpgradeController("check");
+		return react.createElement("span", { "data-upgrade-state": upgrade.status?.state ?? "none" });
+	}
+	await step(() => root.render(react.createElement("div", null, react.createElement(Surface, { key: "a" }), react.createElement(Surface, { key: "b" }))));
+	if (checks !== 1) throw new Error("simultaneously mounted surfaces must share one upgrade check, got " + checks);
+	const settled = checks;
+	await step(() => root.render(react.createElement("div", null, react.createElement(Surface, { key: "a" }), react.createElement(Surface, { key: "b" }), react.createElement(Surface, { key: "c" }))));
+	if (checks !== settled) throw new Error("a later surface must reuse the cached upgrade status while another remains mounted");
+	await step(() => root.render(null));
+	await step(() => root.render(react.createElement(Surface)));
+	if (checks !== settled + 1) throw new Error("reopening after every surface unmounted must recheck exactly once");
+});
+
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));
 
 console.log("\nclient smoke: all passed");

@@ -15,7 +15,8 @@ new Function(readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8'))
 const primitiveStubs = {
  Switch: ({ checked, disabled, label, onChange }) => react.createElement('button', { type: 'button', role: 'switch', 'aria-checked': checked, 'aria-label': label, disabled, onClick: () => onChange(!checked) }),
  Tag: ({ tone, children }) => react.createElement('span', { 'data-tone': tone }, children),
- StateDot: ({ state }) => react.createElement('span', { 'data-state': state })
+ StateDot: ({ state }) => react.createElement('span', { 'data-state': state }),
+ Modal: ({ open, title, children }) => open ? react.createElement('div', { role: 'dialog', 'aria-label': title }, children) : null
 };
 const api = captured.factory(spec => spec === '@deepseek-ai/dsh-client-ui-primitives' ? new Proxy(primitiveStubs, { get: (target, key) => target[key] ?? (() => null) }) : require(spec));
 let responder;
@@ -121,6 +122,34 @@ await check('billing provider selection is local and tab navigation retains pric
  await step(() => tabs()[2].click());
  await step(() => tabs()[1].click());
  assert.equal(document.querySelector('.usg_priceInput').value, '12.34');
+});
+await check('calendar trim needs a two-day window and an explicit confirmation', async () => {
+ const calls = [];
+ responder = async (_channel, endpoint, payload) => {
+  calls.push({ endpoint, payload });
+  if (endpoint === 'data/trim') return ok({ info: { ledgerEntries: 10, ledgerCapacity: 5000, foldedCount: 0 } });
+  return ok({ info: { ledgerEntries: 10, ledgerCapacity: 5000, foldedCount: 0, dateRange: { earliest: '2026-09-01', latest: '2026-09-05' } } });
+ };
+ await step(() => root.render(react.createElement(api.DataCard, { translate: key => key })));
+ const input = () => document.querySelector('[data-usage-retention-input]');
+ const trigger = () => document.querySelector('[data-usage-trim-button]');
+ assert.ok(input() && trigger());
+ assert.equal(trigger().disabled, true, 'an empty window must not be trimmable');
+ await step(() => change(input(), '1'));
+ assert.equal(trigger().disabled, true, 'the server requires at least two retained days');
+ assert.equal(input().getAttribute('aria-invalid'), 'true');
+ await step(() => change(input(), '3'));
+ assert.equal(trigger().disabled, false);
+ assert.equal(calls.filter(call => call.endpoint === 'data/trim').length, 0);
+ await step(() => trigger().click());
+ const confirm = document.querySelector('[data-usage-trim-confirm]');
+ assert.ok(confirm, 'trim must ask for confirmation before writing');
+ assert.equal(calls.filter(call => call.endpoint === 'data/trim').length, 0, 'opening the confirmation must not write');
+ await step(() => document.querySelector('[data-usage-trim-confirm-button]').click());
+ const trim = calls.filter(call => call.endpoint === 'data/trim').at(-1);
+ assert.equal(trim?.payload.body.retentionDays, 3);
+ assert.equal(trim?.payload.body.confirm, true);
+ assert.equal(trim?.payload.body.action, 'trim');
 });
 await step(() => root.unmount());
 dom.window.close();

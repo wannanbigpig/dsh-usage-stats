@@ -353,6 +353,84 @@ assert(hourKey(Date.UTC(2026, 0, 1, 1, 0, 0)) === 9, "Beijing peak-hour boundary
 	console.log("v3 frozen ledger state contracts ok");
 }
 
+//#region bounded global dedup window keeps append/replace correctness
+{
+	const pricing = defaultPricing();
+	const at = beijingTime(2026, 0, 5, 10);
+	const callOf = (id, sampleKey, minute = 0, tokens = 10) => ({
+		id,
+		...(sampleKey === void 0 ? {} : { sampleKey }),
+		occurredAt: at + minute * 60_000,
+		completedAt: at + minute * 60_000,
+		provider: "deepseek-official",
+		model: "deepseek-v4-flash",
+		usage: { inputTokens: tokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+		costState: "priced",
+		costNanosCny: "50"
+	});
+
+	// A tiny explicit capacity models a window that has already rolled past
+	// older live entries (the default window is 500..5000 keys, not 4x the
+	// ledger, so the same situation now happens at the default cap too).
+	let state = createLedgerState();
+	state = recordLedgerState(state, callOf("call-a", "sample-a", 1), { maxLedgerEntries: 10, recentSampleKeyCapacity: 2 });
+	state = recordLedgerState(state, callOf("call-b", "sample-b", 2), { maxLedgerEntries: 10, recentSampleKeyCapacity: 2 });
+	assert(state.ledger.length === 2, "both live calls must stay in the ledger");
+	assert(!state.recentSampleKeys.some((entry) => entry.key === "id:call-a"),
+		"the tiny window must have rolled past the first call");
+	const rolledOutIdDuplicate = recordLedgerState(state, callOf("call-a", void 0, 1, 999), { maxLedgerEntries: 10, recentSampleKeyCapacity: 2 });
+	assert(rolledOutIdDuplicate === state, "a rolled-out live id must still dedupe through the live-ledger scan");
+	const rolledOutSampleDuplicate = recordLedgerState(state, callOf("call-a-final", "sample-a", 3, 999), { maxLedgerEntries: 10, recentSampleKeyCapacity: 2 });
+	assert(rolledOutSampleDuplicate === state, "a rolled-out live sample must not replace without an explicit final flag");
+	const replaced = recordLedgerState(state, callOf("call-a-final", "sample-a", 4, 999), { maxLedgerEntries: 10, recentSampleKeyCapacity: 2, replaceSampleKey: true });
+	assert(replaced !== state, "a rolled-out live sample must remain replaceable when the final message arrives");
+	assert(replaced.ledger.length === 2 && replaced.ledger[0].id === "call-a", "a non-adjacent replacement must keep the stable call id");
+	assert(replaced.ledger[0].usage.inputTokens === 999, "a non-adjacent replacement must land on its own old entry");
+	assert(replaced.ledger[1].usage.inputTokens === 10, "a non-adjacent replacement must not touch other entries");
+
+	// A replacement can push a stale id into a full window and evict a live one.
+	// The coverage proof must not trust the window size alone: the live ledger is
+	// scanned so a replay of the evicted call cannot be appended twice.
+	let residue = createLedgerState();
+	residue = recordLedgerState(residue, callOf("res-a", "res-sample", 1), { maxLedgerEntries: 10, recentSampleKeyCapacity: 4 });
+	residue = recordLedgerState(residue, callOf("res-b", "res-sample-b", 2), { maxLedgerEntries: 10, recentSampleKeyCapacity: 4 });
+	residue = recordLedgerState(residue, callOf("res-a-final", "res-sample", 3, 999), { maxLedgerEntries: 10, recentSampleKeyCapacity: 4, replaceSampleKey: true });
+	assert(residue.recentSampleKeys.length === 4 && residue.recentSampleKeys.some((entry) => entry.key === "id:res-a-final")
+		&& !residue.recentSampleKeys.some((entry) => entry.key === "sample:res-sample"),
+		"a replacement must push a stale id into the full window and evict the live sample key");
+	const residueDuplicate = recordLedgerState(residue, callOf("res-a-late", "res-sample", 4, 999), { maxLedgerEntries: 10, recentSampleKeyCapacity: 4 });
+	assert(residueDuplicate === residue, "a live sample evicted by replacement residue must still dedupe through the ledger scan");
+
+	// An archived call cannot be replaced even while the window still
+	// remembers its sample key (a key that rolled out of the window is
+	// undetectable by design once the entry is no longer live).
+	let archived = createLedgerState();
+	archived = recordLedgerState(archived, callOf("old-a", "sample-old", 1), { maxLedgerEntries: 1, recentSampleKeyCapacity: 8 });
+	archived = recordLedgerState(archived, callOf("new-b", "sample-new", 2), { maxLedgerEntries: 1, recentSampleKeyCapacity: 8 });
+	assert(archived.archive.frozen.entryCount === 1 && !archived.ledger.some((entry) => entry.sampleKey === "sample-old"),
+		"the first call must have moved into the frozen archive");
+	assert(archived.recentSampleKeys.some((entry) => entry.key === "sample:sample-old"),
+		"the widened window must still remember the archived sample key");
+	const archivedReplacement = recordLedgerState(archived, callOf("old-a-final", "sample-old", 3, 999), { maxLedgerEntries: 1, recentSampleKeyCapacity: 8, replaceSampleKey: true });
+	assert(archivedReplacement === archived, "an archived sample must not be re-recorded by a late final message");
+
+	// Default capacity is bounded by max(500, maxLedgerEntries) instead of
+	// growing the persisted global document to 4x the ledger.
+	const wideEntries = [];
+	for (let index = 0; index < 5000; index += 1) wideEntries.push(callOf("wide-" + index, "wide-sample-" + index, index));
+	const wideLedger = createLedgerState({ ledger: wideEntries });
+	const wideKeys = wideLedger.recentSampleKeys.length;
+	assert(wideKeys === 10000, "the seed must start with two dedup keys per live call (got " + wideKeys + ")");
+	const bounded = recordLedgerState(wideLedger, callOf("wide-new", "wide-sample-new", 6000), { maxLedgerEntries: 5000 });
+	assert(bounded.recentSampleKeys.length === 5000,
+		"the default dedup window must stay at max(500, maxLedgerEntries) instead of 4x the ledger (got " + bounded.recentSampleKeys.length + ")");
+	const baselineBytes = JSON.stringify(wideLedger.recentSampleKeys).length;
+	const boundedBytes = JSON.stringify(bounded.recentSampleKeys).length;
+	assert(boundedBytes < baselineBytes * 0.6,
+		"the bounded global window must roughly halve its persisted bytes (" + boundedBytes + " vs " + baselineBytes + ")");
+	console.log("bounded dedup window ok");
+}
+
 //#region pricing input validation preserves lenient persisted normalization
 {
 	const legacy = normalizePricing({ peakHours: [[25, 30], [9, 12], [1, null]] });

@@ -59,6 +59,13 @@ const [{ default: PluginManager }, { viewProfilePackage }, { registryPlan }] = a
  fromHost('packages/boot/plugin-manager/src/operations.ts'),
  fromHost('packages/boot/plugin-manager/src/registry.ts')
 ]);
+// Hosts after 0.2.1-rc.3 expose the native registry updater as Remote methods.
+// The plugin feature-detects the pair and keeps its own flow otherwise; a Host
+// that gains one method without the other is a contract break this check sees.
+const nativeVersionListing = typeof PluginManager.prototype.listVersions === 'function';
+const nativeBundleUpdate = typeof PluginManager.prototype.updateBundle === 'function';
+assert.equal(nativeVersionListing, nativeBundleUpdate, 'the current Host must expose listVersions and updateBundle together');
+if (nativeVersionListing) console.log('Current Host native registry updater: listVersions + updateBundle exported');
 const { createUpgradeOperations, readLatestRelease, upgradeRegistryPlan, UPGRADE_PACKAGE } = await import('../lib/upgrade.js');
 
 async function testCurrentHostUpgradeContract() {

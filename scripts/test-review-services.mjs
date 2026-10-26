@@ -415,3 +415,55 @@ test('official balance follows live host key and baseURL and retains extra keys'
  assert.deepEqual(calls.at(-1), [profile.baseURL, 'NEW_HOST_KEY-secret']);
  assert.equal((await operations['limits/get']()).defaultKeyRef, 'NEW_HOST_KEY');
 });
+
+test('native settings directory supplies provider profiles after the get() accessor was removed', async () => {
+ const settingsDirectory = [
+  { ns: 'llm-deepseek', value: { apiKeyEnv: 'OFFICIAL_KEY' } },
+  { ns: 'llm-moonshot', value: { providers: { moonshotai: { apiKeyEnv: 'MOON_KEY', baseURL: 'https://moon.proxy/v1' } } } }
+ ];
+ const ctx = {
+  credentials: { resolve: async ref => ref === 'MOON_KEY' || ref === 'OFFICIAL_KEY' ? { value: 'secret' } : null },
+  settings: { describe: () => settingsDirectory },
+  llm: {
+   listProviders: () => [{ id: 'deepseek-official' }, { id: 'moonshotai' }, { id: 'openrouter' }],
+   listConfigurableProviders: () => [
+    { provider: 'deepseek-official', displayName: 'DeepSeek', settingsNs: 'llm-deepseek', settingsPath: [] },
+    { provider: 'moonshotai', displayName: 'Moonshot', settingsNs: 'llm-moonshot', settingsPath: ['providers', 'moonshotai'] },
+    { provider: 'openrouter', displayName: 'OpenRouter', settingsNs: 'llm-openrouter', settingsPath: ['providers', 'openrouter'] }
+   ]
+  },
+  get(name) { return this[name]; }
+ };
+ const rows = await configuredProviders(ctx, validateConfig({}), { defaultProviderId: 'auto', visibleProviderIds: [], refreshMs: 60000 });
+ assert.equal(rows.some(row => row.id === 'openrouter'), false, 'a catalog entry absent from the native settings directory is not a configured model-page route');
+ const moonshot = rows.find(row => row.id === 'moonshotai');
+ assert.equal(moonshot?.keyRef, 'MOON_KEY', 'the native settings directory supplies the model-page key reference');
+ assert.equal(moonshot?.baseURL, 'https://moon.proxy/v1', 'the native settings directory supplies the model-page base URL');
+ assert.equal(rows.find(row => row.id === 'deepseek-official')?.keyRef, 'OFFICIAL_KEY');
+});
+
+test('a disabled limit rule skips the ledger render on the streaming hot path', async () => {
+ let renders = 0;
+ const config = validateConfig({ keys: ['A'], defaultKeyRef: 'A' });
+ const collectUsage = async () => { renders++; return { days: [{ date: '2026-08-25', cost: 0, models: [] }] }; };
+ const disabled = createLimitsService({ config, balanceService: null, deps: { settings: { load: async () => ({ limits: defaultLimits(), pricing: null }) }, collectUsage } });
+ const disabledStatus = await disabled.check({ provider: 'deepseek-official' });
+ assert.equal(disabledStatus.status, 'normal');
+ assert.equal(disabledStatus.blocked, false);
+ assert.equal(disabledStatus.reason, 'limit_disabled');
+ assert.equal(renders, 0, 'the default configuration must not render the ledger before a model call');
+ const enabledLimits = { ...defaultLimits(), global: { ...defaultLimitRule(), enabled: true, dailyCostLimit: 10 } };
+ const enabled = createLimitsService({ config, balanceService: null, deps: { settings: { load: async () => ({ limits: enabledLimits }) }, collectUsage } });
+ await enabled.check({ provider: 'deepseek-official' });
+ assert.equal(renders, 1, 'an enabled rule still evaluates the rendered ledger');
+ const account = await disabled.check({ provider: 'deepseek-account' });
+ assert.deepEqual(account, { status: 'not_applicable', blocked: false, reason: 'account_billed_not_gated' }, 'signed-in account usage is billed but not API-key gated');
+});
+
+test('limits/update reports internal settings failures instead of bad requests', async () => {
+ const validBody = { global: { enabled: false }, keys: {} };
+ const internal = createUsageOperations({ limitsService: { updateLimits: async () => { throw new Error('disk full'); }, evaluateAll: async () => ({ limits: defaultLimits(), statuses: {} }) } });
+ await assert.rejects(internal['limits/update']({ body: validBody }), /disk full/);
+ const malformed = createUsageOperations({ limitsService: { updateLimits: async () => { throw new TypeError('unknown limits field: nope'); }, evaluateAll: async () => ({ limits: defaultLimits(), statuses: {} }) } });
+ await assert.rejects(malformed['limits/update']({ body: validBody }), error => error.name === 'UsageRpcBadRequestError');
+});

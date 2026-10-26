@@ -473,7 +473,9 @@ function createHarness(options = {}) {
 		await harness.rpc.handler("pricing/update", { body: { action: "restore" } });
 		const alertsBefore = await harness.rpc.handler("alerts/get", { query: {} });
 		assert.equal((await harness.rpc.handler("alerts/update", { body: { notifications: alertsBefore.value.notifications } })).value.ok, true);
-		assert.equal((await harness.rpc.handler("data/trim", { body: { retentionDays: 1 } })).value.trimmed, true);
+		assert.equal((await harness.rpc.handler("data/trim", { body: { retentionDays: 2, confirm: true } })).value.trimmed, true);
+		assert.equal((await harness.rpc.handler("data/trim", { body: { retentionDays: 2 } })).error.code, "bad-request", "trim must require explicit confirmation");
+		assert.equal((await harness.rpc.handler("data/trim", { body: { retentionDays: 1, confirm: true } })).error.code, "bad-request", "trim must keep at least two Beijing days");
 		const unknown = await harness.rpc.handler("missing", {});
 		assert.equal(unknown.error.code, "bad-request");
 		const missingBody = await harness.rpc.handler("data/rebuild-estimated", {});

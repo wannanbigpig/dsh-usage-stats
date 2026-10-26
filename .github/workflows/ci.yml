@@ -9,8 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  node-18-compatibility:
-    name: Node 18 compatibility
+  node-22-19-compatibility:
+    name: Node.js 22.19 compatibility
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -18,7 +18,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22.19.0
           cache: npm
       - name: Install dependencies
         run: npm ci
@@ -26,16 +26,16 @@ jobs:
         run: npm run check && npm run check:site
 
   integration:
-    name: Harness integration
+    name: Harness integration (dsh-v0.2.1-rc.3)
     runs-on: ubuntu-latest
     steps:
       - name: Check out plugin
         uses: actions/checkout@v6
-      - name: Check out DeepSeek Harness seam
+      - name: Check out DeepSeek Harness release tag
         uses: actions/checkout@v6
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: master
+          ref: dsh-v0.2.1-rc.3
           path: .ci/deepseek-harness
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -45,7 +45,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.7.0
+          version: 11.28.5
       - name: Install Harness dependencies
         run: pnpm --dir .ci/deepseek-harness install --frozen-lockfile --ignore-scripts
       - name: Build Harness native file-lock addon
@@ -62,5 +62,92 @@ jobs:
         env:
           DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
         run: npm run test:host-current
+      - name: Pack + tarball install smoke
+        run: |
+          set -euo pipefail
+          tarball="$RUNNER_TEMP/$(npm pack --silent --pack-destination "$RUNNER_TEMP")"
+          smoke="$RUNNER_TEMP/tarball-install-smoke"
+          rm -rf "$smoke"
+          mkdir -p "$smoke"
+          cd "$smoke"
+          npm init --yes >/dev/null
+          npm install "$tarball" --ignore-scripts --omit=peer --no-audit --no-fund
+          node --input-type=module - <<'NODE'
+          import { access, readFile, stat } from "node:fs/promises";
+          import { spawnSync } from "node:child_process";
+          import { createRequire } from "node:module";
+          import { dirname, resolve } from "node:path";
+
+          const require = createRequire(import.meta.url);
+          const specifier = "@wannanbigpig/dsh-usage-stats";
+          const manifestPath = require.resolve(specifier + "/package.json");
+          const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+          const root = dirname(manifestPath);
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+
+          assert(manifest.name === specifier, "tarball carries the expected package name");
+          assert(manifest.dsh?.manifestVersion === 1, "tarball keeps the public DSH manifest");
+          assert(typeof manifest.engines?.node === "string" && manifest.engines.node.trim() !== "", "tarball declares its Node.js baseline");
+          const required = ["lib/index.js", "lib/client.js", "cordis.patch.yml", "locale/en.json", "locale/zh.json", "docs/assets/logo.png", "README.md", "LICENSE"];
+          for (const file of required) await access(resolve(root, file));
+          for (const excluded of ["docs/assets/favicon.png", "docs/assets/apple-touch-icon.png"]) {
+            let present = true;
+            try { await access(resolve(root, excluded)); } catch { present = false; }
+            assert(!present, excluded + " must stay out of the published package");
+          }
+          const icon = await stat(resolve(root, manifest.icon));
+          assert(icon.size <= 256 * 1024, "icon fits the Harness 256 KiB metadata limit");
+          for (const language of ["en", "zh"]) {
+            const parsed = JSON.parse(await readFile(resolve(root, "locale/" + language + ".json"), "utf8"));
+            assert(typeof parsed.meta?.title === "string" && parsed.meta.title.trim() !== "", "locale/" + language + ".json declares meta.title");
+            assert(typeof parsed.meta?.description === "string" && parsed.meta.description.trim() !== "", "locale/" + language + ".json declares meta.description");
+          }
+          assert(require.resolve(specifier + "/client").endsWith("lib/client.js"), "the client export resolves inside the tarball");
+          assert(require.resolve(specifier + "/locale/en.json").includes("/locale/en.json"), "the locale export resolves inside the tarball");
+          for (const entry of ["lib/index.js", "lib/client.js"]) {
+            const checked = spawnSync(process.execPath, ["--check", resolve(root, entry)], { encoding: "utf8" });
+            assert(checked.status === 0, entry + " does not parse: " + (checked.stderr || ""));
+          }
+          console.log("tarball smoke passed: " + manifest.version + " (" + required.length + " packaged entries verified)");
+          NODE
       - name: Build Pages artifact
         run: npm run build:site
+
+  host-master-drift:
+    name: Harness master drift (non-blocking)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v6
+      - name: Check out DeepSeek Harness master
+        uses: actions/checkout@v6
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: master
+          path: .ci/deepseek-harness
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+      - name: Install Harness dependencies
+        run: pnpm --dir .ci/deepseek-harness install --frozen-lockfile --ignore-scripts
+      - name: Build Harness native file-lock addon
+        run: pnpm --dir .ci/deepseek-harness run build:native-system
+      - name: Build Harness host libraries
+        run: pnpm --dir .ci/deepseek-harness run build:lib:host
+      - name: Install plugin dependencies
+        run: npm ci
+      - name: Run test suite
+        env:
+          DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
+        run: npm test
+      - name: Verify current Host upgrade and UI contracts
+        env:
+          DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
+        run: npm run test:host-current

@@ -7,6 +7,11 @@
 # service `webRuntime` with `webStartup`; every supported generation provides
 # `webStartup`, so the inject list below composes on both, and the
 # trustedHosts expression reads whichever service the host provides.
+#
+# A profile patch replaces the matched row's `config`/`inject` as a whole.
+# If a future Harness adds another field to the built-in connection row,
+# copy it into this config before shipping; `scripts/test-package.mjs` and
+# `scripts/test-host-current.mjs` pin the current shape.
 - id: connection
   inject: [webStartup, webServer]
   config:

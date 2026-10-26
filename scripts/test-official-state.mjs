@@ -37,6 +37,7 @@ class FakeTable {
 		this.records = new Map();
 		this.putCalls = [];
 		this.deleteCalls = [];
+		this.entriesCalls = 0;
 	}
 
 	get(key) {
@@ -54,6 +55,7 @@ class FakeTable {
 	}
 
 	entries() {
+		this.entriesCalls += 1;
 		return [...this.records.entries()][Symbol.iterator]();
 	}
 
@@ -74,7 +76,9 @@ function createFakeDomain() {
 		global: {
 			stored: null,
 			setCalls: [],
+			getCalls: 0,
 			get() {
+				this.getCalls += 1;
 				return this.stored === null ? clone(usageStatsDomainSpec.global.initial) : clone(this.stored);
 			},
 			async set(value) {
@@ -632,6 +636,116 @@ async function testRepositoryCloseDrainsWrites() {
 	await assert.rejects(repository.update(state => state), /closed/i);
 }
 
+/**
+ * Reads must serve one committed view: a slow or failed sequential row write
+ * must never leak a half-applied update to get()/snapshot().
+ */
+async function testStorageReadIsolation() {
+	const at = Date.parse("2026-08-26T12:00:00+08:00");
+	const domain = createFakeDomain();
+	domain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 1 };
+	const storage = await openUsageStatsStorage({ storageDomain: { open: async () => domain } });
+	await storage.update((state) => recordLedgerState(state, sampleEntry("first", at, { sampleKey: "sample-first" }), { maxLedgerEntries: 100 }));
+	assert.equal(storage.snapshot().revision, 1);
+	const committed = storage.get();
+
+	// A backend can persist a row and only then stall/reject on a later op. Model
+	// exactly that: the day row is durable while the remaining ops are pending.
+	let release;
+	const gate = new Promise((resolve) => { release = resolve; });
+	const put = domain.ledger.put.bind(domain.ledger);
+	let gated = false;
+	domain.ledger.put = async (key, value) => {
+		await put(key, value);
+		if (!gated) {
+			gated = true;
+			await gate;
+		}
+	};
+	const pending = storage.update((state) => recordLedgerState(state, sampleEntry("second", at + 1000, { sampleKey: "sample-second" }), { maxLedgerEntries: 100 }));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(storage.get().ledger.length, 1, "a read during a half-applied update must keep the last committed view");
+	assert.equal(storage.get().ledger[0].id, "first", "the uncommitted row must stay invisible to reads");
+	assert.equal(storage.snapshot().revision, 1, "the revision must not advance before every row write succeeded");
+	release();
+	await pending;
+	assert.equal(storage.get().ledger.length, 2, "the committed view must advance once every row write succeeded");
+	assert.equal(storage.snapshot().revision, 2);
+
+	// Reads are served from the committed view instead of re-composing rows.
+	const reads = { ledger: domain.ledger.entriesCalls, frozen: domain.frozen.entriesCalls, global: domain.global.getCalls };
+	for (let index = 0; index < 3; index += 1) storage.get();
+	const snapshot = storage.snapshot();
+	assert.equal(snapshot.revision, 2);
+	assert.deepEqual({ ledger: domain.ledger.entriesCalls, frozen: domain.frozen.entriesCalls, global: domain.global.getCalls }, reads,
+		"reads must serve the committed view instead of recomposing the rows on every call");
+	assert.deepEqual(committed.ledger.map((entry) => entry.id), ["first"], "the earlier read must stay detached from later writes");
+	await storage.close();
+}
+
+/**
+ * A write that fails after persisting a row must keep the committed view, and
+ * the next successful update must reconcile the orphaned row instead of
+ * silently diverging from the medium.
+ */
+async function testStorageWriteFailureRecovery() {
+	const at = Date.parse("2026-08-27T12:00:00+08:00");
+	const domain = createFakeDomain();
+	domain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 1 };
+	let failNext = true;
+	const put = domain.ledger.put.bind(domain.ledger);
+	domain.ledger.put = async (key, value) => {
+		await put(key, value);
+		if (failNext) {
+			failNext = false;
+			throw new Error("backend write failed after persisting the row");
+		}
+	};
+	const storage = await openUsageStatsStorage({ storageDomain: { open: async () => domain } });
+	const committed = storage.get();
+	await assert.rejects(
+		storage.update((state) => recordLedgerState(state, sampleEntry("failed", at, { sampleKey: "sample-failed" }), { maxLedgerEntries: 100 })),
+		/backend write failed/
+	);
+	assert.equal(storage.snapshot().revision, 0, "a rejected update must not advance the revision");
+	assert.deepEqual(storage.get(), committed, "a rejected update must keep the committed view readable");
+	await storage.update((state) => recordLedgerState(state, sampleEntry("after", at + 1000, { sampleKey: "sample-after" }), { maxLedgerEntries: 100 }));
+	const durable = [...domain.ledger.records.values()].flatMap((row) => row.entries).map((entry) => entry.id).sort();
+	const published = storage.get().ledger.map((entry) => entry.id).sort();
+	assert.deepEqual(durable, published, "the next successful update must reconcile rows a failed write already persisted");
+	assert.equal(storage.snapshot().revision, 1);
+	await storage.close();
+}
+
+/**
+ * The default dedup window is bounded by max(500, maxLedgerEntries) instead of
+ * 4x that, so the persisted global document no longer grows to megabytes at
+ * the 5000-entry cap.
+ */
+async function testBoundedGlobalWindow() {
+	const at = Date.parse("2026-08-27T12:00:00+08:00");
+	const domain = createFakeDomain();
+	const seedKeys = [];
+	for (let index = 0; index < 10002; index += 1) seedKeys.push({ key: "id:seed-" + index, day: "2026-08-25" });
+	domain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 7, recentSampleKeys: seedKeys };
+	const storage = await openUsageStatsStorage({ storageDomain: { open: async () => domain } });
+	const bytesBefore = JSON.stringify(domain.global.stored.recentSampleKeys).length;
+	await storage.update((state) => recordLedgerState(state, sampleEntry("call-new", at, { sampleKey: "sample-new" }), { maxLedgerEntries: 5000 }));
+	const written = domain.global.setCalls.at(-1);
+	assert.equal(written.recentSampleKeys.length, 5000, "a default update must bound the global dedup window to max(500, maxLedgerEntries)");
+	const bytesAfter = JSON.stringify(written.recentSampleKeys).length;
+	assert.ok(bytesAfter < bytesBefore * 0.6,
+		"the bounded global window must shrink persisted bytes (" + bytesAfter + " vs " + bytesBefore + ")");
+	const setsBefore = domain.global.setCalls.length;
+	await storage.update((state) => recordLedgerState(state, sampleEntry("seed-9000", at, {}), { maxLedgerEntries: 5000 }));
+	assert.equal(domain.global.setCalls.length, setsBefore, "an id inside the bounded window must not be re-recorded");
+	assert.equal(storage.snapshot().revision, 1, "a deduplicated update must not advance the revision");
+	await storage.close();
+}
+
+await testStorageReadIsolation();
+await testStorageWriteFailureRecovery();
+await testBoundedGlobalWindow();
 await testRepositoryCloseDrainsWrites();
 await testStorageRepository();
 await testSettingsAdapter();

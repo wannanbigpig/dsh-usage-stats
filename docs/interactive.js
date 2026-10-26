@@ -68,3 +68,30 @@ for (const button of document.querySelectorAll(".copy[data-copy]")) {
     }
   });
 }
+
+/* Appearance switch, mirroring the host VPSwitchAppearance control. */
+const THEME_KEY = "dsh-usage-stats-theme";
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function applyTheme(theme) {
+  const dark = theme === "dark";
+  root.toggleAttribute("data-theme", dark);
+  const toggle = document.getElementById("theme-switch");
+  if (toggle) toggle.setAttribute("aria-pressed", String(dark));
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#1b1b1f" : "#ffffff");
+}
+
+applyTheme(root.hasAttribute("data-theme") ? "dark" : "light");
+
+document.getElementById("theme-switch")?.addEventListener("click", () => {
+  const next = root.hasAttribute("data-theme") ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (error) {}
+});
+
+prefersDark.addEventListener("change", (event) => {
+  let stored = null;
+  try { stored = localStorage.getItem(THEME_KEY); } catch (error) {}
+  if (stored === null) applyTheme(event.matches ? "dark" : "light");
+});

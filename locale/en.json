@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Usage Stats",
+    "description": "Local token usage, balance, package quotas, and DeepSeek cost estimates inside the DeepSeek Harness Web GUI."
+  }
+}
