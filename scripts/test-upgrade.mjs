@@ -2,7 +2,19 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createUpgradeOperations, newerRelease, readLatestRelease, installSourceType, UPGRADE_PACKAGE } from '../lib/upgrade.js';
+import { createUpgradeOperations, newerRelease, readLatestRelease, installSourceType, manualUpgradeCommand, UPGRADE_PACKAGE } from '../lib/upgrade.js';
+
+const desktopRuntime = { platform: 'darwin' };
+const desktopProfile = { name: 'desktop', home: '/test home', dir: '/test home/profiles/desktop' };
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', desktopRuntime),
+ "dsh plugin --profile desktop add --save-exact @wannanbigpig/dsh-usage-stats@0.6.4");
+const quotedCommand = manualUpgradeCommand({ ...desktopProfile, home: "/test owner's home", name: "team's work" }, '0.6.4', desktopRuntime);
+assert.ok(quotedCommand.includes("--profile 'team'\\''s work'"));
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4; echo bad', desktopRuntime), null);
+assert.equal(manualUpgradeCommand(null, '0.6.4', desktopRuntime), null);
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', { platform: 'win32' }), null, 'POSIX shell quoting must not be shown on Windows');
+assert.equal(manualUpgradeCommand({ name: 'web' }, '0.6.4', { platform: 'linux' }),
+ "dsh plugin --profile web add --save-exact @wannanbigpig/dsh-usage-stats@0.6.4");
 
 assert.equal(newerRelease('0.6.0', '0.5.4'), true);
 assert.equal(newerRelease('0.5.4', '0.5.4'), false);
@@ -168,6 +180,12 @@ const manualStatus = await manual['upgrade/check']();
 assert.equal(manualStatus.available, true, 'new releases remain visible with safe Host instructions');
 assert.equal(manualStatus.canInstall, false);
 assert.equal(manualStatus.installReason, 'hmr-managed');
+assert.equal(manualStatus.manualCommand, null, 'missing profile metadata must not produce a guessed command');
+for (const name of ['desktop', 'web']) {
+ const environment = createUpgradeOperations({ getManager: () => manager, getProfile: () => ({ name }), getHotReload: () => true, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
+ const status = await environment['upgrade/check']();
+ assert.equal(status.manualCommand, `dsh plugin --profile ${name} add --save-exact @wannanbigpig/dsh-usage-stats@0.5.5`, 'the update response uses the active Host profile instead of hard-coding desktop');
+}
 const beforeManual = installs;
 await assert.rejects(() => manual['upgrade/start']({ body: { confirm: true, version: '0.5.5' } }), /HMR|Host/i);
 assert.equal(installs, beforeManual, 'HMR mode must not attempt a rejected self-install or uninstall itself');
