@@ -26,7 +26,7 @@ jobs:
         run: npm run check && npm run check:site
 
   integration:
-    name: Harness integration (dsh-v0.2.1-rc.3)
+    name: Harness integration (dsh-v0.2.2-rc.1)
     runs-on: ubuntu-latest
     steps:
       - name: Check out plugin
@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: deepseek-ai/deepseek-harness
-          ref: dsh-v0.2.1-rc.3
+          ref: dsh-v0.2.2-rc.1
           path: .ci/deepseek-harness
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -62,16 +62,28 @@ jobs:
         env:
           DSH_HARNESS_ROOT: ${{ github.workspace }}/.ci/deepseek-harness
         run: npm run test:host-current
-      - name: Pack + tarball install smoke
+      - name: Pack + install with tested Host peers
         run: |
           set -euo pipefail
           tarball="$RUNNER_TEMP/$(npm pack --silent --pack-destination "$RUNNER_TEMP")"
           smoke="$RUNNER_TEMP/tarball-install-smoke"
           rm -rf "$smoke"
           mkdir -p "$smoke"
+          # Harness supplies a coherent runtime and disables peer auto-install.
+          # npm's standalone resolver otherwise mixes old Host release lines.
+          node --input-type=module - "$smoke" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { resolve } from "node:path";
+          const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const dependencies = Object.fromEntries(Object.entries(lock.packages)
+            .filter(([path]) => /^node_modules\/@deepseek-ai\/[^/]+$/.test(path))
+            .map(([path, entry]) => [path.slice("node_modules/".length), entry.version]));
+          writeFileSync(resolve(process.argv[2], "package.json"), JSON.stringify({
+            name: "usage-stats-host-install-smoke", private: true, type: "module", dependencies,
+          }, null, 2) + "\n");
+          NODE
           cd "$smoke"
-          npm init --yes >/dev/null
-          npm install "$tarball" --ignore-scripts --omit=peer --no-audit --no-fund
+          npm install "$tarball" --ignore-scripts --no-audit --no-fund
           node --input-type=module - <<'NODE'
           import { access, readFile, stat } from "node:fs/promises";
           import { spawnSync } from "node:child_process";
@@ -104,6 +116,8 @@ jobs:
           }
           assert(require.resolve(specifier + "/client").endsWith("lib/client.js"), "the client export resolves inside the tarball");
           assert(require.resolve(specifier + "/locale/en.json").includes("/locale/en.json"), "the locale export resolves inside the tarball");
+          const plugin = await import(specifier);
+          assert(typeof plugin.apply === "function" && Array.isArray(plugin.inject), "the packaged server entry loads with the Host runtime");
           for (const entry of ["lib/index.js", "lib/client.js"]) {
             const checked = spawnSync(process.execPath, ["--check", resolve(root, entry)], { encoding: "utf8" });
             assert(checked.status === 0, entry + " does not parse: " + (checked.stderr || ""));

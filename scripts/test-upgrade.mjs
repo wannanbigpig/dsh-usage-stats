@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createUpgradeOperations, newerRelease, readLatestRelease, installSourceType, manualUpgradeCommand, UPGRADE_PACKAGE } from '../lib/upgrade.js';
 
-const desktopRuntime = { platform: 'darwin' };
+const desktopRuntime = { platform: 'darwin', execPath: '/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness', exists: () => true };
 const desktopProfile = { name: 'desktop', home: '/test home', dir: '/test home/profiles/desktop' };
 assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', desktopRuntime),
- "dsh plugin --profile desktop add --save-exact @wannanbigpig/dsh-usage-stats@0.6.4");
+ "'/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh' plugin --profile desktop add --save-exact @wannanbigpig/dsh-usage-stats@0.6.4");
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', { ...desktopRuntime, execPath: '/usr/bin/node' }), null, 'ordinary dsh cannot manage the reserved Desktop profile');
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', { ...desktopRuntime, exists: () => false }), null, 'a missing Desktop launcher must fall back to the plugin manager');
+assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4', { platform: 'linux' }), null, 'never substitute ordinary dsh for an unknown Desktop launcher');
 const quotedCommand = manualUpgradeCommand({ ...desktopProfile, home: "/test owner's home", name: "team's work" }, '0.6.4', desktopRuntime);
 assert.ok(quotedCommand.includes("--profile 'team'\\''s work'"));
 assert.equal(manualUpgradeCommand(desktopProfile, '0.6.4; echo bad', desktopRuntime), null);
@@ -181,7 +184,7 @@ assert.equal(manualStatus.available, true, 'new releases remain visible with saf
 assert.equal(manualStatus.canInstall, false);
 assert.equal(manualStatus.installReason, 'hmr-managed');
 assert.equal(manualStatus.manualCommand, null, 'missing profile metadata must not produce a guessed command');
-for (const name of ['desktop', 'web']) {
+for (const name of ['web', 'custom']) {
  const environment = createUpgradeOperations({ getManager: () => manager, getProfile: () => ({ name }), getHotReload: () => true, currentVersion: '0.5.4', readLatest: async () => '0.5.5' });
  const status = await environment['upgrade/check']();
  assert.equal(status.manualCommand, `dsh plugin --profile ${name} add --save-exact @wannanbigpig/dsh-usage-stats@0.5.5`, 'the update response uses the active Host profile instead of hard-coding desktop');

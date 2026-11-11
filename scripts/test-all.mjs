@@ -12,6 +12,8 @@ const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const tests = [
 	"scripts/test-upgrade.mjs",
 	"scripts/test-query-design.mjs",
+	"scripts/test-merged-ui.mjs",
+	"scripts/test-official-charts.mjs",
 	"scripts/test-package.mjs",
 	"scripts/test-usage.mjs",
 	"scripts/test-tokenizer.mjs",

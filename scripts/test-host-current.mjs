@@ -30,14 +30,15 @@ if (!process.argv.includes('--source')) {
 	process.exit(child.status ?? 1);
 }
 const fromHost = path => import(pathToFileURL(join(harnessRoot, path)).href);
-const settingsShellSource = readFileSync(join(harnessRoot, 'packages/client/ui-settings-general/src/client/index.ts'), 'utf8');
-assert.ok(settingsShellSource.includes("name: 'sidebar.settings'") && settingsShellSource.includes('store: shellStore'),
-	'current host must expose its root settings store through the sidebar.settings slot');
-const { createSettingsShellStore } = await fromHost('packages/client/ui-settings-general/src/client/shell-store.ts');
-const settingsStore = createSettingsShellStore().create();
-settingsStore.actions.openSection('usage-stats');
-assert.deepEqual(settingsStore.store.getSnapshot(), { open: true, activeId: 'usage-stats' },
-	'current host settings store must open the plugin section directly');
+const { evaluatePluginCompatibility } = await fromHost('packages/boot/app-boot/src/plugin-compatibility.ts');
+const pluginManifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+for (const version of ['0.2.2-rc.1', '0.2.3-rc.1', '1.0.0']) {
+	assert.equal(evaluatePluginCompatibility(pluginManifest, {}, version), undefined,
+		`Host ${version} must not reject this plugin solely because of its version`);
+}
+console.log('Current host compatibility evaluator: no engine or peer version allowlist');
+assert.equal(clientSource.includes('name: "settings.section"'), false, 'plugin settings must not add a duplicate host section');
+assert.ok(clientSource.includes('"data-usage-settings-back": true'), 'plugin settings must provide an internal return path');
 const hostIcons = await fromHost('packages/client/ui-primitives/src/icons/index.tsx');
 for (const name of usedPrimitives.filter(name => name.startsWith('Icon'))) {
 	assert.equal(typeof hostIcons[name], 'function', `current host icon ${name} is not a component`);

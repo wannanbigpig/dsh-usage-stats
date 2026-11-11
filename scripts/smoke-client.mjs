@@ -71,12 +71,11 @@ if (!source.includes('fetchJson("/api/usage-stats/keys"')) throw new Error("clie
 if (!source.includes('fetchJson("/api/usage-stats/providers"')) throw new Error("client must fetch the providers endpoint");
 if (!source.includes('fetchJson(`/api/usage-stats/balance${query}`')) throw new Error("client must fetch the balance endpoint");
 if (!source.includes('const balanceLoader = react.useRef(createLoader())')) throw new Error("balance requests must have a stale-response guard");
-if (!source.includes('setBalance({ ok: false, message: error instanceof Error ? error.message : String(error) })')) throw new Error("balance failures must preserve an error payload");
 if (source.includes("legacyParams")) throw new Error("non-official balance failures must not fall back to a DeepSeek-only balance request");
 if (!source.includes('fetchJson("/api/usage-stats/limits"')) throw new Error("client must fetch the limits endpoint");
 if (!source.includes('connectionRpc.call("/usage-stats", request.endpoint, request.payload, signal)')) throw new Error("client must transport usage requests through Connection RPC");
 if (source.includes("await fetch(path, init)")) throw new Error("client must not keep the native fetch transport fallback");
-if (!source.includes('name: "settings.section"')) throw new Error("client must register the settings.section slot");
+if (source.includes('name: "settings.section"')) throw new Error("plugin settings must not register a duplicate host section");
 if (!source.includes('name: "sidebar.right.pane.tab"') || !source.includes('sidebarRightTabs.register')) throw new Error("client must register a native right-Sidebar tab when the host provides it");
 if (!source.includes('ctx.inject(["layout"]') || !source.includes('name: "main"')) throw new Error("client must register a native global main-panel fallback when the host provides layout");
 if (!source.includes('rightbarBody: "usg_rightbarBody"')) throw new Error("right Sidebar body must bind its dedicated responsive styles");
@@ -94,19 +93,19 @@ if ((source.match(/max-height:94vh/g) ?? []).length < 2) throw new Error("panel 
 if (!source.includes('max-width:calc(100vw - 48px);max-height:94vh') || !source.includes('.usg_panelBody{box-sizing:border-box;max-height:94vh') || source.includes('height:94vh;max-height:94vh') || source.includes('.usg_panelBody{box-sizing:border-box;height:100%')) throw new Error("panel height must remain content-driven under the 94vh ceiling");
 if (!source.includes('const sectionRef = react.useRef(null)') || !source.includes('const [detailsMinHeight, setDetailsMinHeight] = react.useState(null)') || !source.includes('setDetailsMinHeight(Math.ceil(sectionRef.current.getBoundingClientRect().height))')) throw new Error("details tab must snapshot the overview section height before switching");
 if (!source.includes('ref: sectionRef') || !source.includes('onClick: showDetails') || !source.includes('style: activeTab === "details" && detailsMinHeight !== null ? { minHeight: `${detailsMinHeight}px` } : void 0')) throw new Error("only the details tab may inherit the overview height snapshot");
-if (!source.includes('border-radius:24px') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-elevation-prominent)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
-if (!source.includes("panel.tabSummary") || !source.includes("panel.tabOverview") || !source.includes("panel.tabDetails")) throw new Error("query panel must keep summary/overview/details tabs");
+if (!source.includes('border-radius:var(--dsw-radius-panel,28px)') || !source.includes('background:var(--dsw-alias-bg-layer-2)') || !source.includes('box-shadow:var(--dsw-elevation-prominent)')) throw new Error("query panel shell must follow the Harness elevated-surface tokens");
+if (!source.includes('navigateTabs(event, ["overview", "details"]')) throw new Error("query navigation must merge global/provider reports into two tabs");
 if (source.includes("panel.tabCharts") || source.includes("panel.tabWorkspace")) throw new Error("charts and workspaces must not remain separate top-level tabs");
 if (!source.includes('const [activeTab, setActiveTab] = react.useState("overview")')) throw new Error("query panel must open on the selected provider overview tab");
-if (!source.includes('const usageProviderId = activeTab === "overview" ? selectedProviderId : null')) throw new Error("only overview may request the selected provider; summary and details must request all providers");
-if (!source.includes('if (activeTab === "overview" && !selectedProviderId) { setUsageLoading(false); requests.finish("usage", controller); return Promise.resolve(); }')) throw new Error("the provider overview must wait for the default provider and clear loading state");
+if (!source.includes('const usageProviderId = activeTab === "overview" && reportScope !== "all" ? reportScope : null')) throw new Error("only a provider-scoped overview may filter the usage request");
+if (!source.includes('const [reportScope, setReportScope] = react.useState("all")')) throw new Error("merged overview starts with all providers");
 if (!source.includes('setError(loadError instanceof Error ? loadError.message : String(loadError));') || !source.includes('}).finally(() => requests.finish("usage", controller));')) throw new Error("settings usage failures must release the limits loading gate");
 if (!source.includes('"panel.tabSummary": "全部"') || !source.includes('"panel.tabOverview": "概览"') || !source.includes('"panel.tabDetails": "明细"') || !source.includes('"panel.tabSummary": "All"') || !source.includes('"panel.tabOverview": "Overview"') || !source.includes('"panel.tabDetails": "Details"')) throw new Error("panel tabs must use concise localized labels");
 if ((source.match(/\.\.\.sumRows\(rows\), models: rows/g) ?? []).length < 1 || !source.includes('...summed, models: rows')) throw new Error("client-side provider/model fallback filters must preserve hourly model rows for tooltips");
 if (!source.includes('"data-usage-summary": isSummaryTab')) throw new Error("summary workbench must expose its all-provider mode");
 if (!source.includes('function ProviderUsageList') || !source.includes('translate("usage.modelUsage")')) throw new Error("summary rail must render a cross-provider model usage list");
-if (!source.includes('function ModelTrendChart') || !source.includes('"data-usage-model-trend": true')) throw new Error("summary activity stage must expose a dedicated multi-model trend chart");
-if (!source.includes('isSummaryTab && summaryChart === "models" ? react_jsx_runtime.jsx(ModelTrendChart') || !source.includes('!isSummaryTab && focusedRangeDay !== null && react_jsx_runtime.jsx(DayDetail')) throw new Error("summary must use model trends while overview keeps provider model details");
+if (!source.includes('function ModelTrendChart') || !source.includes('"data-usage-model-trend": requests ? void 0 : true')) throw new Error("summary activity stage must expose a dedicated multi-model trend chart");
+if (!source.includes('chartMetric === "models" ? react_jsx_runtime.jsx(ModelTrendChart') || !source.includes('react_jsx_runtime.jsx(DayDetail, { day: detail')) throw new Error("merged report must retain model trends and day breakdowns");
 if (!source.includes('"data-usage-provider-summary": true')) throw new Error("summary provider list must expose a stable DOM contract");
 if (!source.includes('request request request') || !source.includes('.usg_providerUsageRequest{grid-area:request;white-space:nowrap}') || !source.includes('`${S.providerUsageMeta} ${S.providerUsageRequest}`')) throw new Error("summary request counts must use a dedicated non-wrapping row");
 if (source.includes('onDayHover: setRangeHoveredDay')) throw new Error("multi-day hover must not resize the parent model list");
@@ -114,13 +113,13 @@ if (!source.includes('reservedModelCount') || !source.includes('data-usage-provi
 if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:stretch;min-height:0;overflow:hidden;contain:size}')) throw new Error("summary model usage rail must take the activity row height without expanding the grid track");
 if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageCard{flex:1;min-height:0;overflow:hidden}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{flex:1;min-height:0;overflow-y:auto;scrollbar-gutter:stable;overscroll-behavior:contain}')) throw new Error("summary model usage rows must scroll inside the height-bounded rail");
 if (!source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_insightRail{align-self:start;overflow:visible;contain:none}') || !source.includes('.usg_overviewWorkbench[data-usage-summary=true] .usg_providerUsageList{flex:none;min-height:auto;overflow-y:visible;scrollbar-gutter:auto}')) throw new Error("stacked summary layouts must return the model usage rail to natural height");
-if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(ProviderUsageList')) throw new Error("summary rail must fill the account-card space with cross-provider model usage");
-if (!source.includes('isSummaryTab ? null : react_jsx_runtime.jsx(BalanceCard')) throw new Error("summary must not render a selected-provider balance or plan card");
+if (!source.includes('className: "usg_modelBreakdown"')) throw new Error("merged report retains an independent model ranking");
+if (!source.includes('isSummaryTab ? react_jsx_runtime.jsx(QueryAccounts')) throw new Error("global overview must retain pinned account snapshots");
 if (!source.includes('"data-usage-overview-workbench": true')) throw new Error("overview must expose the redesigned workbench layout");
 if (!source.includes('"data-usage-activity-stage": true')) throw new Error("overview must promote hourly activity into the primary stage");
 if (!source.includes('"data-usage-insight-rail": true')) throw new Error("overview must group account and summary metrics into an insight rail");
 if (!source.includes('"data-usage-heat-strip": true')) throw new Error("the chart report must render yearly activity as a separate full-width strip");
-if (!source.includes('(activeTab === "summary" || activeTab === "overview") ? react_jsx_runtime.jsxs("div"')) throw new Error("summary and overview must render the full chart report directly");
+if (!source.includes('activeTab === "overview" ? react_jsx_runtime.jsxs("div"')) throw new Error("merged overview renders the complete report");
 if (source.includes('"data-usage-overview-compact": true') || source.includes('"data-usage-quick-links": true')) throw new Error("summary and overview must not retain the compact jump-card layout");
 if (!source.includes('isSummaryTab && activeModelFilter === "" && react_jsx_runtime.jsx(WorkspaceUsageView') || !source.includes('"data-usage-workspace-chart": true')) throw new Error("all-provider report must embed the workspace chart");
 if (!source.includes("/api/usage-stats/workspaces") || !source.includes("workspaceRangeWindow(range, serverToday, customFrom, customTo)")) throw new Error("workspace report must fetch a date-filtered aggregate");
@@ -149,9 +148,9 @@ if (!source.includes('.usg_providerAccountBalanceValues{display:grid;grid-templa
 if (!source.includes('.usg_providerAccountPlanValues{display:grid;grid-template-columns:max-content max-content max-content;column-gap:8px;row-gap:3px;align-items:baseline}')) throw new Error("plan provider values must share the widest row columns");
 if (!source.includes('.usg_providerAccountBalanceValues .usg_providerBalanceRow,.usg_providerAccountPlanValues .usg_providerPlanWindow{grid-column:1 / -1;grid-template-columns:subgrid}')) throw new Error("provider value rows must inherit shared block columns");
 if (!source.includes('.usg_providerBalanceRow{display:grid;grid-template-columns:max-content max-content;column-gap:8px;align-items:baseline;justify-content:end;white-space:nowrap}')) throw new Error("balance provider values must size columns to their content");
-if (!source.includes('.usg_providerBalanceLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerBalanceValue{font-weight:600;text-align:right}')) throw new Error("balance provider labels and values must align within reserved columns");
+if (!source.includes('.usg_providerBalanceLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerBalanceValue{font-weight:500;text-align:right}')) throw new Error("balance provider labels and values must align within reserved columns");
 if (!source.includes('.usg_providerPlanWindow{display:grid;grid-template-columns:max-content max-content max-content;column-gap:8px;align-items:baseline;justify-content:end;white-space:nowrap}')) throw new Error("provider plan windows must size columns to their content");
-if (!source.includes('.usg_providerPlanLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerPlanPercent{font-weight:600;text-align:right}')) throw new Error("provider plan labels and percentages must align within their reserved columns");
+if (!source.includes('.usg_providerPlanLabel{color:var(--dsw-alias-label-secondary);text-align:right}') || !source.includes('.usg_providerPlanPercent{font-weight:500;text-align:right}')) throw new Error("provider plan labels and percentages must align within their reserved columns");
 if (!source.includes('.usg_providerReset{color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:16px;white-space:nowrap}')) throw new Error("provider reset text must use a smaller muted style");
 if (!source.includes('account?.status !== "ok"')) throw new Error("provider account rows must hide the realtime status label");
 if (!source.includes('function providerDisplayStatus(status)')) throw new Error("provider remote failures must normalize through a display-status helper");
@@ -170,7 +169,7 @@ if (!accountsCardSource.includes('data-usage-visible-provider') || !accountsCard
 if (!accountsCardSource.includes('visibleProviderIdsForView')) throw new Error("provider accounts must preserve an explicit selection below the three-provider maximum");
 if (!source.includes('.usg_providerPicker>summary,.usg_providerPicker>summary *{cursor:pointer!important}')) throw new Error("provider picker summary must keep the pointer cursor across the whole clickable title");
 if (!source.includes('.usg_providerPicker input[type=checkbox]{cursor:pointer!important}')) throw new Error("provider picker checkboxes must show the pointer cursor");
-if (!source.includes('.usg_btnCompact{padding:3px 9px;border-radius:7px;font-size:12px;line-height:18px}')) throw new Error("account refresh action must use compact button sizing");
+if (!source.includes('.usg_btn.usg_btnCompact{min-height:28px;padding:3px 9px;border-radius:var(--dsw-radius-sm,8px);font-size:12px;line-height:18px}')) throw new Error("account refresh action must use compact button sizing");
 if (!accountsCardSource.includes('provider.accountUrl') || !accountsCardSource.includes('target: "_blank"')) throw new Error("web-only provider accounts must expose their fixed official query URL");
 if (!accountsCardSource.includes('selectedProvider.extraCredentials') || !accountsCardSource.includes('type: "password"') || !accountsCardSource.includes('credential: { providerId: effectiveDefaultProviderId')) throw new Error("selected providers must render write-only extra credential fields");
 if (!source.includes('function providerLogoOf')) throw new Error("provider balance card must expose provider branding");
@@ -295,19 +294,15 @@ exports_.apply({
 		await react.act(async () => { root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })); await flush(); await flush(); });
 		const catalogBefore = requests.filter(request => request.endpoint === "providers/list").length;
 		const keysBefore = requests.filter(request => request.endpoint === "keys/list").length;
-		// The query panel opens on the selected provider's overview tab.
-		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("query panel must initially request the selected provider overview");
-		const summaryTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabSummary");
-		await react.act(async () => { summaryTab.click(); await flush(); });
-		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("All tab must request unfiltered provider usage");
-		if (!document.querySelector(".usg_providerUsageList")?.textContent?.includes("other-provider")) throw new Error("summary must aggregate usage from every provider");
-		if (!document.querySelector("[data-usage-model-trend]") || document.querySelector(".usg_detailSummary")) throw new Error("All tab must replace duplicate model cards with the model trend chart");
-		if (!document.querySelector("[data-usage-workspace-chart]")) throw new Error("All tab must embed the workspace chart report");
-		const overviewTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabOverview");
-		await react.act(async () => { overviewTab.click(); await flush(); });
-		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("Overview tab must request the settings-selected provider");
-		if (document.querySelector("[data-usage-model-trend]") || !document.querySelector(".usg_detailSummary")) throw new Error("provider overview must keep provider model detail cards instead of the global trend chart");
-		if (document.querySelector("[data-usage-workspace-chart]")) throw new Error("provider overview must not mix in the all-provider workspace aggregate");
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("merged overview must initially request all providers");
+		if (!document.querySelector(".usg_providerUsageList")?.textContent?.includes("other-provider")) throw new Error("global overview must aggregate usage from every provider");
+		await react.act(async () => { document.querySelector('[data-usage-chart-mode="models"]').click(); await flush(); });
+		if (!document.querySelector("[data-usage-model-trend]")) throw new Error("global overview retains its model trend chart");
+		if (!document.querySelector("[data-usage-workspace-chart]")) throw new Error("global overview retains workspace analysis");
+		await react.act(async () => { require("react-dom/test-utils").Simulate.change(document.querySelector("[data-usage-provider-picker]"), { target: { value: provider.id } }); await flush(); });
+		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== provider.id) throw new Error("provider selection must request its own usage");
+		if (!document.querySelector(".usg_detailSummary")) throw new Error("provider overview retains its model detail");
+		if (document.querySelector("[data-usage-workspace-chart]")) throw new Error("provider overview must not mix in global workspace statistics");
 		const detailsTab = [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === "panel.tabDetails");
 		await react.act(async () => { detailsTab.click(); await flush(); await flush(); });
 		if (requests.filter(request => request.endpoint === "usage/get").at(-1)?.payload.query.provider !== undefined) throw new Error("Details tab must request usage from every provider");
@@ -342,77 +337,17 @@ exports_.apply({
 		await react.act(async () => { document.querySelector("[data-test-modal-mask]").click(); await flush(); });
 		if (document.querySelector('[role="dialog"]')) throw new Error("native modal mask click must dismiss usage");
 		console.log("native query modal dismissal and focus ok");
-		const footer = document.createElement("div");
-		const actions = document.createElement("div");
-		const layer = document.createElement("div");
-		const ownTrigger = document.createElement("button");
-		ownTrigger.dataset.usageStatsTrigger = "true";
-		ownTrigger.setAttribute("aria-haspopup", "dialog");
-		let ownClicks = 0;
-		ownTrigger.onclick = () => ownClicks++;
-		layer.append(ownTrigger);
-		let nestedAction = layer;
-		for (let depth = 0; depth < 5; depth += 1) {
-			const wrapper = document.createElement("div");
-			wrapper.append(nestedAction);
-			nestedAction = wrapper;
-		}
-		actions.append(nestedAction);
-		const settings = document.createElement("button");
-		settings.setAttribute("aria-haspopup", "dialog");
-		let settingsClicks = 0;
-		settings.onclick = () => settingsClicks++;
-		footer.append(actions, settings);
-		document.body.append(footer);
-		const settingsDialog = document.createElement("div");
-		settingsDialog.setAttribute("role", "dialog");
-		settingsDialog.setAttribute("aria-modal", "true");
-		const scopedSection = document.createElement("button");
-		scopedSection.textContent = "用量与计费";
-		let scopedClicks = 0;
-		scopedSection.onclick = () => scopedClicks++;
-		settingsDialog.append(scopedSection);
-		const decoySection = document.createElement("button");
-		decoySection.textContent = "用量与计费";
-		let decoyClicks = 0;
-		decoySection.onclick = () => decoyClicks++;
-		document.body.append(settingsDialog, decoySection);
-		if (!exports_.openHarnessSettings(layer) || settingsClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must click the host trigger without reopening usage");
-		await new Promise((resolve) => dom.window.setTimeout(resolve, 20));
-		if (scopedClicks !== 1 || decoyClicks !== 0) throw new Error(`settings section selection must stay inside the open dialog: scoped=${scopedClicks} decoy=${decoyClicks}`);
-		settings.remove();
-		settingsDialog.remove();
-		const accountLauncher = document.createElement("button");
-		accountLauncher.setAttribute("aria-haspopup", "menu");
-		accountLauncher.setAttribute("aria-label", "Account menu");
-		let accountClicks = 0;
-		let menuSettingsClicks = 0;
-		accountLauncher.onclick = () => {
-			accountClicks++;
-			const menu = document.createElement("div");
-			menu.setAttribute("role", "menu");
-			const menuSettings = document.createElement("button");
-			menuSettings.setAttribute("role", "menuitem");
-			menuSettings.textContent = "Settings⌘,";
-			menuSettings.onclick = () => {
-				menuSettingsClicks++;
-				menu.remove();
-				const dialog = document.createElement("div");
-				dialog.setAttribute("role", "dialog");
-				dialog.setAttribute("aria-modal", "true");
-				const section = document.createElement("button");
-				section.textContent = "用量与计费";
-				section.onclick = () => scopedClicks++;
-				dialog.append(section);
-				document.body.append(dialog);
-			};
-			menu.append(menuSettings);
-			document.body.append(menu);
-		};
-		footer.append(accountLauncher);
-		if (!exports_.openHarnessSettings(layer) || accountClicks !== 1 || ownClicks !== 0) throw new Error("settings handoff must open the current host account menu");
-		await new Promise((resolve) => dom.window.setTimeout(resolve, 30));
-		if (menuSettingsClicks !== 1 || scopedClicks !== 2 || decoyClicks !== 0) throw new Error("account menu settings handoff must select the plugin settings section");
+		let hostSettingsClicks = 0;
+		const hostSettings = document.createElement("button");
+		hostSettings.textContent = "Settings";
+		hostSettings.onclick = () => hostSettingsClicks++;
+		document.body.append(hostSettings);
+		await react.act(async () => { trigger.click(); await flush(); });
+		await react.act(async () => { document.querySelector("[data-usage-stats-settings-link]").click(); await flush(); });
+		if (!document.querySelector("[data-usage-billing-settings]") || !document.querySelector('[role="dialog"]') || hostSettingsClicks) throw new Error("legacy modal must keep settings inside the plugin without opening host settings");
+		await react.act(async () => { document.querySelector("[data-usage-settings-back]").click(); await flush(); });
+		if (document.querySelector("[data-usage-query]").closest("[hidden]")) throw new Error("returning from settings must restore the query");
+		console.log("plugin-owned modal settings navigation ok");
 	} finally {
 		await react.act(async () => { root.unmount(); await flush(); });
 		dom.window.close();
@@ -448,7 +383,7 @@ if (typeof exports_.apply !== "function") throw new Error("missing apply export"
 if (typeof exports_.LimitsCard !== "function") throw new Error("missing LimitsCard export");
 if (typeof exports_.UsageStatsPanel !== "function") throw new Error("missing UsageStatsPanel export");
 if (typeof exports_.UsageBillingSettingsSection !== "function") throw new Error("missing UsageBillingSettingsSection export");
-if (typeof exports_.openHarnessSettings !== "function") throw new Error("missing openHarnessSettings export");
+if (exports_.openHarnessSettings !== undefined) throw new Error("plugin-owned settings must not expose legacy host DOM navigation");
 if (typeof exports_.freshAlertsForProvider !== "function") throw new Error("missing provider-scoped alert selector export");
 if (typeof exports_.pricingWritePayload !== "function") throw new Error("missing pricing write payload helper export");
 const rpcMappings = [
@@ -473,7 +408,7 @@ for (const [path, method, body, expected] of rpcMappings) {
 	const request = exports_.rpcRequestOf(path, { method, body });
 	if (request.endpoint !== expected) throw new Error(`${method} ${path} must map to ${expected}, got ${request.endpoint}`);
 }
-if (!source.includes('new Set(["用量与计费", "Usage & Billing"])')) throw new Error("settings shortcut must select Usage & Billing");
+if (!source.includes('"data-usage-settings-back": true') || !source.includes('className: "usg_settingsWorkbench"')) throw new Error("plugin settings must expose its own navigation and return control");
 if (!source.includes('"data.ledgerEntries": "近期精细记录"') || !source.includes('"data.ledgerEntries": "Recent detailed records"')) throw new Error("recent detailed record labels must be localized");
 if (!source.includes('"data.ledgerCapacity": "近期记录上限"') || !source.includes('"data.ledgerCapacity": "Recent record limit"')) throw new Error("recent record limit labels must be localized");
 if (!source.includes('"data.foldedCount": "已归档调用"') || !source.includes('"data.foldedCount": "Archived calls"')) throw new Error("exact archive labels must be localized");
@@ -556,18 +491,18 @@ if (!source.includes('"aria-label": cell.label')) throw new Error("heatmap cells
 if (!source.includes(".usg_hourTooltip{")) throw new Error("hourly chart must define an interactive tooltip");
 if (!source.includes('style: chartTooltipAnchorStyle(hovered.hour, 24)') || !source.includes('.usg_dayTooltip{box-sizing:border-box;position:fixed')) throw new Error("hourly tooltip must retain its chart anchor and multi-day tooltip must escape chart clipping");
 if (source.includes('Math.min(72, 100 *')) throw new Error("chart tooltips must not use a fixed left clamp that can overflow their scroll viewport");
-if (!source.includes("onMouseEnter: () => setHoveredHour(hour.hour)")) throw new Error("hourly bars must react to pointer hover");
+if (!source.includes("onMouseEnter: () => hoverHour(hour.hour)")) throw new Error("hourly bars must react to pointer hover");
 if (!source.includes('"data-hour": hour.hour')) throw new Error("hourly bars must expose their hour for interaction tests");
 if (source.includes(".usg_hourSlot.usg_peak{background:")) throw new Error("peak hours must not look like token bars");
 if (!source.includes(".usg_peakRegion{")) throw new Error("peak hours must be rendered as a background region");
 if (!source.includes('"data-peak-region"')) throw new Error("peak regions must be identifiable in the DOM");
 if (source.includes("min-height:3px")) throw new Error("zero-token hours must not fake a bar with min-height");
-if (!source.includes('onMouseLeave: () => setHoveredHour(null)')) throw new Error("hourly chart tooltip must clear when the pointer leaves");
+if (!source.includes('onMouseLeave: () => hoverHour(null)')) throw new Error("hourly chart tooltip must clear when the pointer leaves");
 if (source.includes('onClick: () => setHoveredHour(hoveredHour === hour.hour ? null : hour.hour)')) throw new Error("hourly tooltip must not persist after a click");
-if (!source.includes('!isSummaryTab && react_jsx_runtime.jsx(DayDetail, { day: filteredActiveDay')) throw new Error("single-day overview must retain the provider model detail summary");
-if (!source.includes('translate("usage.input"), fmt(hovered.inputTokens ?? 0)') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
+if (!source.includes('detailDay: singleRange ? filteredActiveDay : focusedRangeDay')) throw new Error("single-day overview retains model detail");
+if (!source.includes('react_jsx_runtime.jsx(TokenTooltipRows, { row: hovered, translate })') || !source.includes('hovered.models.map((model)')) throw new Error("multi-day tooltip must show input/output and model details");
 if ((source.match(/translate\("usage.requestCount"\), fmtRequestCount\(/g) ?? []).length < 3) throw new Error("all usage tooltips must show request counts");
-if (!source.includes("const inputWithCache = input + cache") || !source.includes("const inputShare = compositionTotal > 0")) throw new Error("hourly bars must include cache tokens in the visible input-side stack");
+if (exports_.tokenPartsOf({ inputTokens: 10, cacheReadTokens: 30, cacheWriteTokens: 5, outputTokens: 5, tokens: 50 }).reduce((sum, part) => sum + part.value, 0) !== 50) throw new Error("token composition must retain every cache token");
 if (source.includes("className: S.hourCache")) throw new Error("cache tokens must not use an invisible standalone segment");
 if (!source.includes("function sidebarSummaryOf")) throw new Error("sidebar entry must derive balance and today usage summary");
 if (!source.includes("className: S.sidebarSummary")) throw new Error("wide sidebar entry must render its summary");
@@ -611,19 +546,19 @@ if (!source.includes('alertTrack: "usg_alertTrack"')) throw new Error("dual rang
 if (!source.includes("--usg-success:var(--dsw-alias-state-success-primary,#22a06b);--usg-warning:var(--dsw-alias-state-warn-primary,#d99b00);--usg-danger:var(--dsw-alias-state-error-primary,#e5484d);")) throw new Error("semantic range colors must follow the host theme with fallbacks");
 if (!source.includes(".usg_alertCard input.usg_alertRange{appearance:none!important;")) throw new Error("range control must override host input styles");
 if (!source.includes(".usg_alertCard input.usg_alertRange::-webkit-slider-runnable-track")) throw new Error("range control must paint an explicit WebKit track");
-if (!source.includes(".usg_saveBtn{cursor:pointer;border:1px solid transparent;border-radius:8px;padding:5px 14px;")) throw new Error("save button must use the settings-page primary button palette");
-if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:34px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:0.5px solid var(--dsw-alias-border-l2);border-radius:8px;")) throw new Error("amount inputs must use the native settings field palette");
+if (!source.includes(".usg_saveBtn{cursor:pointer;border:1px solid transparent;border-radius:var(--dsw-radius-sm,8px);padding:5px 14px;")) throw new Error("save button must use the settings-page primary button palette");
+if (!source.includes(".usg_input{box-sizing:border-box;width:100%;height:32px;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-3);border:0.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md,12px);")) throw new Error("amount inputs must use the native settings field palette");
 if (!source.includes(".usg_input::placeholder{color:var(--dsw-alias-label-tertiary);opacity:1}")) throw new Error("amount inputs must use the native placeholder palette");
 if (!source.includes("const [limitStatusMap, setLimitStatusMap] = react.useState({})")) throw new Error("query panel must load quota indicator statuses");
 if (!source.includes('providerKind === "balance" && status === "ok" && balanceTone !== "muted" ? balanceTone')) throw new Error("DeepSeek balance badge must follow the configured balance alert tone");
 if (!source.includes('"data-status": currentStatus.spendStatus ?? "muted"')) throw new Error("today-spend progress must use its own status, not the combined balance status");
-if (!source.includes('.usg_usageLimitBanner{border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:7px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary)}')) throw new Error("usage banner must become a compact Harness module inside the insight rail");
+if (!source.includes('.usg_usageLimitBanner{border-radius:var(--dsw-radius-md,12px);padding:10px 12px;display:flex;flex-direction:column;gap:7px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary)}')) throw new Error("usage banner must become a compact Harness module inside the insight rail");
 if (!source.includes('.usg_usageLimitBanner strong{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-secondary)}')) throw new Error("usage banner title must use the compact secondary label hierarchy");
 if (!source.includes('.usg_usageLimitBanner:before{content:\\\"\\\";position:absolute;inset:auto 0 0;height:3px;background:var(--dsw-alias-border-l2);z-index:0}')) throw new Error("usage banner must render a neutral bottom track");
 if (!source.includes('.usg_usageLimitBanner:after{content:\\\"\\\";position:absolute;inset:auto auto 0 0;width:var(--usage-progress,0%);height:3px;background:var(--dsw-alias-brand-primary);z-index:1}')) throw new Error("usage banner must render brand-token progress on the bottom track");
 const usageLimitBannerCss = source.slice(source.indexOf('.usg_usageLimitBanner{'), source.indexOf('.usg_bannerHead{'));
 if (usageLimitBannerCss.includes('[data-status=')) throw new Error("usage progress must not depend on warning or error status colors");
-if (!source.includes('translate("limits.dailySpendProgress")')) throw new Error("usage progress must use a neutral daily-spend title");
+if (!source.includes('translate(spendMonthly ? "limits.monthlyLimitStatus" : "limits.dailySpendProgress")')) throw new Error("usage progress must use a neutral title for its evaluated spending period");
 if (!source.includes('const spendBannerStatus = ["warning", "exceeded", "blocked"].includes(spendStatus) ? spendStatus : "normal"')) throw new Error("limit banner must be scoped to today-spend status");
 if (!source.includes('["daily_cost", "monthly_cost", "unpriced"].includes(currentStatus?.reason)')) throw new Error("limit banner must include both spending periods and hide balance-only messages");
 if (!source.includes('currentStatus !== null && currentLimit > 0 && react_jsx_runtime.jsxs("div"')) throw new Error("today-spend banner must only render when a daily limit is configured");
@@ -714,7 +649,7 @@ if (!source.includes('pricing.invalidValue') || !source.includes('value < 0')) t
 if (!source.includes('const editableModels =') || !source.includes('draft !== null ? draft : Object.entries(editableModels)')) throw new Error("pricing editor must keep official/current model rows when opening custom pricing");
 if (!source.includes('.usg_hourInput{background:var(--dsw-alias-state-business-primary,#3b82f6)') || !source.includes('.usg_hourOutput{background:var(--dsw-alias-state-success-primary,#22c55e)')) throw new Error("hourly input/output bars must use Harness semantic palette tokens");
 if (!source.includes('.usg_dayBar{width:72%;margin:0 auto;border-radius:3px 3px 0 0;background:var(--dsw-static-amber-500,#f59e0b)')) throw new Error("daily range bars must use the Harness amber token");
-if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-layer-2);border-radius:999px;height:7px;min-width:70px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:linear-gradient(')) throw new Error("recent-day detail cards must retain a fixed track with a proportional fill");
+if (!source.includes('.usg_dayTrack{background:var(--dsw-alias-bg-layer-2);border-radius:999px;corner-shape:round;height:7px;min-width:70px;overflow:hidden}') || !source.includes('.usg_dayValueBar{display:block;height:100%;border-radius:inherit;background:linear-gradient(')) throw new Error("recent-day detail cards must retain a fixed track with a proportional fill");
 if (!source.includes('className: S.dayTrack') || !source.includes('className: S.dayValueBar, style: { width: `${100 * (Number(day.tokens) || 0) / maxTokens}%` }')) throw new Error("recent-day detail values must scale inside their track");
 const heatmapMix = 'color-mix(in srgb,var(--usg-blue) ${intensity}%,var(--usg-cellEmpty))';
 if ((source.split(heatmapMix).length - 1) < 2) throw new Error("heatmap cells and legend must share the scoped accent mix");
@@ -730,7 +665,7 @@ const { UsageStatsSection, UsageStatsPanel, LimitsCard, UsageBillingSettingsSect
 const markup = renderToStaticMarkup(react.createElement(UsageStatsSection, { t: (key) => key }));
 if (markup.length < 200) throw new Error(`section markup too small: ${markup.length}`);
 if (!markup.includes("panel.title") && !markup.includes("用量统计")) throw new Error("section title missing");
-if (!markup.includes("panel.tabSummary") || !markup.includes("panel.tabOverview") || !markup.includes("panel.tabDetails")) throw new Error("summary/overview/details tabs missing in markup");
+if (markup.includes("panel.tabSummary") || !markup.includes("panel.tabOverview") || !markup.includes("panel.tabDetails")) throw new Error("merged query tabs missing in markup");
 if (markup.includes("limits.title")) throw new Error("quota configuration must be gone from the query panel");
 console.log("render ok, markup length:", markup.length);
 
@@ -1347,9 +1282,9 @@ await pending.then(
 	() => { throw new Error("aborted RPC call must reject"); },
 	(error) => { if (error.name !== "AbortError") throw error; }
 );
-if (registrations.length !== 7) throw new Error(`expected seven slot injections, got ${registrations.length}`);
+if (registrations.length !== 6) throw new Error(`expected six slot injections, got ${registrations.length}`);
 const slotNames = registrations.map(([slot]) => slot).sort();
-if (slotNames.join(",") !== "main,settings.section,sidebar.footer.action,sidebar.panellist,sidebar.right.pane.tab,sidebar.right.pane.tab.title,sidebar.right.tab.menu.item") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
+if (slotNames.join(",") !== "main,sidebar.footer.action,sidebar.panellist,sidebar.right.pane.tab,sidebar.right.pane.tab.title,sidebar.right.tab.menu.item") throw new Error(`unexpected slots ${JSON.stringify(slotNames)}`);
 const footerEntry = registrations.find(([slot]) => slot === "sidebar.footer.action");
 const footerDisposer = footerEntry[1]();
 if (typeof footerDisposer !== "function") throw new Error("footer slot registration must return a disposer");
@@ -1396,29 +1331,10 @@ if (otherMenu !== "") throw new Error("usage tab menu rows must not leak into an
 const panellistReg = registeredOptions.find((entry) => entry.options?.name === "sidebar.panellist");
 if (panellistReg?.options?.id !== "@wannanbigpig/dsh-usage-stats/main" || typeof panellistReg.options.label !== "function" || panellistReg.options.label() !== "panel.title" || typeof panellistReg.component !== "function") throw new Error("native panel list entry must open the usage-stats main panel by id");
 if (typeof exports_.UsageStatsErrorBoundary !== "function" || !source.includes("static getDerivedStateFromError")) throw new Error("panel render failures must be contained by a top-level error boundary");
-const openedSections = [];
-ctx.slots.entries = (name) => name === "sidebar.settings"
-	? [{ store: { create: () => ({ actions: { openSection: (id) => openedSections.push(id) } }) } }]
-	: [];
-if (footerFace.openSettings(null) !== true
-	|| rightbarReg.options.inject().openSettings(null) !== true
-	|| mainReg.options.inject().openSettings(null) !== true
-	|| openedSections.join(",") !== "usage-stats,usage-stats,usage-stats") {
-	throw new Error("each query surface must open the native settings store directly at usage-stats");
-}
-ctx.slots.entries = (name) => name === "sidebar.settings" ? [{ store: {} }] : [];
-if (footerFace.openSettings(null) !== false) throw new Error("a host settings store without section navigation must report the settings page unreachable");
-ctx.slots.entries = () => [];
+if (footerFace.openSettings !== undefined || rightbarReg.options.inject !== undefined || mainReg.options.inject().openSettings !== undefined) throw new Error("surfaces must own their settings navigation instead of requesting the host settings store");
 mainReg.options.inject().closePanel();
 if (mainPanelSelections.at(-1) !== null) throw new Error("global main panel close action must return to the Conversation");
-const sectionEntry = registrations.find(([slot]) => slot === "settings.section");
-const sectionDisposer = sectionEntry[1]();
-if (typeof sectionDisposer !== "function") throw new Error("settings.section registration must return a disposer");
-const sectionReg = registeredOptions.find((entry) => entry.options?.name === "settings.section");
-if (sectionReg === void 0) throw new Error("settings.section registration missing options");
-if (sectionReg.options.id !== "usage-stats") throw new Error(`settings.section id ${sectionReg.options.id}`);
-if (typeof sectionReg.options.label !== "function" || typeof sectionReg.options.label() !== "string") throw new Error("settings.section must carry a resolving label thunk");
-if (typeof sectionReg.component !== "function") throw new Error("settings.section must mount a component");
+if (registrations.some(([slot]) => slot === "settings.section")) throw new Error("the duplicate host settings section must be absent");
 if (typeof registeredOptions.find((entry) => entry.options?.name === "sidebar.footer.action")?.component !== "function") throw new Error("sidebar.footer.action must mount a component");
 console.log("apply ok, slots:", slotNames.join(", "));
 
@@ -1492,7 +1408,7 @@ const cacheOnlyChartMarkup = renderToStaticMarkup(react.createElement(exports_.H
 	translate: (key) => key
 }));
 const cacheOnlyHourMarkup = cacheOnlyChartMarkup.match(/data-hour="9"[\s\S]*?<\/button>/)?.[0] ?? "";
-if (!cacheOnlyHourMarkup.includes('class="usg_hourInput" style="flex-basis:100%"')) throw new Error("cache-only hourly usage must render a visible input-side bar");
+if (!cacheOnlyHourMarkup.includes('data-usage-token-part="hit" style="flex-basis:100%')) throw new Error("cache-only hourly usage must render a visible input-side bar");
 const emptyChartMarkup = renderToStaticMarkup(react.createElement(exports_.HourlyChart, {
 	day: null,
 	money: String,
@@ -1827,7 +1743,7 @@ await clientRegression("model trend hover details and legend toggles", async ({ 
 	const overlay = document.querySelector("[data-usage-model-trend-hover]");
 	if (!overlay) throw new Error("model trend chart must expose a hover layer");
 	overlay.getBoundingClientRect = () => ({ left: 0, width: 100, top: 0, height: 154, right: 100, bottom: 154, x: 0, y: 0, toJSON() {} });
-	await step(() => overlay.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, clientX: 100, clientY: 50 })));
+	await step(() => overlay.dispatchEvent(new window.MouseEvent("mousemove", { bubbles: true, clientX: 7, clientY: 50 })));
 	const tooltip = document.querySelector("[data-usage-model-trend-tooltip]");
 	if (!tooltip?.textContent.includes("01:00") || !tooltip.textContent.includes("model-c") || !tooltip.textContent.includes("40")) throw new Error("hover tooltip must show the nearest time point and model values: " + tooltip?.textContent);
 	const toggles = [...document.querySelectorAll("[data-usage-model-toggle]")];
@@ -1890,6 +1806,7 @@ await clientRegression("model filtering stays consistent across overview charts"
 	await step(() => button("panel.tabOverview").click());
 	const modelFilterChip = document.querySelector("[data-usage-model-filter]");
 	if (modelFilterChip?.getAttribute("data-usage-model-filter") !== "model-a") throw new Error("overview must expose the active model filter with a clear action");
+	await step(() => document.querySelector('[data-usage-chart-mode="tokens"]').click());
 	await step(() => change(document.querySelector('select[aria-label="usage.timeRange"]'), "7d"));
 	if (document.querySelector('[data-usage-range-metric="7d"]') === null) throw new Error("overview headline must identify the selected time range");
 	if (!document.querySelector("[data-usage-activity-stage] .usg_cardTitle")?.textContent.includes("usage.daily")) throw new Error("multi-day overview must identify its chart as daily rather than hourly");
@@ -2078,7 +1995,7 @@ await clientRegression('report polling refreshes workspace data and pauses in hi
 		return { ok: true, value: { ok: true, today: '2026-09-15', days: [], workspaces: [], tokens: 0, providers: [{ id: 'deepseek-official', capabilities: ['balance'] }], keys: [], status: {} } };
 	});
 	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
-	await step(() => button('panel.tabSummary').click());
+	await step(() => require('react-dom/test-utils').Simulate.change(document.querySelector('[data-usage-provider-picker]'), {target:{value:'all'}}));
 	const before = workspaceReads;
 	await step(() => { for (const timer of timers.values()) if (timer.delay === 60000) timer.fn(); });
 	if (workspaceReads !== before + 1) throw new Error(`workspace must follow successful report refresh: ${before} -> ${workspaceReads}`);
@@ -2090,16 +2007,17 @@ await clientRegression('report polling refreshes workspace data and pauses in hi
 	if (workspaceReads !== before + 2) throw new Error('visible report must refresh immediately');
 });
 
-await clientRegression("switching report scopes hides old totals and ignores late replies", async ({ root, step, button, setResponder }) => {
+await clientRegression("switching report scopes hides old totals and ignores late replies", async ({ root, step, button, change, setResponder }) => {
 	const pending = [];
 	setResponder(async (_channel, endpoint, payload) => {
 		if (endpoint === "usage/get" && !payload.query.provider) return new Promise(resolve => pending.push(resolve));
 		return { ok: true, value: { ok: true, today: "2026-09-15", days: [], providers: [{ id: "deepseek-official", capabilities: ["balance"] }], keys: [], status: {} } };
 	});
 	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
-	await step(() => button("panel.tabSummary").click());
+	await step(() => change(document.querySelector("[data-usage-provider-picker]"), "deepseek-official"));
+	await step(() => change(document.querySelector("[data-usage-provider-picker]"), "all"));
 	if (document.querySelector("[data-usage-overview-workbench]")) throw new Error("new scope must wait for its own data");
-	await step(() => button("panel.tabOverview").click());
+	await step(() => change(document.querySelector("[data-usage-provider-picker]"), "deepseek-official"));
 	await step(() => pending[0]({ ok: true, value: { ok: true, today: "2026-09-15", days: [{ date: "2026-09-15", tokens: 999, models: [], hours: [] }] } }));
 	if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== "0") throw new Error("late global data must not overwrite the provider overview");
 });
@@ -2187,13 +2105,12 @@ await clientRegression("custom-priced direct provider charts show costs and unco
   return { ok: true, value };
  });
  await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
- if (!document.querySelector('[data-usage-chart-mode="cost"]')) throw new Error("priced direct provider must allow its cost chart");
- await step(() => document.querySelector('[data-usage-chart-mode="cost"]').click());
+ if (!document.querySelector('[data-usage-chart-panel="cost"]')) throw new Error("priced direct provider must retain its cost chart");
  if (document.querySelector("[data-peak-region]") || document.body.textContent.includes("chart.peakNote")) throw new Error("all-hours direct prices must not show DeepSeek peak schedules");
  if (!document.querySelector(".usg_providerCost")?.textContent.includes("0.40") || document.body.textContent.includes("usage.notBilled")) throw new Error("priced direct provider details must use their actual cost");
  cost = null;
  await step(() => document.querySelector("[data-usage-refresh]").click());
- if (document.querySelector('[data-usage-chart-mode="cost"]') || document.querySelector("[data-usage-metric='cost'] .usg_reportMetricValue")?.textContent !== "—") throw new Error("unpriced direct models must not fabricate a cost or expose a cost-only chart");
+ if (document.querySelector('[data-usage-chart-mode="cost"]') || document.querySelector("[data-usage-metric='cost'] .usg_reportMetricValue")?.textContent !== "—") throw new Error("unpriced direct models must not fabricate a cost");
 });
 await clientRegression("pricing read failure cannot overwrite stored model prices", async ({ root, step, button, setResponder }) => {
  let fail = true, writes = 0;
@@ -2369,14 +2286,15 @@ for (const scenario of ["single", "multiple", "removed"]) await clientRegression
  await step(() => button("panel.tabDetails").click());
  await step(() => change(document.querySelector('select[aria-label="usage.model"]'), "selected-model"));
  await step(() => document.querySelector(`[data-usage-day-detail="${date}"]`).click());
+ await step(() => document.querySelector("[data-usage-view-day-trend]").click());
  const expected = scenario === "multiple" ? "200" : "123";
  if (document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== expected) throw new Error("date drill changed the global day or model totals");
  if (scenario === "single") {
   if (document.querySelector('[data-usage-provider-picker]')?.value !== providerId || !document.querySelector('.usg_detailSummary')) throw new Error("single-provider dates must open that provider's hourly overview");
  } else {
-  if (document.querySelector('[role="tab"][aria-selected="true"]')?.textContent !== "panel.tabSummary") throw new Error("multiple or removed-provider dates must remain in the all-provider report");
+  if (document.querySelector('[data-usage-provider-picker]')?.value !== "all") throw new Error("multiple or removed-provider dates must remain in the all-provider report");
   if (!document.querySelector('[data-usage-model-filter="selected-model"]')) throw new Error("global date drill must expose its retained model filter");
-  await step(() => button("panel.tabSummary").click());
+  await step(() => change(document.querySelector("[data-usage-provider-picker]"), "all"));
   if (document.querySelector('[data-usage-model-filter]') || document.querySelector('[data-usage-metric="tokens"] .usg_reportMetricValue')?.textContent !== exports_.compactTokens(Number(expected) + 900)) throw new Error("manually entering All must restore its original unfiltered-model scope");
  }
 });
@@ -2427,6 +2345,7 @@ await clientRegression("out-of-order provider catalogs cannot restore an obsolet
   return { ok: true, value: endpoint === "keys/list" ? { ok: true, keys: [] } : endpoint === "usage/get" ? { ok: true, days: [], today: "2026-09-05" } : { ok: true, status: {}, account: { status: "ok" } } };
  });
  await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => require("react-dom/test-utils").Simulate.change(document.querySelector("[data-usage-provider-picker]"), {target:{value:"deepseek-official"}}));
  await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
  await step(() => window.dispatchEvent(new window.Event("usage-stats:accounts-updated")));
  if (document.querySelector('[data-usage-provider-picker]').value !== "deepseek-account") throw new Error("the latest provider catalog must apply its default");
@@ -2514,17 +2433,17 @@ await clientRegression("contribution heatmap exposes one roving tab stop and arr
 	if ([...document.querySelectorAll("[data-heat-day]")].find(node => node.tabIndex === 0) !== document.activeElement) throw new Error("a roving grid must move its single tab stop with focus");
 });
 
-await clientRegression("unreachable host settings shows a visible error", async ({ root, step, setResponder }) => {
+await clientRegression("plugin settings remain available without a host settings store", async ({ root, step, setResponder }) => {
 	setResponder(async (_channel, endpoint) => ({ ok: true, value: endpoint === "providers/list" ? { ok: true, providers: [{ id: "deepseek-official", label: "DeepSeek", capabilities: ["balance"] }], defaultProviderId: "deepseek-official" }
 		: endpoint === "keys/list" ? { ok: true, keys: [] }
 			: endpoint === "usage/get" ? { ok: true, today: "2026-09-05", days: [] }
 				: { ok: true, status: {}, account: { status: "ok" }, notifications: {}, limits: {}, alerts: [] } }));
 	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key, onOpenSettings: () => false })));
 	await step(() => document.querySelector("[data-usage-stats-settings-link]").click());
-	const row = document.querySelector("[data-usage-settings-error]");
-	if (!row || row.getAttribute("role") !== "alert" || !row.textContent.includes("panel.settingsUnavailable")) throw new Error("an unreachable settings page must render a visible prompt instead of silence");
-	await step(() => row.querySelector("button").click());
-	if (document.querySelector("[data-usage-settings-error]")) throw new Error("the settings prompt must be dismissible");
+	const page = document.querySelector("[data-usage-billing-settings]");
+	if (!page || page.closest("[hidden]") || document.querySelector("[data-usage-settings-error]")) throw new Error("plugin settings must open locally even when a legacy host handoff would fail");
+	await step(() => document.querySelector("[data-usage-settings-back]").click());
+	if (document.querySelector("[data-usage-query]").closest("[hidden]")) throw new Error("local settings must return to the preserved query");
 });
 
 await clientRegression("limits read failures are visible and retryable", async ({ root, step, button, setResponder }) => {
@@ -2614,6 +2533,89 @@ await clientRegression("upgrade self-check is shared across mounted surfaces", a
 	await step(() => root.render(null));
 	await step(() => root.render(react.createElement(Surface)));
 	if (checks !== settled + 1) throw new Error("reopening after every surface unmounted must recheck exactly once");
+});
+
+await clientRegression("provider catalog refresh failure preserves the selected scope and retries", async ({ root, step, setResponder }) => {
+	let fail = false;
+	const providers = [{ id: "moonshotai", capabilities: ["balance"] }, { id: "deepseek-official", capabilities: ["balance"] }];
+	setResponder(async (_channel, endpoint) => {
+		if (endpoint === "providers/list" && fail) return { ok: false, error: { message: "catalog offline" } };
+		return { ok: true, value: { ok: true, defaultProviderId: "moonshotai", providers, keys: [], days: [], status: {}, account: { providerId: "moonshotai", status: "ok" } } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => require("react-dom/test-utils").Simulate.change(document.querySelector("[data-usage-provider-picker]"), {target:{value:"moonshotai"}}));
+	const picker = () => document.querySelector("[data-usage-provider-picker]");
+	if (picker()?.value !== "moonshotai") throw new Error("fixture must open the configured provider");
+	fail = true;
+	await step(() => window.dispatchEvent(new Event("usage-stats:accounts-updated")));
+	if (picker()?.value !== "moonshotai") throw new Error("a transient catalog failure must not switch a loaded report to DeepSeek");
+	const notice = document.querySelector("[data-usage-provider-error]");
+	if (!notice?.textContent.includes("usage.providersError")) throw new Error("catalog failures need a visible retry beside existing data");
+	fail = false;
+	await step(() => notice.querySelector("button").click());
+	if (document.querySelector("[data-usage-provider-error]") || picker()?.value !== "moonshotai") throw new Error("catalog retry must recover without changing the report scope");
+});
+
+await clientRegression("workspace refresh failure retains rows and expanded sessions", async ({ root, step, button, setResponder }) => {
+	let fail = false;
+	setResponder(async () => fail ? { ok: false, error: { message: "offline" } } : { ok: true, value: { ok: true, tokens: 10, workspaces: [{ workspace: "/current-project", tokens: 10, sessions: [{ sessionId: "one", title: "Current conversation", tokens: 10 }] }] } });
+	const render = refreshKey => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-10", range: "today", refreshKey }));
+	await step(() => render(0));
+	await step(() => document.querySelector('[title="/current-project"]').click());
+	fail = true;
+	await step(() => render(1));
+	if (!document.querySelector('[title="/current-project"]') || !document.querySelector(".usg_sessionList")?.textContent.includes("Current conversation")) throw new Error("failed background refresh must retain workspace rows and expanded sessions");
+	if (!document.querySelector('[role="alert"]')) throw new Error("retained data must be accompanied by a visible refresh error");
+	fail = false;
+	await step(() => button("action.retry").click());
+	if (document.querySelector('[role="alert"]') || !document.querySelector(".usg_sessionList")) throw new Error("retry must restore the report without collapsing its sessions");
+});
+
+await clientRegression("workspace reads abort on range changes and panel close", async ({ root, step, setResponder }) => {
+	const signals = [];
+	setResponder((_channel, _endpoint, _payload, signal) => new Promise((_resolve, reject) => {
+		signals.push(signal);
+		signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), { once: true });
+	}));
+	const render = range => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-10", range }));
+	await step(() => render("today"));
+	await step(() => render("all"));
+	if (signals.length !== 2 || !signals[0].aborted) throw new Error("a new workspace range must cancel the old RPC read");
+	await step(() => root.render(null));
+	if (!signals[1].aborted) throw new Error("closing the workspace report must cancel its pending RPC read");
+});
+
+await clientRegression("balance refresh failure retains its own snapshot and provider changes clear it", async ({ root, step, change, setResponder }) => {
+	let fail = false, hold = false, pending;
+	setResponder(async (_channel, endpoint, payload) => {
+		if (endpoint === "balance/get" && hold) return new Promise(resolve => { pending = resolve; });
+		if (endpoint === "balance/get" && fail) return { ok: false, error: { message: "wallet offline" } };
+		return { ok: true, value: { ok: true, defaultProviderId: "moonshotai", providers: [{ id: "moonshotai", capabilities: ["balance"] }, { id: "deepseek-official", capabilities: ["balance"] }], keys: [], days: [], status: {}, account: { providerId: payload.query.provider ?? "moonshotai", status: "ok", balance: { total: 123.45, currency: "USD" } } } };
+	});
+	await step(() => root.render(react.createElement(exports_.UsageStatsSection, { t: key => key })));
+ await step(() => require("react-dom/test-utils").Simulate.change(document.querySelector("[data-usage-provider-picker]"), {target:{value:"moonshotai"}}));
+	if (!document.querySelector(".usg_balanceAmount")?.textContent.includes("123.45")) throw new Error("fixture must load its wallet snapshot");
+	fail = true;
+	await step(() => document.querySelector('[aria-label="action.refresh"]').click());
+	if (!document.querySelector(".usg_balanceAmount")?.textContent.includes("123.45") || !document.querySelector(".usg_balance [role=alert]")) throw new Error("failed same-account refresh must retain the balance and explain that refresh failed");
+	hold = true;
+	await step(() => document.querySelector(".usg_balance [role=alert] button").click());
+	if (!document.querySelector(".usg_balance [role=alert] button")?.disabled || !document.querySelector(".usg_balanceAmount")?.textContent.includes("123.45")) throw new Error("a pending retry must retain the snapshot and disable duplicate retries");
+	await step(() => pending({ ok: true, value: { ok: true, account: { providerId: "moonshotai", status: "ok", balance: { total: 123.45, currency: "USD" } } } }));
+	if (document.querySelector(".usg_balance [role=alert]")) throw new Error("a successful retry must clear the stale-data notice");
+	hold = false;
+	await step(() => change(document.querySelector("[data-usage-provider-picker]"), "deepseek-official"));
+	if (document.querySelector(".usg_balanceAmount")?.textContent.includes("123.45")) throw new Error("another provider must never inherit the cached wallet");
+});
+
+await clientRegression("plan refresh errors retain the plan name and quota windows", async ({ root, step }) => {
+	await step(() => root.render(react.createElement(exports_.BalanceCard, {
+		keys: [], providers: [{ id: "zai", capabilities: ["plan_quota"] }], selectedProviderId: "zai",
+		account: { status: "ok", planName: "Current plan", windows: [{ kind: "five_hour", remainingPercent: 42 }] },
+		accountError: "offline", accountLoading: false, translate: key => key,
+	})));
+	if (!document.querySelector("[data-usage-plan-name]")?.textContent.includes("Current plan") || !document.querySelector("[data-usage-plan-windows]")?.textContent.includes("42%")) throw new Error("refresh errors must not hide the previous plan or quota window");
+	if (!document.querySelector('[role="alert"]')?.textContent.includes("balance.refreshError")) throw new Error("retained plan data must explain its freshness");
 });
 
 if (regressionFailures.length > 0) throw new Error(regressionFailures.join("\n"));

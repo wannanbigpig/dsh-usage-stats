@@ -19,7 +19,7 @@ const root = require('react-dom/client').createRoot(document.querySelector('#roo
 const tick = async fn => act(async () => { fn?.(); await new Promise(resolve => setTimeout(resolve, 0)); });
 const t = key => key;
 let upgradeState = { currentVersion: '0.5.4', supported: true, sourceType: 'registry', available: false, state: 'idle' };
-let upgradeReads = 0;
+let upgradeReads = 0, usageReads = 0, balanceReads = 0;
 let installCalls = 0, managerOpened = 0, failRead = false, failCheck = false, updateAvailable = false, keepRunning = false, loseStartReply = false;
 const models = [
  { model: 'deepseek-official/deepseek-v4-flash', inputTokens: 60, outputTokens: 120, cacheReadTokens: 420, tokens: 600, requestCount: 3, cost: .5 },
@@ -40,11 +40,12 @@ const call = async (_channel, endpoint, payload) => {
   }
   if (endpoint === 'upgrade/start') { installCalls++; assert.equal(payload.body.confirm, true); assert.equal(payload.body.version, '0.5.5'); upgradeState = { ...upgradeState, available: false, requestId: 'test-install', state: keepRunning ? 'running' : 'restart-required' }; }
   value = upgradeState;
- } else if (endpoint === 'usage/get') value = { today: '2026-10-14', days, pricing: { currency: 'CNY', peakHours: [] } };
+ } else if (endpoint === 'usage/get') { usageReads++; value = { today: '2026-10-14', days, pricing: { currency: 'CNY', peakHours: [] } }; }
  else if (endpoint === 'providers/list') value = { defaultProviderId: 'deepseek-official', providers: [{ id: 'deepseek-official', label: 'DeepSeek', capabilities: ['balance'] }, { id: 'zai', label: 'Z.ai', capabilities: ['plan_quota'] }] };
  else if (endpoint === 'keys/list') value = { keys: [] };
  else if (endpoint === 'limits/get') value = { status: {} };
- else if (endpoint === 'balance/get') value = { account: { status: 'ok', capabilities: ['balance'], balance: { total: 128.6, currency: 'CNY' } } };
+ else if (endpoint === 'balance/get') { balanceReads++; value = { account: { status: 'ok', capabilities: ['balance'], balance: { total: 128.6, currency: 'CNY' } } }; }
+ else if (endpoint === 'accounts/get') value = { settings: { visibleProviderIds: ['deepseek-official', 'zai'] } };
  else if (endpoint === 'usage/workspaces') value = { workspaces: [], tokens: 0 };
  else throw new Error(`unexpected endpoint ${endpoint}`);
  return { ok: true, value: { ok: true, ...value } };
@@ -67,15 +68,15 @@ const metric = key => document.querySelector(`[data-usage-metric="${key}"] .usg_
 await tick(() => root.render(React.createElement(api.UsageStatsSection, { t })));
 await tick(); await tick();
 assert.equal(Boolean(document.querySelector('[data-usage-upgrade]')), false, 'no update means no upgrade button');
-const assertHistoricalMetrics = message => {
+const assertHistoricalMetrics = (message, label = '2026-10-13') => {
  assert.equal(metric('tokens'), '500', `${message}: Token total must match the selected day`);
  assert.equal(metric('requests'), '3', `${message}: requests must match the selected day`);
  assert.equal(metric('cache'), '87.5%', `${message}: cache hit rate must match the selected day`);
  assert.equal(metric('cost'), '¥0.25', `${message}: cost must match the selected day`);
- assert.equal(document.querySelector('select[aria-label="usage.timeRange"]').selectedOptions[0].textContent, '2026-10-13');
+ assert.equal(document.querySelector('select[aria-label="usage.timeRange"]').selectedOptions[0].textContent, label);
 };
-for (const tab of ['panel.tabOverview', 'panel.tabSummary']) {
- await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === tab).click());
+for (const tab of ['deepseek-official', 'all']) {
+ await tick(() => Simulate.change(document.querySelector('[data-usage-provider-picker]'), { target: { value: tab } }));
  await tick();
  await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: 'today' } }));
  const todayMetrics = ['tokens', 'requests', 'cache', 'cost'].map(metric);
@@ -104,7 +105,7 @@ await tick(() => document.querySelector('[data-usage-refresh]').click());
 assert.equal(Boolean(document.querySelector('[data-usage-upgrade]')), false, 'source-managed installations have no automatic upgrade button');
 upgradeState = { ...upgradeState, supported: true, sourceType: 'registry' };
 await tick(() => document.querySelector('[data-usage-refresh]').click());
-await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === 'panel.tabSummary').click());
+await tick(() => Simulate.change(document.querySelector('[data-usage-provider-picker]'), { target: { value: 'all' } }));
 await tick();
 await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: '7d' } }));
 assert.equal(metric('tokens'), '1.5K');
@@ -112,22 +113,27 @@ assert.equal(metric('requests'), '8');
 assert.equal(metric('cache'), '87.5%');
 assert.equal(metric('cost'), '¥0.75');
 assert.ok(document.querySelector('[data-usage-metric="cost"]').textContent.includes('usage.knownCostScope'));
+assert.equal(document.querySelector('[data-usage-chart-mode="tokens"]').getAttribute('aria-pressed'), 'true');
+assert.ok(document.querySelector('[data-usage-chart-panel="requests"]'));
+await tick(() => document.querySelector('[data-usage-chart-mode="models"]').click());
 assert.ok(document.querySelector('[data-usage-model-trend]'));
-await tick(() => document.querySelector('[data-usage-chart-mode="bars"]').click());
+await tick(() => document.querySelector('[data-usage-chart-mode="tokens"]').click());
 assert.equal(document.querySelector('[data-usage-model-trend]'), null, 'the main graph mode must not render duplicate trend plots');
 assert.ok(document.querySelector('.usg_dayBar .usg_hourOutput'));
 assert.ok(document.querySelector('[data-usage-bar-legend]').textContent.includes('usage.output'));
 await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === 'panel.tabOverview').click());
 await tick();
+await tick(() => Simulate.change(document.querySelector('[data-usage-provider-picker]'), { target: { value: 'deepseek-official' } }));
 await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: '7d' } }));
-await tick(() => document.querySelector('[data-usage-chart-mode="cost"]').click());
-assert.ok(document.querySelector('.usg_dayBar'));
-assert.equal(Boolean(document.querySelector('.usg_dayBar .usg_hourOutput')), false, 'cost bars must not imply a cost split from token proportions');
-assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.cost');
+const costPanel = document.querySelector('[data-usage-chart-panel="cost"]');
+assert.ok(costPanel.querySelector('.usg_dayBar'));
+assert.equal(Boolean(costPanel.querySelector('.usg_dayBar .usg_hourOutput')), false, 'cost bars must not imply a cost split from token proportions');
+assert.equal(costPanel.querySelector('[data-usage-bar-legend]').textContent, 'usage.knownCost');
 await tick(() => Simulate.change(document.querySelector('[data-usage-provider-picker]'), { target: { value: 'zai' } }));
 await tick();
 assert.equal(metric('tokens'), '400');
 assert.equal(metric('cost'), '—', 'an unpriced provider must not display a fabricated zero cost');
+assert.equal(document.querySelector('[data-usage-chart-panel="cost"] .usg_chartPanelTotal').textContent, '—', 'the independent cost chart must preserve the unknown amount too');
 await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === 'panel.tabDetails').click());
 await tick();
 assert.equal(metric('tokens'), '1.5K', 'details must retain global scope');
@@ -207,7 +213,7 @@ await tick(() => root.render(React.createElement(UpgradeDialogHarness, { transla
 assert.ok(document.body.textContent.includes('upgrade.gitSource'));
 assert.equal(document.querySelector('[data-usage-upgrade-check]').disabled, true);
 await tick(() => root.render(null));
-const manualCommand = "dsh plugin --profile desktop add --save-exact @wannanbigpig/dsh-usage-stats@0.5.5";
+const manualCommand = "'/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh' plugin --profile desktop add --save-exact @wannanbigpig/dsh-usage-stats@0.5.5";
 upgradeState = { currentVersion: '0.5.4', supported: true, sourceType: 'registry', latestVersion: '0.5.5', available: true, state: 'idle', canInstall: false, installReason: 'hmr-managed', manualCommand };
 await tick(() => root.render(React.createElement(UpgradeDialogHarness, { translate: t, onClose() {} })));
 assert.ok(document.querySelector('[data-usage-upgrade-manual]'));
@@ -289,7 +295,7 @@ assert.equal(document.querySelector('.usg_hourTooltipAmount').textContent, '¥0.
 await tick(() => root.render(React.createElement(api.HourlyChart, { day: partialDay, tokenMode: true, money: chartMoney, translate: t })));
 assert.equal(document.querySelector('[data-hour="10"] .usg_hourBar').style.height, '100%');
 assert.ok(document.querySelector('[data-hour="10"] .usg_hourOutput'));
-assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.inputusage.output', 'Token charts must keep their original input/output composition');
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'chart.inputHitchart.inputMissusage.output', 'Token charts must show both input cache states and output');
 const partialDays = [partialDay, { ...zeroPriceHour, date: '2026-10-13' }, { ...unknownHour, date: '2026-10-12' }];
 await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: partialDays, tokenMode: false, money: chartMoney, translate: t })));
 assert.equal(document.querySelector('[data-day="2026-10-14"] .usg_dayBar').style.height, '100%', 'daily cost bars must use the same known-cost amount as report metrics');
@@ -304,7 +310,7 @@ await tick(() => Simulate.focus(document.querySelector('[data-day="2026-10-13"]'
 assert.equal(document.querySelector('[data-usage-day-tooltip] .usg_hourTooltipAmount').textContent, '¥0.00');
 await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: partialDays, tokenMode: true, money: chartMoney, translate: t })));
 assert.equal(document.querySelector('[data-day="2026-10-14"] .usg_dayBar').style.height, '100%');
-assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.inputusage.output');
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'chart.inputHitchart.inputMissusage.output');
 assert.ok(document.querySelector('[data-day="2026-10-14"] .usg_hourOutput'));
 await tick(() => root.render(React.createElement(api.HourlyChart, { day: { ...unknownHour, date: '2026-10-14', hours: [unknownHour] }, tokenMode: false, money: chartMoney, translate: t })));
 assert.equal(document.querySelector('.usg_chartScale').textContent, '———', 'entirely unpriced hours must not imply a known monetary scale');
@@ -313,7 +319,7 @@ await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: 
 assert.equal(document.querySelector('.usg_chartScale').textContent, '———', 'entirely unpriced days must keep their amount unknown');
 await tick(() => root.render(React.createElement(api.DayBarsChart, { rangeDays: [{ date: '2026-10-14', tokens: 600, cost: .25 }], tokenMode: false, money: chartMoney, translate: t })));
 assert.equal(document.querySelector('[data-day="2026-10-14"]').getAttribute('aria-label'), '2026-10-14 · ¥0.25', 'legacy buckets without model rows must retain their recorded cost');
-assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.cost');
+assert.equal(document.querySelector('[data-usage-bar-legend]').textContent, 'usage.knownCost');
 const heatFor = (tokens, cost) => ({ year: 2026, months: [], max: tokens, weeks: [[{
  key: '2026-10-13', tokens, hitRate: 80,
  day: { date: '2026-10-13', tokens, cost, requestCount: 1, models: [] }
@@ -327,6 +333,35 @@ assert.ok(document.querySelector('[data-usage-heat-tooltip]').textContent.includ
 assert.equal(document.querySelector('[data-usage-heat-tooltip] .usg_hourTooltipAmount').textContent, '¥0.80', 'an open heatmap tooltip must follow refreshed costs');
 await tick(() => renderHeat({ year: 2025, months: [], max: 0, weeks: [] }));
 assert.equal(document.querySelector('[data-usage-heat-tooltip]'), null, 'a date absent from the current heatmap must close its tooltip');
+await tick(() => root.render(null));
+let tabVisible = true;
+Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+const useTabInfo = () => ({ tab: { id: 'usage-test', visible: tabVisible } });
+const renderHostTab = () => root.render(React.createElement(api.UsageStatsRightSidebar, { t, hooks: { tabInfo: useTabInfo } }));
+const timers = new Map();
+const originalSetInterval = window.setInterval, originalClearInterval = window.clearInterval;
+window.setInterval = (fn, delay) => { const id = Symbol(); timers.set(id, { fn, delay }); return id; };
+window.clearInterval = id => timers.delete(id);
+await tick(renderHostTab); await tick(); await tick();
+await tick(() => [...document.querySelectorAll('[role="tab"]')].find(node => node.textContent === 'panel.tabOverview').click());
+await tick();
+await tick(() => Simulate.change(document.querySelector('[data-usage-provider-picker]'), { target: { value: 'deepseek-official' } })); await tick();
+await tick(() => Simulate.change(document.querySelector('select[aria-label="usage.timeRange"]'), { target: { value: 'yesterday' } }));
+tabVisible = false;
+await tick(renderHostTab);
+const hiddenReads = usageReads;
+await tick(() => {
+ for (const timer of timers.values()) if (timer.delay === 60000) timer.fn();
+ document.dispatchEvent(new window.Event('visibilitychange'));
+});
+assert.equal(usageReads, hiddenReads, 'a keepMounted host tab must stop polling when hidden');
+const previousBalanceReads = balanceReads;
+tabVisible = true;
+await tick(renderHostTab); await tick();
+assert.equal(usageReads, hiddenReads + 1, 'returning to a host tab refreshes usage once');
+assert.equal(balanceReads, previousBalanceReads + 1, 'returning to a host tab refreshes its account');
+assertHistoricalMetrics('host tab visibility retains the selected date and provider', 'usage.rangeYesterday');
 await tick(() => root.unmount());
+window.setInterval = originalSetInterval; window.clearInterval = originalClearInterval;
 dom.window.close();
 console.log('query metric scopes, unpriced costs, chart modes, daily fields and upgrade interactions ok');

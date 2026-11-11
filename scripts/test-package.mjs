@@ -147,14 +147,19 @@ assert.ok(packageJson.peerDependencies?.["@deepseek-ai/cordis"], "the plugin dec
 
 for (const dependency of ["@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-session-persistence"]) {
 	assert.ok(packageJson.peerDependencies?.[dependency], "package declares the required Harness peer " + dependency);
-	assert.ok(semver.satisfies(packageJson.devDependencies[dependency], packageJson.peerDependencies[dependency]),
+	assert.ok(semver.satisfies(packageJson.devDependencies[dependency], packageJson.peerDependencies[dependency], { includePrerelease: true }),
 		"required peer range must accept the tested Host prerelease: " + dependency);
 }
 assert.ok(packageJson.peerDependencies?.["@deepseek-ai/dsh-plugin-manager"], "profile package query declares its optional runtime peer");
 assert.equal(packageJson.peerDependenciesMeta?.["@deepseek-ai/dsh-plugin-manager"]?.optional, true, "Hosts without the manager can still load usage reports");
 
 assert.ok(typeof packageJson.engines?.node === "string" && packageJson.engines.node.trim() !== "", "the package declares its supported Node.js versions");
-assert.ok(typeof packageJson.engines?.dsh === "string" && packageJson.engines.dsh.trim() !== "", "the package declares the tested DSH compatibility ranges");
+assert.equal(packageJson.engines?.dsh, undefined, "Host upgrades are not blocked by a plugin engine allowlist");
+for (const version of ["0.2.1-rc.3", "0.2.2-rc.1", "0.2.3-rc.1", "1.0.0"]) {
+	for (const name of ["@deepseek-ai/dsh-session-persistence", "@deepseek-ai/dsh-storage-domain", "@deepseek-ai/dsh-plugin-manager", "@deepseek-ai/dsh-llm"]) {
+		assert.ok(semver.satisfies(version, packageJson.peerDependencies[name], { includePrerelease: true }), `Host ${version} is not blocked by ${name} metadata`);
+	}
+}
 
 assert.ok(client.includes('ctx.inject(["sidebarRight", "sidebarRightTabs"]'), "client registers its optional native right-Sidebar integration through host service injection");
 assert.ok(client.includes('ctx.inject(["layout"]'), "client registers its native global main panel through host service injection");
