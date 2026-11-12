@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import {
 	StateSchema,
@@ -25,7 +25,8 @@ import {
 	legacyUsageStatsPaths,
 	migrateLegacyCacheToV3,
 	migrateLegacySettingsToV3,
-	prepareLegacyJson
+	prepareLegacyJson,
+	recoverLegacyCacheState
 } from "../lib/migration.js";
 
 function clone(value) {
@@ -688,7 +689,7 @@ async function testStorageReadIsolation() {
  * the next successful update must reconcile the orphaned row instead of
  * silently diverging from the medium.
  */
-async function testStorageWriteFailureRecovery() {
+async function testStorageWriteFailureRecovery(incremental = false) {
 	const at = Date.parse("2026-08-27T12:00:00+08:00");
 	const domain = createFakeDomain();
 	domain.global.stored = { ...clone(usageStatsDomainSpec.global.initial), installedAt: 1 };
@@ -702,14 +703,16 @@ async function testStorageWriteFailureRecovery() {
 		}
 	};
 	const storage = await openUsageStatsStorage({ storageDomain: { open: async () => domain } });
+	const write = entry => incremental ? storage.record(entry, { maxLedgerEntries: 100 })
+		: storage.update(state => recordLedgerState(state, entry, { maxLedgerEntries: 100 }));
 	const committed = storage.get();
 	await assert.rejects(
-		storage.update((state) => recordLedgerState(state, sampleEntry("failed", at, { sampleKey: "sample-failed" }), { maxLedgerEntries: 100 })),
+		write(sampleEntry("failed", at, { sampleKey: "sample-failed" })),
 		/backend write failed/
 	);
 	assert.equal(storage.snapshot().revision, 0, "a rejected update must not advance the revision");
 	assert.deepEqual(storage.get(), committed, "a rejected update must keep the committed view readable");
-	await storage.update((state) => recordLedgerState(state, sampleEntry("after", at + 1000, { sampleKey: "sample-after" }), { maxLedgerEntries: 100 }));
+	await write(sampleEntry("after", at + 1000, { sampleKey: "sample-after" }));
 	const durable = [...domain.ledger.records.values()].flatMap((row) => row.entries).map((entry) => entry.id).sort();
 	const published = storage.get().ledger.map((entry) => entry.id).sort();
 	assert.deepEqual(durable, published, "the next successful update must reconcile rows a failed write already persisted");
@@ -743,8 +746,55 @@ async function testBoundedGlobalWindow() {
 	await storage.close();
 }
 
+{
+	const live = recordLedgerState(createEmptyUsageState({ legacyCacheImported: true, legacyCacheSha256: "" }), sampleEntry("new-call", 2000));
+	const cache = { version: 2, ledger: [1000, 2000, 3000].map((occurredAt, i) => ({ id: `legacy-${i}`, occurredAt, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 3 }, costCny: 0.1 })) };
+	const recovered = recoverLegacyCacheState(live, cache, { sourceSha256: "fixture-sha" });
+	assert.equal(recovered.ledger.length, 2, "recovery preserves new calls and imports only history before collection coverage");
+	assert.ok(recovered.ledger.some(entry => entry.id === "new-call"));
+	assert.equal(recovered.migration.legacyRecoverySkippedEntries, 2, "ambiguous overlap is reported rather than double-counted");
+	assert.equal(recoverLegacyCacheState(recovered, cache), recovered, "a completed recovery is idempotent");
+	assert.equal(live.ledger.length, 1, "recovery does not mutate its input");
+	const aggregateState = createEmptyUsageState({ legacyCacheImported: true, legacyCacheSha256: "" });
+	const bucket = { inputTokens: 7, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+	const day = { totals: bucket, models: { "deepseek-official/model": bucket }, hours: {} };
+	aggregateState.archive.estimated.importedLegacy = { "1970-01-01": day };
+	const aggregateRecovery = recoverLegacyCacheState(aggregateState, { version: 1, sessions: { fixture: { days: { "1970-01-02": day } } } }, { sourceSha256: "aggregate-sha" });
+	assert.deepEqual(Object.keys(aggregateRecovery.archive.estimated.importedLegacy.days).sort(), ["1970-01-01", "1970-01-02"], "recovery retains legacy sources stored directly as day maps");
+}
+
+assert.equal(legacyUsageStatsPaths("~/.fixture-dsh").cache, join(homedir(), ".fixture-dsh/storages/usage-stats-cache.json"));
+assert.equal(legacyUsageStatsPaths("relative-fixture").cache, resolve("relative-fixture/storages/usage-stats-cache.json"));
+const previousHome = process.env.DSH_HOME;
+try {
+	process.env.DSH_HOME = "   ";
+	assert.equal(legacyUsageStatsPaths().cache, join(homedir(), ".dsh/storages/usage-stats-cache.json"));
+} finally {
+	if (previousHome === undefined) delete process.env.DSH_HOME;
+	else process.env.DSH_HOME = previousHome;
+}
+
+{
+	const domain = createFakeDomain();
+	const ctx = { storageDomain: { open: async spec => spec.version === 1 ? { table: () => ({ get: () => undefined }), close: async () => {} } : domain } };
+	const storage = await openUsageStatsStorage(ctx);
+	const entry = sampleEntry("incremental", 1000);
+	await storage.record(entry, { maxLedgerEntries: 100 });
+	const puts = domain.ledger.putCalls.length, sets = domain.global.setCalls.length;
+	await storage.record(entry, { maxLedgerEntries: 100 });
+	assert.equal(domain.ledger.putCalls.length, puts, "a duplicate incremental append must not write ledger rows");
+	assert.equal(domain.global.setCalls.length, sets, "a duplicate incremental append must not write global");
+	assert.equal(storage.revision(), 1);
+	assert.equal(storage.get().ledger.length, 1);
+	await storage.record(sampleEntry("overflow", 2000), { maxLedgerEntries: 1 });
+	assert.equal(storage.get().archive.frozen.entryCount, 1, "the incremental path compacts overflow with the same exact accounting");
+	assert.equal(storage.get().ledger[0].id, "overflow");
+	await storage.close();
+}
+
 await testStorageReadIsolation();
 await testStorageWriteFailureRecovery();
+await testStorageWriteFailureRecovery(true);
 await testBoundedGlobalWindow();
 await testRepositoryCloseDrainsWrites();
 await testStorageRepository();

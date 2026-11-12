@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -223,6 +223,53 @@ function createHarness(options = {}) {
 			for (const disposer of effects.reverse()) if (typeof disposer === "function") await disposer();
 		}
 	};
+}
+
+// Legacy home discovery and recovery both use the real apply lifecycle.
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-profile-home-"));
+	const harness = createHarness();
+	harness.ctx.profileContext = { home };
+	try {
+		await mkdir(join(home, "storages"));
+		await writeFile(join(home, "storages/usage-stats-cache.json"), JSON.stringify({ version: 2, ledger: [{ id: "legacy-call", occurredAt: 1000, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 7 }, costCny: 0.1 }] }));
+		await apply(harness.ctx, {}, { disableBackgroundRefresh: true });
+		assert.equal(ledgerEntriesOf(harness), 1, "configured profile home must supply the legacy cache without a test home override");
+		assert.equal(harness.domain.global.stored.migration.legacyCacheSha256.length, 64);
+		const full = (await harness.rpc.handler("usage/get", {})).value;
+		const summary = (await harness.rpc.handler("usage/get", { query: { summary: "1" } })).value;
+		assert.equal(full.days.length, 1);
+		assert.equal(summary.days.length, 0, "today summary excludes historic days");
+		assert.equal(summary.total.requestCount, 0);
+		const ranged = (await harness.rpc.handler("usage/get", { query: { from: "1970-01-01", to: "1970-01-01", includeHours: "0" } })).value;
+		assert.equal(ranged.days.length, 1);
+		assert.equal(ranged.days[0].hours.length, 0, "day-only projections omit hourly payloads without changing counts");
+		assert.equal(ranged.total.requestCount, full.total.requestCount);
+		assert.equal((await harness.rpc.handler("usage/get", { query: { from: "2026-02-30" } })).error.code, "bad-request");
+		assert.equal((await harness.rpc.handler("usage/get", { query: { from: "2026-99-99" } })).error.code, "bad-request");
+	} finally {
+		await harness.dispose();
+		await rm(home, { recursive: true, force: true });
+	}
+}
+
+{
+	const home = await mkdtemp(join(tmpdir(), "usage-recover-home-"));
+	const harness = createHarness();
+	harness.ctx.profileContext = { home };
+	try {
+		await mkdir(join(home, "storages"));
+		await writeFile(join(home, "storages/usage-stats-cache.json"), JSON.stringify({ version: 2, ledger: [{ id: "missed-call", occurredAt: 1000, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 7 }, costCny: 0.1 }] }));
+		harness.domain.global.stored = { ...harness.domain.global.get(), installedAt: 1, coverageCutoffsByDay: { "1970-01-01": 2000 }, migration: { legacyCacheImported: true, legacyCacheSha256: "" } };
+		await harness.domain.ledger.put("1970-01-01", { day: "1970-01-01", entries: [{ id: "new-call", occurredAt: 2000, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 3, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, costState: "priced", costNanosCny: "100" }] });
+		await apply(harness.ctx, {}, { disableBackgroundRefresh: true });
+		assert.equal(ledgerEntriesOf(harness), 2, "startup recovery imports missed history without replacing existing new calls");
+		assert.equal(harness.domain.global.stored.migration.legacyCacheHomeResolved, true);
+		assert.equal(harness.domain.global.stored.migration.legacyCacheSha256.length, 64);
+	} finally {
+		await harness.dispose();
+		await rm(home, { recursive: true, force: true });
+	}
 }
 
 // Pure configuration and quota compatibility contracts.

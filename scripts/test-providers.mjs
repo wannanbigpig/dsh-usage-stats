@@ -114,7 +114,7 @@ async function query(providerId, fetchImpl, extra = {}) {
 	check(xiaomi?.accountUrl === "https://platform.xiaomimimo.com/console/plan-manage", "Xiaomi unsupported quota metadata exposes only its official web query entry");
 	check(xiaomiApi?.queryable === false && xiaomiApi?.accountUrl === "https://platform.xiaomimimo.com/console/usage", "Xiaomi API-key route exposes its web-only usage page");
 	check(JSON.stringify(zai?.planQuota?.windows) === JSON.stringify(["five_hour", "weekly"]), "Z.ai metadata declares its five-hour and weekly quota windows");
-	check(moonshot?.apiKeyEnv === "MOONSHOTAI_CN_API_KEY" && moonshot?.capabilities?.includes("balance"), "Moonshot CN reuses the Harness model credential ref and advertises balance");
+	check(moonshot?.apiKeyEnv === "MOONSHOT_API_KEY" && moonshot?.capabilities?.includes("balance"), "Moonshot CN reuses the Harness model credential ref and advertises balance");
 	check(JSON.stringify(opencode?.planQuota?.windows) === JSON.stringify(["five_hour", "weekly", "monthly"]) && opencode?.accountUrl === void 0, "OpenCode Go metadata declares all official usage windows without a redundant web query entry");
 	check(opencodeZen?.queryable === false && opencodeZen?.accountUrl === "https://opencode.ai/workspace/wrk_01KN1AVY46S9P0AQNE6GNGNQE0", "OpenCode Zen remains web-only and exposes the configured workspace usage page");
 	check(kimi?.accountUrl === "https://www.kimi.com/membership/subscription?tab=quota", "Kimi exposes the official web-only monthly quota page without adding a web-session adapter");

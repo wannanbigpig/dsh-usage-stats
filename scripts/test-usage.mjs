@@ -104,6 +104,20 @@ function assert(condition, message) {
 	]), 0, defaultPricing());
 	assert(rendered.days[0].requestCount === 2, "daily request count must retain zero-token calls");
 	assert(rendered.days[0].hours[8].requestCount === 2, "daily and hourly request counts must agree");
+	const provider = filterRenderedUsageByProvider(rendered, "deepseek-official");
+	assert(provider.total.requestCount === 2 && provider.days[0].requestCount === 2,
+		"provider filtering must retain zero-token requests in daily and overall totals");
+	assert(provider.days[0].hours[8].requestCount === 2, "provider hourly counts include zero-token requests");
+}
+
+{
+	const at = Date.parse("2026-11-11T10:00:00+08:00");
+	const entry = freezeLedgerEntry({ id: "archive-first", occurredAt: at, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 1 } });
+	const archive = foldFrozenLedgerEntries([entry]);
+	const before = structuredClone(archive);
+	const next = foldFrozenLedgerEntries([{ ...entry, id: "archive-next", occurredAt: at + 86400000 }], archive);
+	assert(next.days[dayKey(at)] === archive.days[dayKey(at)], "compaction must reuse archived days not touched by overflow");
+	strictAssert.deepEqual(archive, before, "folding a different day must not mutate the input archive");
 }
 
 // Persisted/rendered request counts must be non-negative safe integers; malformed

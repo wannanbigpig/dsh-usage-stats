@@ -71,6 +71,10 @@ try {
  )));
  await tick(); await tick();
  assert.equal(query().querySelectorAll('[role="tab"]').length, 2, 'merge the report navigation into overview and details');
+ const activeTab = query().querySelector('[role="tab"][aria-selected="true"]');
+ const activePanel = document.getElementById(activeTab.getAttribute('aria-controls'));
+ assert.equal(activePanel?.getAttribute('role'), 'tabpanel', 'active report tab controls its named panel');
+ assert.equal(activePanel.getAttribute('aria-labelledby'), activeTab.id);
  const accountStrip = document.querySelector('[data-usage-account-strip]');
  assert.ok(accountStrip, 'account snapshots share a compact strip above the full-width charts');
  const detailToggle = accountStrip.querySelector('[data-usage-account-details-toggle]');
@@ -162,6 +166,11 @@ try {
  holdProviderUsage = false;
  assert.equal(reads.slice(beforeCancellation).filter(r => r.endpoint === 'usage/get' && !r.payload.query?.provider).length, 0, 'aborting a provider request must not issue a global fallback');
  const beforeHidden = reads.length;
+ await tick(() => {
+  window.dispatchEvent(new Event('usage-stats:accounts-updated'));
+  window.dispatchEvent(new Event('usage-stats:limits-updated'));
+ });
+ assert.equal(reads.length, beforeHidden, 'hidden retained reports ignore global metadata refresh events');
  await tick(() => { for (const timer of [...timers.values()]) if (timer.ms === 60000) timer.fn(); });
  assert.equal(reads.length, beforeHidden, 'retained hidden host tabs must pause usage, balance and limit polling');
  visible = true;

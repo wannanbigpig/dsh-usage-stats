@@ -460,6 +460,27 @@ test('a disabled limit rule skips the ledger render on the streaming hot path', 
  assert.deepEqual(account, { status: 'not_applicable', blocked: false, reason: 'account_billed_not_gated' }, 'signed-in account usage is billed but not API-key gated');
 });
 
+test('provider discovery follows native credentials and endpoint defaults without overriding explicit profiles', async () => {
+ const profile = {};
+ const ctx = {
+  credentials: { resolve: async ref => ['MOONSHOT_API_KEY', 'OVERRIDE_KEY'].includes(ref) ? { value: 'fixture' } : null },
+  settings: { describe: () => [{ ns: 'llm-pi-ai', value: { providers: { moonshotai: profile } } }] },
+  llm: {
+   listProviders: () => [{ id: 'moonshotai' }],
+   listConfigurableProviders: () => [{ provider: 'moonshotai', settingsNs: 'llm-pi-ai', settingsPath: ['providers', 'moonshotai'], nativeAuth: { env: ['MISSING_FIXTURE_KEY', 'MOONSHOT_API_KEY'] }, defaultBaseURL: 'https://native.example/v1' }]
+  }
+ };
+ const native = (await configuredProviders(ctx, validateConfig({}))).find(row => row.id === 'moonshotai');
+ assert.equal(native.keyRef, 'MOONSHOT_API_KEY');
+ assert.equal(native.configured, true);
+ assert.equal(native.baseURL, 'https://native.example/v1');
+ profile.apiKeyEnv = 'OVERRIDE_KEY';
+ profile.baseURL = 'https://profile.example/v1';
+ const explicit = (await configuredProviders(ctx, validateConfig({}))).find(row => row.id === 'moonshotai');
+ assert.equal(explicit.keyRef, 'OVERRIDE_KEY');
+ assert.equal(explicit.baseURL, 'https://profile.example/v1');
+});
+
 test('limits/update reports internal settings failures instead of bad requests', async () => {
  const validBody = { global: { enabled: false }, keys: {} };
  const internal = createUsageOperations({ limitsService: { updateLimits: async () => { throw new Error('disk full'); }, evaluateAll: async () => ({ limits: defaultLimits(), statuses: {} }) } });

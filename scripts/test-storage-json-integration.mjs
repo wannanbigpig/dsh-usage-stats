@@ -65,7 +65,7 @@ try {
 		}]
 	}, { migratedAt: 42, sourceSha256: "legacy-cache-sha" });
 	const first = await openUsageStatsStorage({ storageDomain: facility() }, { initialState: legacyState });
-	await Promise.all(Array.from({ length: 120 }, (_, index) => first.update((state) => recordLedgerState(state, {
+	await Promise.all(Array.from({ length: 120 }, (_, index) => first.record({
 		id: `call-${index}`,
 		sampleKey: `sample-${index}`,
 		occurredAt: at + index,
@@ -75,7 +75,7 @@ try {
 		sessionId: "json-session",
 		workspace: "/work/json",
 		usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 1, cacheWriteTokens: 0 }
-	}, { pricing, maxLedgerEntries: 10, recentSampleKeyCapacity: 260 }))));
+	}, { pricing, maxLedgerEntries: 10, recentSampleKeyCapacity: 260 })));
 	const before = first.get();
 	assert.equal(before.ledger.length, 10);
 	assert.equal(before.archive.frozen.entryCount, 111);

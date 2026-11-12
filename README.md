@@ -6,6 +6,14 @@ The local usage, balance, quota, and billing companion for DeepSeek Harness Web.
 
 **文档导航：** [核心亮点](#核心亮点--features) · [Provider 支持](#provider-支持) · [界面预览](#界面预览--screenshots) · [快速安装](#快速安装--quick-start) · [配置](#配置--configuration) · [数据与隐私](#数据与隐私--privacy)
 
+## 0.7.1 更新
+
+- 修复 Moonshot 环境凭据发现，优先复用宿主提供的认证与端点声明，保留显式 profile 配置；零 token 调用在全部及单供应商视图中统一计入请求次数。
+- 同时产生的告警逐条展示，每条保持原有时长；价格预览明确提示价格或计费策略回退及已有核对时间。
+- 旧缓存迁移使用当前 profile 的 home，正确处理 `~` 与空白环境变量；升级后可补导入此前漏掉的缓存，保留新账本。无法安全区分的重叠历史会排除并在宿主日志中报告，不覆盖或重复计费。
+- 正常落账仅校验受影响的行，归档仅复制溢出条目所属日期；保留现有存储格式、持久化等待、重试去重与失败恢复。可用 `node scripts/bench-ledger.mjs` 复测合成数据的内存路径，真实磁盘耗时取决于运行环境。
+- 侧栏只读取当天摘要；用量接口增加可选 `from` / `to` / `includeHours=0` 投影。窄栏关闭 Toast 后停止 revision 请求，隐藏的报表页签停止响应后台刷新事件；概览与明细补齐 tab/panel 无障碍关联。
+
 ## 0.7.0 更新
 
 - 账户状态改为指标下方的横向账户栏，通过「账户明细」展开余额拆分、Key 选择和套餐窗口；继续复用原查询与刷新。Token 主图全宽，请求与费用图各占半行并增高，窄屏纵排；日期明细和年度用量默认展开，年份选择器只保留一个箭头。
@@ -260,7 +268,7 @@ refs:
 
 当当前 provider 暴露多个 API Key 时，弹窗余额卡片会显示「API Key」下拉框，可按 Key 查询余额。Token 统计来自调用级 ledger，日志不记录「用哪个 Key」，但记录 provider route；只有 `deepseek-official` 的消费可按 `keyProviders` 归集并参与限额。
 
-其他 Harness provider 的 `apiKeyEnv` 由对应 provider profile 提供，例如 `MOONSHOTAI_CN_API_KEY`、`OPENROUTER_API_KEY`、`OPENCODE_GO_API_KEY`、`KIMI_API_KEY`、`MINIMAX_API_KEY`、`ZAI_API_KEY`。插件以 profile 中的实际引用名为准，因此通过「模型」页面保存的 Key 可以直接复用。
+其他 Harness provider 的 `apiKeyEnv` 由对应 provider profile 提供，例如 `MOONSHOT_API_KEY`、`OPENROUTER_API_KEY`、`OPENCODE_GO_API_KEY`、`KIMI_API_KEY`、`MINIMAX_API_KEY`、`ZAI_API_KEY`。插件以 profile 中的实际引用名为准，因此通过「模型」页面保存的 Key 可以直接复用。
 
 OpenRouter 是唯一需要双凭据的内置适配器：普通 `OPENROUTER_API_KEY` 继续用于模型调用和 `/api/v1/key`；如需账户总 Credits，切换默认供应商为 OpenRouter 后，在下方“额外查询凭据”中填写 Management Key。该值通过 Harness `credentials` seam 只写保存为 `OPENROUTER_MANAGEMENT_KEY`，不会进入插件 settings namespace 或被接口回显。Management Key 不能替代普通模型 Key，缺失或无权限时插件仍会显示普通 Key 额度，并独立标注 Credits 状态。
 

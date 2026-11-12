@@ -16,6 +16,7 @@ const primitiveStubs = {
  Switch: ({ checked, disabled, label, onChange }) => react.createElement('button', { type: 'button', role: 'switch', 'aria-checked': checked, 'aria-label': label, disabled, onClick: () => onChange(!checked) }),
  Tag: ({ tone, children }) => react.createElement('span', { 'data-tone': tone }, children),
  StateDot: ({ state }) => react.createElement('span', { 'data-state': state }),
+ Toast: ({ text, onDone }) => react.createElement('div', { 'data-test-toast': true }, text, react.createElement('button', { 'data-test-toast-done': true, onClick: onDone }, 'next')),
  Modal: ({ open, title, children }) => open ? react.createElement('div', { role: 'dialog', 'aria-label': title }, children) : null
 };
 const api = captured.factory(spec => spec === '@deepseek-ai/dsh-client-ui-primitives' ? new Proxy(primitiveStubs, { get: (target, key) => target[key] ?? (() => null) }) : require(spec));
@@ -150,6 +151,74 @@ await check('calendar trim needs a two-day window and an explicit confirmation',
  assert.equal(trim?.payload.body.retentionDays, 3);
  assert.equal(trim?.payload.body.confirm, true);
  assert.equal(trim?.payload.body.action, 'trim');
+});
+await check('official pricing previews disclose price and policy fallbacks', async () => {
+ for (const marker of ['pricingSourceFallback', 'policyFallback']) {
+  const candidate = { ...normalizePricing({}), [marker]: true };
+  responder = async (_channel, endpoint) => ok(endpoint === 'pricing/update' ? { candidate } : { current: normalizePricing({}), official: normalizePricing({}) });
+  await step(() => root.render(react.createElement(api.PricingCard, { translate: key => key, providerId: 'deepseek-official', provider: { id: 'deepseek-official' } })));
+  await step(() => button('pricing.fetchOfficial').click());
+  const notice = document.querySelector('[data-usage-official-pricing-preview] [role="status"]');
+  assert.ok(notice, 'fallback must be visible before confirmation');
+  assert.ok(notice.textContent.includes(marker === 'pricingSourceFallback' ? 'pricing.priceFallback' : 'pricing.policyFallback'));
+  await step(() => root.render(null));
+ }
+});
+await check('sidebar queues simultaneous alerts and skips revision polling without a consumer', async () => {
+ const timers = new Map();
+ const oldSet = window.setInterval, oldClear = window.clearInterval;
+ const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+ let serial = 0, revision = 0, alerts = [], reads = [], toastEnabled = true;
+ const provider = { id: 'test-local', label: 'Local', kind: 'local_usage', capabilities: ['local_usage'] };
+ window.setInterval = (fn, ms) => { const id = ++serial; timers.set(id, { fn, ms }); return id; };
+ window.clearInterval = id => timers.delete(id);
+ Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+ responder = async (_channel, endpoint) => {
+  reads.push(endpoint);
+  const notifications = { channels: { sidebar: true, toast: toastEnabled }, events: {} };
+  if (endpoint === 'usage/revision') return ok({ revision });
+  if (endpoint === 'usage/get') return ok({ revision, days: [], today: '2026-11-11' });
+  if (endpoint === 'alerts/get') return ok({ alerts, notifications });
+  if (endpoint === 'accounts/get') return ok({ providers: [provider], defaultProviderId: provider.id, settings: { defaultProviderId: provider.id, display: {}, notifications } });
+  if (endpoint === 'balance/get') return ok({ account: { status: 'ok', providerId: provider.id, capabilities: ['local_usage'] } });
+  return ok({ keys: [], providers: [provider], defaultProviderId: provider.id, limits: defaultLimits(), status: {} });
+ };
+ const poll = () => { for (const timer of [...timers.values()]) if (timer.ms === 3000) timer.fn(); };
+ try {
+  await step(() => root.render(react.createElement(api.UsageStatsPanel, { wide: true, t: key => key })));
+  await step(() => {});
+  alerts = [1, 2, 3].map(index => ({ type: 'alert', event: 'warning', providerIds: [provider.id], at: Date.now() + 100, keyRef: `key-${index}`, message: `alert-${index}` }));
+  revision++;
+  await step(poll);
+  for (const index of [1, 2, 3]) {
+   assert.equal(document.querySelectorAll('[data-test-toast]').length, 1, 'only one Host Toast may occupy the fixed banner position');
+   assert.ok(document.querySelector('[data-test-toast]').textContent.includes(`alert-${index}`));
+   await step(() => document.querySelector('[data-test-toast-done]').click());
+  }
+  assert.equal(document.querySelectorAll('[data-test-toast]').length, 0);
+  await step(() => root.render(null));
+  for (const [wide, enabled] of [[false, false], [false, true], [true, false]]) {
+   toastEnabled = enabled;
+   alerts = [];
+   await step(() => root.render(react.createElement(api.UsageStatsPanel, { wide, t: key => key })));
+   await step(() => {});
+   reads = [];
+   revision++;
+   await step(poll);
+   assert.equal(reads.includes('usage/revision'), wide || enabled, 'wide summaries and enabled Toasts are independent revision consumers');
+   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+   reads = [];
+   await step(poll);
+   assert.equal(reads.length, 0, 'hidden windows do not poll revisions');
+   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+   await step(() => root.render(null));
+  }
+ } finally {
+  window.setInterval = oldSet;
+  window.clearInterval = oldClear;
+  if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+  else delete document.visibilityState;
+ }
 });
 await step(() => root.unmount());
 dom.window.close();
