@@ -1911,10 +1911,20 @@ await clientRegression("workspace sessions distinguish origins and use native ma
 		await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", onNavigate: () => { navigated++; } })));
 		await step(() => document.querySelector('[title="/work/navigation"]').click());
 		const row = id => document.querySelector(`[data-usage-session-id="${id}"]`);
+		const toggle = document.querySelector('[data-usage-session-toggle="main"]');
+		if (!toggle || toggle.tagName !== "BUTTON" || toggle.getAttribute("aria-expanded") !== "false") throw new Error("subconversations must start collapsed behind a separate parent-row button");
+		const childList = document.getElementById(toggle.getAttribute("aria-controls"));
+		if (!childList?.hidden || !childList.contains(row("child"))) throw new Error("the collapsed button must control its hidden child list");
+		await step(() => toggle.click());
+		if (opened.length !== 0 || childList.hidden) throw new Error("expanding children must not navigate");
 		if (!row("main")?.textContent.includes("workspace.mainSession") || !row("child")?.textContent.includes("workspace.subagentSession")) throw new Error("main and child origins need explicit labels");
 		if (row("main").tagName !== "BUTTON" || row("main").tabIndex !== 0) throw new Error("session navigation must use a native keyboard-accessible button");
 		for (const id of ["main", "child", "fork"]) await step(() => row(id).click());
 		if (JSON.stringify(opened) !== JSON.stringify(["main", { parentSessionId: "main", childSessionId: "child", mode: "unknown" }, "fork"])) throw new Error("native navigation must preserve the direct parent address for child sessions");
+		if (toggle.getAttribute("aria-expanded") !== "true") throw new Error("title navigation must not change the separate fold state");
+		await step(() => toggle.click());
+		if (!childList.hidden || opened.length !== 3) throw new Error("collapsing must hide children without navigation");
+		await step(() => toggle.click());
 		if (!row("deleted").disabled) throw new Error("deleted history must not advertise a working session link");
 		navigation.openSession = () => { throw new Error("session unavailable"); };
 		await step(() => row("main").click());
@@ -1927,6 +1937,7 @@ await clientRegression("workspace sessions distinguish origins and use native ma
 		navigation = null;
 		await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", refreshKey: 1 })));
 		if (!row("main").disabled) throw new Error("older hosts without navigation keep readable usage rows without dead links");
+		if (toggle.disabled) throw new Error("history must still fold on hosts without navigation");
 	} finally { navigation = null; }
 });
 
@@ -1937,17 +1948,22 @@ await clientRegression("workspace groups each agent under its own parent and pre
 	const outside = { sessionId: "outside", title: "范围外的主对话", sessionKind: "main", available: true };
 	const middle = { sessionId: "middle", title: "范围外的父 Agent", sessionKind: "subagent", parentSessionId: "outside", available: true };
 	exports_.apply({ connection: { rpc: { call: (...args) => rpcResponder(...args) } }, get: name => name === "uiWorkspace" ? { openSession: target => opened.push(target) } : name === "sessions" ? { subagentAddress() {} } : null, effect: () => {}, locale: { register: () => () => {}, bind: () => key => key }, slots: { inject() {} } });
-	setResponder(async () => ({ ok: true, value: { ok: true, tokens: 6, workspaces: [{ workspace: "/work/families", tokens: 6, sessions: [
+	setResponder(async () => ({ ok: true, value: { ok: true, tokens: 7, workspaces: [{ workspace: "/work/families", tokens: 6, sessions: [
 		{ sessionId: "b-child", title: "第二组子 Agent", sessionKind: "subagent", parentSessionId: "b", ancestors: [parentB], tokens: 1 },
 		{ sessionId: "a-child", title: "第一组子 Agent", sessionKind: "subagent", parentSessionId: "a", ancestors: [parentA], tokens: 1 },
 		{ ...parentA, tokens: 1 }, { ...parentB, tokens: 1 },
 		{ sessionId: "nested", title: "嵌套子 Agent", sessionKind: "subagent", parentSessionId: "middle", ancestors: [middle, outside], tokens: 1 },
 		{ sessionId: "orphan", title: "父对话已删除", sessionKind: "subagent", parentSessionId: "missing", ancestors: [{ sessionId: "missing", sessionKind: "unknown", available: false }], tokens: 1 }
-	] }] } }));
+	] }, { workspace: "/work/other", tokens: 1, sessions: [{ sessionId: "other-child", title: "另一工作区的子对话", sessionKind: "subagent", parentSessionId: "a", ancestors: [parentA], tokens: 1 }] }] } }));
 	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12" })));
 	await step(() => document.querySelector('[title="/work/families"]').click());
 	const row = id => document.querySelector(`[data-usage-session-id="${id}"]`);
-	const children = id => row(id).parentElement.querySelector(':scope > [data-usage-session-children]');
+	const children = id => row(id).closest('li').querySelector(':scope > [data-usage-session-children]');
+	const toggle = id => document.querySelector(`[data-usage-session-toggle="${id}"]`);
+	for (const id of ["a", "b", "outside", "middle", "missing"]) if (!children(id)?.hidden) throw new Error("every parent, including nested and context-only ancestors, must start collapsed");
+	await step(() => toggle("a").click());
+	if (!children("b").hidden || opened.length !== 0) throw new Error("one family must expand independently of another and of navigation");
+	for (const id of ["b", "outside", "middle", "missing"]) await step(() => toggle(id).click());
 	if (!children("a")?.contains(row("a-child")) || children("a").contains(row("b-child"))) throw new Error("each child must be visually nested only under its real parent");
 	if (!children("b")?.contains(row("b-child"))) throw new Error("multiple main conversations need separate family groups");
 	if (!children("outside")?.contains(row("middle")) || !children("middle")?.contains(row("nested"))) throw new Error("out-of-range ancestors must preserve nested lineage");
@@ -1956,8 +1972,21 @@ await clientRegression("workspace groups each agent under its own parent and pre
 	}
 	if (row("outside").textContent.includes("outside") || !row("outside").textContent.includes("范围外的主对话")) throw new Error("parent context must display the durable title instead of an internal id");
 	if (!row("missing").disabled) throw new Error("a deleted parent must stay readable without advertising navigation");
+	if (toggle("missing").disabled || !row("outside").textContent.includes("workspace.parentContext")) throw new Error("missing parents must remain foldable and context-only notes must remain visible");
 	await step(() => row("middle").click());
 	if (JSON.stringify(opened) !== JSON.stringify([{ parentSessionId: "outside", childSessionId: "middle", mode: "unknown" }])) throw new Error("context parent navigation must retain the same native child route");
+	const familyControlsId = toggle("a").getAttribute("aria-controls");
+	await step(() => document.querySelector('[title="/work/other"]').click());
+	const otherToggle = document.querySelector('[data-workspace-key="/work/other"] [data-usage-session-toggle="a"]');
+	if (otherToggle.getAttribute("aria-expanded") !== "false" || otherToggle.getAttribute("aria-controls") === familyControlsId) throw new Error("the same parent in another workspace needs an independent state and a unique controlled list");
+	await step(() => document.querySelector('[title="/work/families"]').click());
+	if (toggle("a").getAttribute("aria-expanded") !== "true") throw new Error("returning to a workspace must preserve its own fold choices");
+	await step(() => toggle("a").click());
+	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", refreshKey: 1 })));
+	if (!children("a").hidden || children("b").hidden) throw new Error("polling must preserve user-chosen folded and expanded families");
+	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", range: "today" })));
+	await step(() => document.querySelector('[title="/work/families"]').click());
+	if ([...document.querySelectorAll('[data-usage-session-toggle]')].some(button => button.getAttribute("aria-expanded") !== "false")) throw new Error("changing the date scope must reset all family fold states");
 });
 
 await clientRegression("workspace view filters by date and drills into sessions", async ({ root, step, change, setResponder }) => {
