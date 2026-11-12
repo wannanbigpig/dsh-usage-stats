@@ -389,6 +389,7 @@ console.log("per-session rebuild fold cache ok");
 {
 	const reads = [];
 	const titleCache = new Map();
+	const metadata = new Map();
 	const persistence = {
 		listSnapshots: async () => [
 			{ header: { id: "titled" }, revision: "title-r1" },
@@ -402,15 +403,37 @@ console.log("per-session rebuild fold cache ok");
 			] : [] };
 		}
 	};
-	const first = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled", "missing"], { cache: titleCache });
+	const first = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled", "missing"], { cache: titleCache, onSnapshot: snapshot => metadata.set(snapshot.header.id, snapshot.header) });
+	assert.equal(metadata.size, 2, "title reads also expose listed headers without a second persistence scan");
 	assert.equal(first.get("titled"), "真实会话标题", "the latest durable session/title event must win");
 	assert.equal(first.has("untitled"), false, "an untitled session must stay explicitly unlabeled");
 	assert.deepEqual(reads, ["titled", "untitled"]);
-	const second = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled"], { cache: titleCache });
+	metadata.clear();
+	const second = await readSessionTitlesFromPersistence(persistence, ["titled", "untitled"], { cache: titleCache, onSnapshot: snapshot => metadata.set(snapshot.header.id, snapshot.header) });
+	assert.equal(metadata.size, 2, "header metadata is available even when title revisions are cached");
 	assert.equal(second.get("titled"), "真实会话标题");
 	assert.deepEqual(reads, ["titled", "untitled"], "unchanged title revisions must reuse the cache");
 }
 console.log("durable session title lookup ok");
+
+{
+	const reads = [];
+	let lists = 0;
+	const headers = [{ id: "child", origin: "subagent", parentSession: "parent" },
+		{ id: "parent", origin: "subagent", parentSession: "root" }, { id: "root" }, { id: "unrelated" },
+		{ id: "fork", parentSession: "unrelated" }];
+	const persistence = {
+		listSnapshots: async () => { lists++; return headers.map(header => ({ header, revision: header.id })); },
+		readFrom: async id => { reads.push(id); return { events: [{ type: "session/title", data: { title: `Title ${id}` } }] }; }
+	};
+	const titles = await readSessionTitlesFromPersistence(persistence, ["child", "fork"], { includeAncestors: true });
+	assert.equal(titles.get("root"), "Title root");
+	assert.equal(titles.get("parent"), "Title parent");
+	assert.equal(titles.has("unrelated"), false, "ordinary fork lineage and unrelated logs must not be pulled into the report");
+	assert.deepEqual(reads, ["child", "parent", "root", "fork"]);
+	assert.equal(lists, 1, "lineage resolution must reuse one persistence listing");
+}
+console.log("workspace ancestor titles reuse one listing");
 
 // Fork logs repeat their parent's prefix; only the child's owned suffix is new usage.
 {

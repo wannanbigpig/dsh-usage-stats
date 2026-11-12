@@ -274,6 +274,39 @@ function createHarness(options = {}) {
 
 // Pure configuration and quota compatibility contracts.
 {
+	const home = await mkdtemp(join(tmpdir(), "usage-session-kinds-"));
+	const headers = [{ id: "main" }, { id: "child", origin: "subagent", parentSession: "main" }, { id: "fork", parentSession: "fork-source" },
+		{ id: "outside-main" }, { id: "outside-child", origin: "subagent", parentSession: "outside-main" },
+		{ id: "nested", origin: "subagent", parentSession: "outside-child" }, { id: "orphan", origin: "subagent", parentSession: "missing-parent" }];
+	const harness = createHarness({ sessionPersistence: {
+		listSnapshots: async () => headers.map(header => ({ header, revision: "same-revision" })),
+		readFrom: async id => ({ events: [{ type: "session/title", data: { title: `Title ${id}` } }] })
+	} });
+	try {
+		await apply(harness.ctx, {}, { dshHome: home, disableBackgroundRefresh: true });
+		for (const id of ["main", "child", "fork", "deleted", "nested", "orphan"]) await recordLedgerEntry(harness.ctx, { id: `usage-${id}`, sessionId: id, workspace: "/work/navigation", occurredAt: 1000, provider: "deepseek-official", model: "deepseek-v4-flash", usage: { inputTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, costState: "priced", costNanosCny: "0" });
+		for (let request = 0; request < 2; request++) {
+			const view = (await harness.rpc.handler("usage/workspaces", {})).value;
+			const rows = Object.fromEntries(view.workspaces[0].sessions.map(session => [session.sessionId, session]));
+			assert.equal(rows.main.sessionKind, "main");
+			assert.equal(rows.child.sessionKind, "subagent");
+			assert.equal(rows.child.parentSessionId, "main");
+			assert.equal(rows.child.available, true);
+			assert.equal(rows.fork.sessionKind, "main", "ordinary historical forks must not be mislabeled as subagents");
+			assert.equal(rows.fork.parentSessionId, undefined);
+			assert.equal(rows.deleted.sessionKind, "unknown");
+			assert.equal(rows.deleted.available, false);
+			assert.equal(view.tokens, 6, "context parents must not add usage or counted sessions");
+			assert.equal(Object.keys(rows).length, 6);
+			assert.deepEqual(rows.nested.ancestors.map(parent => [parent.sessionId, parent.title, parent.sessionKind, parent.available]), [
+				["outside-child", "Title outside-child", "subagent", true], ["outside-main", "Title outside-main", "main", true]
+			], "parents outside the report need durable titles and their full lineage, including on cached reads");
+			assert.deepEqual(rows.orphan.ancestors, [{ sessionId: "missing-parent", sessionKind: "unknown", available: false }]);
+		}
+	} finally { await harness.dispose(); await rm(home, { recursive: true, force: true }); }
+}
+
+{
 	const config = validateConfig({ keys: ["A", "A", "B"], defaultKeyRef: "A", refreshMs: 60000, keyProviders: { B: ["deepseek-secondary"] } });
 	assert.deepEqual(config.keys, ["A", "B"]);
 	assert.equal(config.refreshMs, 60000);

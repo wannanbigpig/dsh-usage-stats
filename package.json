@@ -1,7 +1,7 @@
 {
   "name": "@wannanbigpig/dsh-usage-stats",
   "description": "DeepSeek 官方余额、Token 用量、月历热图与离线 tokenizer，内置在 Harness 侧栏",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "icon": "docs/assets/logo.png",
   "homepage": "https://github.com/wannanbigpig/dsh-usage-stats#readme",
   "bugs": {
@@ -59,7 +59,8 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-primitives"
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   },

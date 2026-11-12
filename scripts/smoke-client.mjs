@@ -1895,6 +1895,71 @@ await clientRegression("pending plan quota saves preserve later drags and notifi
 	if (notifications.planQuota.windows.five_hour.warningRemainingPercent !== 40 || notifications.planQuota.windows.weekly.warningRemainingPercent !== 60 || !notifications.channels.toast) throw new Error("quota saves lost an independent edit");
 });
 
+await clientRegression("workspace sessions distinguish origins and use native main and child navigation", async ({ root, step, setResponder }) => {
+	const opened = [];
+	let navigated = 0;
+	let navigation = { openSession: target => { opened.push(target); } };
+	const sessionController = { subagentAddress() {} };
+	exports_.apply({ connection: { rpc: { call: (...args) => rpcResponder(...args) } }, get: name => name === "uiWorkspace" ? navigation : name === "sessions" ? sessionController : null, effect: () => {}, locale: { register: () => () => {}, bind: () => key => key }, slots: { inject() {} } });
+	setResponder(async () => ({ ok: true, value: { ok: true, tokens: 4, workspaces: [{ workspace: "/work/navigation", tokens: 4, sessions: [
+		{ sessionId: "main", title: "主对话标题", sessionKind: "main", available: true, tokens: 1 },
+		{ sessionId: "child", title: "子对话标题", sessionKind: "subagent", parentSessionId: "main", available: true, tokens: 1 },
+		{ sessionId: "fork", title: "普通分叉", sessionKind: "main", parentSessionId: "old-source", available: true, tokens: 1 },
+		{ sessionId: "deleted", title: "已删除的历史", sessionKind: "unknown", available: false, tokens: 1 }
+	] }] } }));
+	try {
+		await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", onNavigate: () => { navigated++; } })));
+		await step(() => document.querySelector('[title="/work/navigation"]').click());
+		const row = id => document.querySelector(`[data-usage-session-id="${id}"]`);
+		if (!row("main")?.textContent.includes("workspace.mainSession") || !row("child")?.textContent.includes("workspace.subagentSession")) throw new Error("main and child origins need explicit labels");
+		if (row("main").tagName !== "BUTTON" || row("main").tabIndex !== 0) throw new Error("session navigation must use a native keyboard-accessible button");
+		for (const id of ["main", "child", "fork"]) await step(() => row(id).click());
+		if (JSON.stringify(opened) !== JSON.stringify(["main", { parentSessionId: "main", childSessionId: "child", mode: "unknown" }, "fork"])) throw new Error("native navigation must preserve the direct parent address for child sessions");
+		if (!row("deleted").disabled) throw new Error("deleted history must not advertise a working session link");
+		navigation.openSession = () => { throw new Error("session unavailable"); };
+		await step(() => row("main").click());
+		if (!document.querySelector('[data-usage-session-navigation-error]')?.textContent.includes("workspace.openSessionError")) throw new Error("navigation failures must remain visible within the workspace report");
+		if (navigated !== 3) throw new Error("the containing report must close only after successful navigation");
+		delete sessionController.subagentAddress;
+		navigation.openSession = target => { opened.push(target); };
+		await step(() => row("child").click());
+		if (opened.at(-1) !== "child" || navigated !== 4) throw new Error("hosts without child addresses must keep their session-id navigation path");
+		navigation = null;
+		await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12", refreshKey: 1 })));
+		if (!row("main").disabled) throw new Error("older hosts without navigation keep readable usage rows without dead links");
+	} finally { navigation = null; }
+});
+
+await clientRegression("workspace groups each agent under its own parent and preserves context-only ancestors", async ({ root, step, setResponder }) => {
+	const opened = [];
+	const parentA = { sessionId: "a", title: "第一组主对话", sessionKind: "main", available: true };
+	const parentB = { sessionId: "b", title: "第二组主对话", sessionKind: "main", available: true };
+	const outside = { sessionId: "outside", title: "范围外的主对话", sessionKind: "main", available: true };
+	const middle = { sessionId: "middle", title: "范围外的父 Agent", sessionKind: "subagent", parentSessionId: "outside", available: true };
+	exports_.apply({ connection: { rpc: { call: (...args) => rpcResponder(...args) } }, get: name => name === "uiWorkspace" ? { openSession: target => opened.push(target) } : name === "sessions" ? { subagentAddress() {} } : null, effect: () => {}, locale: { register: () => () => {}, bind: () => key => key }, slots: { inject() {} } });
+	setResponder(async () => ({ ok: true, value: { ok: true, tokens: 6, workspaces: [{ workspace: "/work/families", tokens: 6, sessions: [
+		{ sessionId: "b-child", title: "第二组子 Agent", sessionKind: "subagent", parentSessionId: "b", ancestors: [parentB], tokens: 1 },
+		{ sessionId: "a-child", title: "第一组子 Agent", sessionKind: "subagent", parentSessionId: "a", ancestors: [parentA], tokens: 1 },
+		{ ...parentA, tokens: 1 }, { ...parentB, tokens: 1 },
+		{ sessionId: "nested", title: "嵌套子 Agent", sessionKind: "subagent", parentSessionId: "middle", ancestors: [middle, outside], tokens: 1 },
+		{ sessionId: "orphan", title: "父对话已删除", sessionKind: "subagent", parentSessionId: "missing", ancestors: [{ sessionId: "missing", sessionKind: "unknown", available: false }], tokens: 1 }
+	] }] } }));
+	await step(() => root.render(react.createElement(exports_.WorkspaceUsageView, { translate: key => key, serverToday: "2026-11-12" })));
+	await step(() => document.querySelector('[title="/work/families"]').click());
+	const row = id => document.querySelector(`[data-usage-session-id="${id}"]`);
+	const children = id => row(id).parentElement.querySelector(':scope > [data-usage-session-children]');
+	if (!children("a")?.contains(row("a-child")) || children("a").contains(row("b-child"))) throw new Error("each child must be visually nested only under its real parent");
+	if (!children("b")?.contains(row("b-child"))) throw new Error("multiple main conversations need separate family groups");
+	if (!children("outside")?.contains(row("middle")) || !children("middle")?.contains(row("nested"))) throw new Error("out-of-range ancestors must preserve nested lineage");
+	for (const id of ["outside", "middle", "missing"]) {
+		if (!row(id).hasAttribute("data-usage-session-context") || row(id).querySelector('.usg_sessionTokens')) throw new Error("context-only parents must be named without invented token totals");
+	}
+	if (row("outside").textContent.includes("outside") || !row("outside").textContent.includes("范围外的主对话")) throw new Error("parent context must display the durable title instead of an internal id");
+	if (!row("missing").disabled) throw new Error("a deleted parent must stay readable without advertising navigation");
+	await step(() => row("middle").click());
+	if (JSON.stringify(opened) !== JSON.stringify([{ parentSessionId: "outside", childSessionId: "middle", mode: "unknown" }])) throw new Error("context parent navigation must retain the same native child route");
+});
+
 await clientRegression("workspace view filters by date and drills into sessions", async ({ root, step, change, setResponder }) => {
 	if (exports_.workspaceLabelOf("/work/alpha/beta") !== "beta" || exports_.workspaceLabelOf("") !== "") throw new Error("workspace labels must use the final path segment");
 	if (exports_.sessionLabelOf("修复工作区会话名称") !== "修复工作区会话名称" || exports_.sessionLabelOf("") !== "") throw new Error("session labels must preserve durable conversation titles");
